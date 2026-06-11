@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project-specific (generated at runtime in Agent's working directory)
+autocad_data.db
+cad_mcp.log
+
+# Pytest
+.pytest_cache/
+
+# Claude Code
+.claude/
