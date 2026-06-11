@@ -1,0 +1,49 @@
+[project]
+name = "best-cad-mcp"
+version = "1.0.0"
+description = "完整的 AutoCAD 2020+ MCP 服务器 — 提供 100+ 工具覆盖 CAD 全功能，包含 AI 可理解的 CAD 数据系统"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "CAD MCP Developer"}
+]
+keywords = ["autocad", "mcp", "cad", "model-context-protocol", "ai", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Manufacturing",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Computer Aided Design (CAD)",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+
+dependencies = [
+    "mcp[cli]>=1.4.0",
+    "pywin32>=306",
+    "comtypes>=1.4.0",
+    "pyautocad>=0.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller>=6.0",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.scripts]
+cad-mcp = "src.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[build-system]
+requires = ["setuptools>=75.0", "wheel"]
+build-backend = "setuptools.build_meta"

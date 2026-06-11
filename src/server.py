@@ -1,0 +1,3709 @@
+"""
+CAD MCP Server — Comprehensive AutoCAD 2020+ MCP Server.
+
+Exposes 125+ tools covering:
+  - All drawing primitives (line, circle, arc, ellipse, spline, polyline, polygon, etc.)
+  - Complete entity editing (move, rotate, copy, delete, mirror, scale, offset, array, explode)
+  - Full layer management (CRUD, freeze/thaw, lock/unlock, isolate)
+  - Text styles, MText, leaders, tables, find & replace
+  - Dimensioning (linear, angular, radial, diametric, ordinate, baseline, continue, qdim)
+  - Block creation, insertion, MInsert (block array), Xref management
+  - View control (zoom, pan, layouts, named views, viewports, wipeout)
+  - Selection sets, spatial queries, and scanning
+  - SQLite-backed CAD metadata database with SQL query
+  - File I/O (open, save, export PDF/DXF/DWF/image)
+  - Undo/redo, system variables, raw command execution
+  - 2D editing: fillet, chamfer, trim, extend, break, join, stretch, lengthen
+  - Advanced entity properties: TrueColor, transparency, plot style
+
+Architecture:
+    server.py   → MCP tool definitions (this file)
+    cad_tools/  → Tool implementations (logic, no MCP dependency)
+    cad_controller.py → COM bridge to AutoCAD
+    cad_database.py   → SQLite persistence
+    cad_data_model.py → AI-readable data structures
+    cad_utils.py      → Shared helpers
+
+Start manually:
+    python server.py
+
+Or via Claude Desktop MCP config:
+    {
+      "mcpServers": {
+        "CAD": {
+          "command": "python",
+          "args": ["C:/Users/qxqxx/workspace/best-cad-mcp/src/server.py"]
+        }
+      }
+    }
+"""
+
+import sys
+import os
+import logging
+
+# Ensure the project root is on the path for src imports
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+from mcp.server.fastmcp import FastMCP, Context
+from typing import Optional, List, Tuple, Dict, Any
+
+# 日志文件存储在 Agent 的工作目录（MCP 客户端的 cwd）
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(os.path.join(os.getcwd(), "cad_mcp.log"), encoding="utf-8"),
+        logging.StreamHandler(),
+    ]
+)
+logger = logging.getLogger("mcp_cad_server")
+
+# Create the MCP server
+mcp = FastMCP(
+    "AutoCAD-Comprehensive-Server",
+    instructions="完整的 AutoCAD 2020+ MCP 服务器 — 提供 100+ 工具覆盖 CAD 全功能",
+)
+
+# ── Import tool modules ─────────────────────────────────────────
+
+from src.cad_tools import drawing_tools
+from src.cad_tools import edit_tools
+from src.cad_tools import layer_tools
+from src.cad_tools import text_tools
+from src.cad_tools import dimension_tools
+from src.cad_tools import block_tools
+from src.cad_tools import view_tools
+from src.cad_tools import query_tools
+from src.cad_tools import file_tools
+from src.cad_tools import utility_tools
+from src.cad_tools import solid_tools
+from src.cad_tools import advanced_tools
+from src.cad_tools import polyline_tools
+from src.cad_tools import hatch_tools
+from src.cad_tools import attribute_tools
+
+# Initialize subsystems
+from src.cad_controller import get_controller
+from src.cad_database import get_database
+
+ctrl = get_controller()
+db = get_database()
+
+logger.info("启动 CAD MCP 服务器")
+logger.info("配置文件加载成功")
+
+
+# ══════════════════════════════════════════════════════════════════
+#  DOCUMENT TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def create_new_drawing(ctx: Context, template: Optional[str] = None) -> str:
+    """创建新的 AutoCAD 图纸。
+
+    这是开始任何 CAD 工作的第一步。创建空白图纸后，可以开始绘制实体。
+
+    Args:
+        template: 模板文件(.dwt)路径。为None则使用默认模板(acad.dwt)
+    """
+    return drawing_tools.create_new_drawing(template)
+
+
+@mcp.tool()
+def open_drawing(ctx: Context, filepath: str, password: Optional[str] = None) -> str:
+    """打开现有的 AutoCAD 图纸文件(.dwg)。
+
+    Args:
+        filepath: 图纸文件的完整路径，如 C:/drawings/my_project.dwg
+        password: 如果文件有密码保护，提供密码
+    """
+    return drawing_tools.open_drawing(filepath, password)
+
+
+@mcp.tool()
+def save_drawing(ctx: Context, filepath: Optional[str] = None) -> str:
+    """保存当前 AutoCAD 图纸。
+
+    Args:
+        filepath: 保存路径。为None则保存到原路径（覆盖原文件）
+    """
+    return drawing_tools.save_drawing(filepath)
+
+
+@mcp.tool()
+def close_drawing(ctx: Context, save: bool = False) -> str:
+    """关闭当前图纸。
+
+    Args:
+        save: 关闭前是否保存
+    """
+    return drawing_tools.close_drawing(save)
+
+
+@mcp.tool()
+def get_document_info(ctx: Context) -> str:
+    """获取当前文档的完整信息。
+
+    返回文档名称、路径、实体数量、图层数、块数、样式数、
+    单位、作者、标题等元数据。这是 AI 了解图纸概况的主要工具。
+    """
+    return file_tools.get_document_info()
+
+
+# ══════════════════════════════════════════════════════════════════
+#  DRAWING TOOLS — Primitives
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def draw_line(ctx: Context, start_x: float, start_y: float,
+              end_x: float, end_y: float, start_z: float = 0.0,
+              end_z: float = 0.0, layer: Optional[str] = None,
+              color: str = "bylayer") -> str:
+    """在AutoCAD中绘制直线。
+
+    这是最基础的绘图工具。两点确定一条直线。
+    绘制后的实体信息会自动存储到数据库中。
+
+    Args:
+        start_x: 起点 X 坐标
+        start_y: 起点 Y 坐标
+        end_x:   终点 X 坐标
+        end_y:   终点 Y 坐标
+        start_z: 起点 Z 坐标（默认0，二维绘图可忽略）
+        end_z:   终点 Z 坐标（默认0）
+        layer:   图层名称。如果图层不存在会自动创建
+        color:   颜色名称 (red/yellow/green/cyan/blue/magenta/white) 或 "bylayer"
+    """
+    return drawing_tools.draw_line(start_x, start_y, end_x, end_y,
+                                   start_z, end_z, layer, color)
+
+
+@mcp.tool()
+def draw_circle(ctx: Context, center_x: float, center_y: float,
+                radius: float, layer: Optional[str] = None,
+                color: str = "bylayer") -> str:
+    """在AutoCAD中绘制圆。
+
+    指定圆心和半径即可创建圆。
+
+    Args:
+        center_x: 圆心 X 坐标
+        center_y: 圆心 Y 坐标
+        radius:   半径（正数）
+        layer:    图层名称（可选）
+        color:    颜色 (red/yellow/green/cyan/blue/magenta/white)
+    """
+    return drawing_tools.draw_circle(center_x, center_y, radius, layer, color)
+
+
+@mcp.tool()
+def draw_arc(ctx: Context, center_x: float, center_y: float,
+             radius: float, start_angle: float, end_angle: float,
+             layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """在AutoCAD中绘制圆弧。
+
+    角度以度为单位，从3点钟方向逆时针计算。
+
+    Args:
+        center_x:    圆心 X 坐标
+        center_y:    圆心 Y 坐标
+        radius:      半径
+        start_angle: 起始角度（度），0=3点钟方向
+        end_angle:   终止角度（度），如180=9点钟方向(半圆)
+        layer:       图层名称
+        color:       颜色
+    """
+    return drawing_tools.draw_arc(center_x, center_y, radius,
+                                  start_angle, end_angle, layer, color)
+
+
+@mcp.tool()
+def draw_ellipse(ctx: Context, center_x: float, center_y: float,
+                 major_x: float, major_y: float, radius_ratio: float,
+                 layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """在AutoCAD中绘制椭圆。
+
+    Args:
+        center_x:     中心 X 坐标
+        center_y:     中心 Y 坐标
+        major_x:      长轴端点 X（相对中心的偏移量）
+        major_y:      长轴端点 Y（相对中心的偏移量）
+        radius_ratio: 短轴/长轴比例 (0~1，如0.5=半高椭圆)
+        layer:        图层名称
+        color:        颜色
+    """
+    return drawing_tools.draw_ellipse(center_x, center_y, major_x, major_y,
+                                      radius_ratio, layer, color)
+
+
+@mcp.tool()
+def draw_polyline(ctx: Context, points: List[float],
+                  closed: bool = False, layer: Optional[str] = None,
+                  color: str = "bylayer") -> str:
+    """绘制二维多段线(连续折线)。
+
+    多段线是 AutoCAD 中最常用的复合图元，可以包含多条直线段和圆弧段。
+
+    Args:
+        points: 坐标列表 [x1, y1, x2, y2, ...] 至少4个值(2个点)
+        closed: 是否闭合（True=形成封闭多边形）
+        layer:  图层名称
+        color:  颜色
+    """
+    return drawing_tools.draw_polyline(points, closed, layer, color)
+
+
+@mcp.tool()
+def draw_rectangle(ctx: Context, x1: float, y1: float,
+                   x2: float, y2: float, layer: Optional[str] = None,
+                   color: str = "bylayer") -> str:
+    """绘制矩形（指定两个对角点）。
+
+    这是 draw_polyline 的便捷封装。
+
+    Args:
+        x1, y1: 第一个角点坐标
+        x2, y2: 对角的第二个角点坐标
+        layer:  图层名称
+        color:  颜色
+    """
+    return drawing_tools.draw_rectangle(x1, y1, x2, y2, layer, color)
+
+
+@mcp.tool()
+def draw_polygon(ctx: Context, center_x: float, center_y: float,
+                 radius: float, sides: int, start_angle: float = 0.0,
+                 layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """绘制正多边形（三角形、正方形、五边形、六边形...）。
+
+    Args:
+        center_x:    中心 X 坐标
+        center_y:    中心 Y 坐标
+        radius:      外接圆半径
+        sides:       边数（3=三角形, 4=正方形, 5=五边形, 6=六边形, 8=八边形）
+        start_angle: 起始旋转角度（度）
+        layer:       图层名称
+        color:       颜色
+    """
+    return drawing_tools.draw_polygon(center_x, center_y, radius, sides,
+                                      start_angle, layer, color)
+
+
+@mcp.tool()
+def draw_spline(ctx: Context, fit_points: List[float],
+                start_tangent: Optional[Tuple[float,float,float]] = None,
+                end_tangent: Optional[Tuple[float,float,float]] = None,
+                layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """绘制样条曲线（通过拟合点的光滑曲线）。
+
+    样条曲线用于创建自由形状曲线，如地形轮廓、产品设计等。
+
+    Args:
+        fit_points:    拟合点列表 [x1,y1,z1, x2,y2,z2, ...]，每个点3个值，至少2个点
+        start_tangent: 起始切向量 [x,y,z]（可选，控制起点方向）
+        end_tangent:   终止切向量 [x,y,z]（可选，控制终点方向）
+        layer:         图层名称
+        color:         颜色
+    """
+    return drawing_tools.draw_spline(fit_points, start_tangent, end_tangent,
+                                     layer, color)
+
+
+@mcp.tool()
+def draw_point(ctx: Context, x: float, y: float, z: float = 0.0,
+               layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """在AutoCAD中绘制点。
+
+    点是最简单的图元，用于标记位置。可以配合 PDMODE 系统变量改变点的显示样式。
+
+    Args:
+        x, y, z: 点坐标
+        layer:   图层名称
+        color:   颜色
+    """
+    return drawing_tools.draw_point(x, y, z, layer, color)
+
+
+@mcp.tool()
+def draw_3d_polyline(ctx: Context, points: List[float],
+                      closed: bool = False, layer: Optional[str] = None,
+                      color: str = "bylayer") -> str:
+    """绘制三维多段线（每个顶点可以有不同的Z坐标）。
+
+    与 draw_polyline 不同，3D多段线的每个顶点可以独立指定Z坐标。
+
+    Args:
+        points: 三维坐标 [x1,y1,z1, x2,y2,z2, ...] 至少6个值(2个点)
+        closed: 是否闭合（True=封闭3D多段线）
+        layer:  图层名称
+        color:  颜色
+    """
+    return drawing_tools.draw_3d_polyline(points, closed, layer, color)
+
+
+@mcp.tool()
+def draw_text(ctx: Context, text: str, insert_x: float, insert_y: float,
+              height: float = 2.5, rotation: float = 0.0, z: float = 0.0,
+              layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """在AutoCAD中绘制单行文字。
+
+    用于添加标注、标签、标题等文字内容。
+
+    Args:
+        text:      文字内容
+        insert_x:  插入点 X 坐标
+        insert_y:  插入点 Y 坐标
+        height:    文字高度（默认2.5单位）
+        rotation:  旋转角度（度，默认0=水平）
+        z:         插入点 Z 坐标
+        layer:     图层名称
+        color:     颜色
+    """
+    return drawing_tools.draw_text(text, insert_x, insert_y, height,
+                                   rotation, z, layer, color)
+
+
+@mcp.tool()
+def draw_mtext(ctx: Context, text: str, insert_x: float, insert_y: float,
+               width: float = 0.0, height: float = 2.5,
+               rotation: float = 0.0, layer: Optional[str] = None,
+               color: str = "bylayer") -> str:
+    """在AutoCAD中绘制多行文字(MTEXT)。
+
+    支持换行、段落和丰富的格式化选项。
+
+    Args:
+        text:      文字内容（支持\\n换行, \\P分段）
+        insert_x:  插入点 X 坐标
+        insert_y:  插入点 Y 坐标
+        width:     文本框宽度（0=自动宽度，不换行）
+        height:    文字高度（默认2.5）
+        rotation:  旋转角度（度）
+        layer:     图层名称
+        color:     颜色
+    """
+    return drawing_tools.draw_mtext(text, insert_x, insert_y, width, height,
+                                    rotation, layer, color)
+
+
+@mcp.tool()
+def draw_donut(ctx: Context, center_x: float, center_y: float,
+               inner_radius: float, outer_radius: float,
+               layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """绘制圆环（两个同心圆之间的填充区域）。
+
+    常用于绘制垫圈、环形构件等。
+
+    Args:
+        center_x:     中心 X 坐标
+        center_y:     中心 Y 坐标
+        inner_radius: 内圆半径
+        outer_radius: 外圆半径（必须大于内圆半径）
+        layer:        图层名称
+        color:        颜色
+    """
+    return drawing_tools.draw_donut(center_x, center_y, inner_radius,
+                                    outer_radius, layer, color)
+
+
+@mcp.tool()
+def draw_ray(ctx: Context, origin_x: float, origin_y: float,
+              origin_z: float = 0.0, direction_x: float = 1.0,
+              direction_y: float = 0.0, direction_z: float = 0.0,
+              layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """绘制射线（从起点向指定方向无限延伸的半直线）。
+
+    射线常用于指示方向、构建辅助几何线、投影参照等。
+
+    Args:
+        origin_x,y,z:    起点坐标
+        direction_x,y,z: 方向向量（默认 (1,0,0)=X轴正方向）
+        layer:           图层名称
+        color:           颜色
+    """
+    return drawing_tools.draw_ray(origin_x, origin_y, origin_z,
+                                   direction_x, direction_y, direction_z,
+                                   layer, color)
+
+
+@mcp.tool()
+def draw_xline(ctx: Context, point1_x: float, point1_y: float,
+                point1_z: float = 0.0, point2_x: float = 1.0,
+                point2_y: float = 0.0, point2_z: float = 0.0,
+                layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """绘制构造线（通过两点的双向无限长直线）。
+
+    构造线是双向延伸的无限直线，用于布局参照、轴线、对称线等。
+
+    Args:
+        point1_x,y,z: 第一个点坐标
+        point2_x,y,z: 第二个点坐标
+        layer:        图层名称
+        color:        颜色
+    """
+    return drawing_tools.draw_xline(point1_x, point1_y, point1_z,
+                                     point2_x, point2_y, point2_z,
+                                     layer, color)
+
+
+@mcp.tool()
+def draw_mline(ctx: Context, points: List[float],
+                layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """绘制多线（平行多线，如墙体双线）。
+
+    多线由多条平行的直线段组成，可自定义线数、间距和样式。
+    常用于绘制建筑墙体、道路等平行线结构。
+
+    Args:
+        points: 顶点坐标列表 [x1,y1, x2,y2, ...] 至少4个值(2个点)
+        layer:  图层名称
+        color:  颜色
+    """
+    return drawing_tools.draw_mline(points, layer, color)
+
+
+@mcp.tool()
+def draw_2d_solid(ctx: Context, p1_x: float, p1_y: float,
+                   p1_z: float = 0.0, p2_x: float = 0.0,
+                   p2_y: float = 0.0, p2_z: float = 0.0,
+                   p3_x: float = 0.0, p3_y: float = 0.0,
+                   p3_z: float = 0.0, p4_x: Optional[float] = None,
+                   p4_y: Optional[float] = None,
+                   p4_z: Optional[float] = None,
+                   layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """绘制二维实体填充面（3或4个顶点的填充区域）。
+
+    与 Hatch 填充不同，2D Solid 是轻量级的填充面，适合简单的实心区。
+
+    Args:
+        p1_x,y,z:  第一个顶点
+        p2_x,y,z:  第二个顶点
+        p3_x,y,z:  第三个顶点
+        p4_x,y,z:  第四个顶点（可选，省略=三角形填充）
+        layer:     图层名称
+        color:     颜色
+    """
+    return drawing_tools.draw_2d_solid(p1_x, p1_y, p1_z,
+                                        p2_x, p2_y, p2_z,
+                                        p3_x, p3_y, p3_z,
+                                        p4_x, p4_y, p4_z,
+                                        layer, color)
+
+
+@mcp.tool()
+def draw_raster_image(ctx: Context, filepath: str, insert_x: float,
+                       insert_y: float, insert_z: float = 0.0,
+                       scale: float = 1.0, rotation: float = 0.0,
+                       layer: Optional[str] = None) -> str:
+    """在图纸中插入光栅图像（PNG, JPG, BMP, TIFF）。
+
+    光栅图像可用作底图参考、LOGO、现场照片等。
+
+    Args:
+        filepath: 图像文件完整路径
+        insert_x, insert_y, insert_z: 插入点坐标
+        scale:    缩放比例（默认1.0=原始大小）
+        rotation: 旋转角度（度，默认0）
+        layer:    图层名称
+    """
+    return drawing_tools.draw_raster_image(filepath, insert_x, insert_y,
+                                            insert_z, scale, rotation, layer)
+
+
+@mcp.tool()
+def draw_tolerance(ctx: Context, text: str, insert_x: float,
+                    insert_y: float, insert_z: float = 0.0,
+                    direction_x: float = 1.0,
+                    direction_y: float = 0.0,
+                    direction_z: float = 0.0,
+                    layer: Optional[str] = None,
+                    color: str = "bylayer") -> str:
+    """绘制几何公差标注（GD&T特征控制框）。
+
+    用于标注形状和位置公差：平面度、平行度、垂直度、位置度等。
+    公差文字格式：如 "{\\Fgdt;j}%%v0.05%%vA"。
+
+    Args:
+        text:          公差文字（GDT格式）
+        insert_x,y,z:  插入点坐标
+        direction_x,y,z: 方向向量（控制框朝向）
+        layer:         图层名称
+        color:         颜色
+    """
+    return drawing_tools.draw_tolerance(text, insert_x, insert_y, insert_z,
+                                         direction_x, direction_y, direction_z,
+                                         layer, color)
+
+
+@mcp.tool()
+def draw_trace(ctx: Context, points: List[float],
+                layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """绘制宽线 (Trace) — 具有宽度的二维线段。
+
+    宽线由4个点定义一条有宽度的线段，是早期 AutoCAD 版本的功能。
+    点序应为 [x1,y1, x2,y2, x3,y3, x4,y4]。
+
+    Args:
+        points: 4个点坐标 [x1,y1, x2,y2, x3,y3, x4,y4]
+        layer:  图层名称
+        color:  颜色
+    """
+    return drawing_tools.draw_trace(points, layer, color)
+
+
+@mcp.tool()
+def insert_minert_block(ctx: Context, block_name: str, x: float,
+                          y: float, z: float = 0.0, x_scale: float = 1.0,
+                          y_scale: float = 1.0, z_scale: float = 1.0,
+                          rotation: float = 0.0, rows: int = 1,
+                          cols: int = 1, row_spacing: float = 0.0,
+                          col_spacing: float = 0.0,
+                          layer: Optional[str] = None) -> str:
+    """以矩形阵列方式插入图块 (MInsert)。
+
+    将图块插入 + 矩形阵列组合为一个不可分解的实体。
+    比单独 insert_block + array 更高效。
+
+    Args:
+        block_name:  图块名称
+        x, y, z:     插入点坐标
+        x_scale:     X缩放（默认1，负值=镜像）
+        y_scale:     Y缩放（默认1）
+        z_scale:     Z缩放（默认1）
+        rotation:    旋转角度（度，默认0）
+        rows:        阵列行数（默认1）
+        cols:        阵列列数（默认1）
+        row_spacing: 行间距
+        col_spacing: 列间距
+        layer:       图层名称
+    """
+    return drawing_tools.insert_minert_block(block_name, x, y, z, x_scale,
+                                              y_scale, z_scale, rotation,
+                                              rows, cols, row_spacing,
+                                              col_spacing, layer)
+
+
+@mcp.tool()
+def add_shape(ctx: Context, shape_name: str, x: float, y: float,
+               z: float = 0.0, scale: float = 1.0,
+               rotation: float = 0.0,
+               layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """绘制形 (Shape) — 从 .shx 形状文件中插入预定义图形。
+
+    需要先用 LOAD 命令加载对应的 .shx 形状文件。
+    形文件是编译过的轻量级符号库。
+
+    Args:
+        shape_name: 形状名称（必须在已加载的.shx文件中定义）
+        x, y, z:   插入点坐标
+        scale:     缩放比例
+        rotation:  旋转角度（度）
+        layer:     图层名称
+        color:     颜色
+    """
+    return drawing_tools.add_shape(shape_name, x, y, z, scale, rotation,
+                                    layer, color)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  EDIT TOOLS — Entity Editing
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def move_entity(ctx: Context, handle: str, from_point: List[float],
+                to_point: List[float]) -> str:
+    """移动实体到新位置。
+
+    Args:
+        handle:     实体句柄（唯一标识符，由绘图工具返回）
+        from_point: 基点坐标 [x, y, z]，位移参考点
+        to_point:   目标点坐标 [x, y, z]，移动到此处
+    """
+    return edit_tools.move_entity(handle, from_point, to_point)
+
+
+@mcp.tool()
+def rotate_entity(ctx: Context, handle: str, base_point: List[float],
+                  angle: float) -> str:
+    """旋转实体。
+
+    Args:
+        handle:     实体句柄
+        base_point: 旋转中心点 [x, y, z]
+        angle:      旋转角度（度），逆时针为正
+    """
+    return edit_tools.rotate_entity(handle, base_point, angle)
+
+
+@mcp.tool()
+def copy_entity(ctx: Context, handle: str,
+                from_point: Optional[List[float]] = None,
+                to_point: Optional[List[float]] = None) -> str:
+    """复制实体。可选地在复制后移动新实体。
+
+    Args:
+        handle:     源实体句柄
+        from_point: 位移基点 [x, y, z]（可选）
+        to_point:   位移目标点 [x, y, z]（可选）
+    """
+    return edit_tools.copy_entity(handle, from_point, to_point)
+
+
+@mcp.tool()
+def delete_entity(ctx: Context, handle: str) -> str:
+    """删除指定实体。
+
+    警告：此操作不可撤销（除非使用undo命令）。
+
+    Args:
+        handle: 要删除的实体句柄
+    """
+    return edit_tools.delete_entity(handle)
+
+
+@mcp.tool()
+def delete_entities(ctx: Context, handles: List[str]) -> str:
+    """批量删除多个实体。
+
+    Args:
+        handles: 要删除的实体句柄列表
+    """
+    return edit_tools.delete_entities(handles)
+
+
+@mcp.tool()
+def mirror_entity(ctx: Context, handle: str,
+                  line_start: List[float], line_end: List[float]) -> str:
+    """镜像实体（关于指定直线对称复制）。
+
+    Args:
+        handle:      实体句柄
+        line_start:  镜像线起点 [x, y, z]
+        line_end:    镜像线终点 [x, y, z]
+    """
+    return edit_tools.mirror_entity(handle, line_start, line_end)
+
+
+@mcp.tool()
+def scale_entity(ctx: Context, handle: str, base_point: List[float],
+                 scale: float) -> str:
+    """缩放实体（等比放大或缩小）。
+
+    Args:
+        handle:     实体句柄
+        base_point: 缩放基点 [x, y, z]（不动点）
+        scale:      缩放倍率（2=放大2倍, 0.5=缩小一半）
+    """
+    return edit_tools.scale_entity(handle, base_point, scale)
+
+
+@mcp.tool()
+def offset_entity(ctx: Context, handle: str, distance: float) -> str:
+    """偏移实体（创建等距的平行线/同心圆/等距曲线）。
+
+    适用于多段线、圆、圆弧、直线、样条曲线等。
+
+    Args:
+        handle:   实体句柄
+        distance: 偏移距离。正值=外侧/右侧, 负值=内侧/左侧
+    """
+    return edit_tools.offset_entity(handle, distance)
+
+
+@mcp.tool()
+def array_rectangular(ctx: Context, handle: str, rows: int, columns: int,
+                      row_spacing: float, column_spacing: float) -> str:
+    """矩形阵列：按行和列复制实体。
+
+    常用于创建均匀分布的对象，如柱网、螺栓孔等。
+
+    Args:
+        handle:         实体句柄
+        rows:           行数（Y方向）
+        columns:        列数（X方向）
+        row_spacing:    行间距（正值向上）
+        column_spacing: 列间距（正值向右）
+    """
+    return edit_tools.array_rectangular(handle, rows, columns,
+                                        row_spacing, column_spacing)
+
+
+@mcp.tool()
+def array_polar(ctx: Context, handle: str, count: int, fill_angle: float,
+                center_x: float, center_y: float,
+                center_z: float = 0.0) -> str:
+    """环形阵列：围绕中心点环形复制实体。
+
+    常用于创建圆形分布的对象，如齿轮齿、法兰孔等。
+
+    Args:
+        handle:     实体句柄
+        count:      阵列数量（包含原始实体）
+        fill_angle: 填充角度（度），360=整圈
+        center_x:   阵列中心 X 坐标
+        center_y:   阵列中心 Y 坐标
+        center_z:   阵列中心 Z 坐标
+    """
+    return edit_tools.array_polar(handle, count, fill_angle,
+                                  center_x, center_y, center_z)
+
+
+@mcp.tool()
+def explode_entity(ctx: Context, handle: str) -> str:
+    """分解实体（将块/多段线/标注/填充等复合实体分解为基本图元）。
+
+    Args:
+        handle: 要分解的实体句柄
+    """
+    return edit_tools.explode_entity(handle)
+
+
+@mcp.tool()
+def set_entity_properties(ctx: Context, handle: str,
+                          color: Optional[int] = None,
+                          layer: Optional[str] = None,
+                          linetype: Optional[str] = None,
+                          linetype_scale: Optional[float] = None,
+                          lineweight: Optional[float] = None,
+                          visible: Optional[bool] = None,
+                          thickness: Optional[float] = None,
+                          elevation: Optional[float] = None) -> str:
+    """设置实体的显示属性（颜色、图层、线型等）。
+
+    可以一次设置多个属性。只为需要改变的属性传值。
+
+    Args:
+        handle:         实体句柄
+        color:          颜色索引 (1=红 2=黄 3=绿 4=青 5=蓝 6=洋红 7=白 256=ByLayer)
+        layer:          目标图层名称（图层必须存在）
+        linetype:       线型名称 (Continuous, Dashed, Hidden, Center, Phantom...)
+        linetype_scale: 线型比例因子
+        lineweight:     线宽(毫米) (0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50, 0.53, 0.60, 0.70, 0.80, 0.90, 1.00, 1.06, 1.20, 1.40, 1.58, 2.00, 2.11)
+        visible:        是否可见 (True/False)
+        thickness:      拉伸厚度（赋予2D实体Z方向高度）
+        elevation:      标高（Z方向基面位置）
+    """
+    return edit_tools.set_entity_properties(
+        handle, color=color, layer=layer, linetype=linetype,
+        linetype_scale=linetype_scale, lineweight=lineweight,
+        visible=visible, thickness=thickness, elevation=elevation)
+
+
+@mcp.tool()
+def get_entity_properties(ctx: Context, handle: str) -> str:
+    """获取实体的完整属性（包括类型特定的几何信息）。
+
+    返回 JSON 格式的属性列表，包含句柄、类型、图层、颜色、线型等基本属性，
+    以及类型特有的几何数据（如直线有起终点，圆有圆心和半径等）。
+
+    Args:
+        handle: 实体句柄
+    """
+    return edit_tools.get_entity_properties(handle)
+
+
+@mcp.tool()
+def set_entity_truecolor(ctx: Context, handle: str, red: int,
+                           green: int, blue: int) -> str:
+    """将实体的颜色设置为 RGB 真彩色（超过1600万色）。
+
+    RGB 真彩色精度远超 ACI 255色索引。可精确匹配品牌色或视觉效果。
+
+    Args:
+        handle: 实体句柄
+        red:    红色分量 (0-255)
+        green:  绿色分量 (0-255)
+        blue:   蓝色分量 (0-255)
+    """
+    return edit_tools.set_entity_truecolor(handle, red, green, blue)
+
+
+@mcp.tool()
+def set_entity_transparency(ctx: Context, handle: str,
+                             transparency: float) -> str:
+    """设置实体的透明度。
+
+    透明度 0=完全不透明，90=接近完全透明。
+    可用于创建水印效果、淡化背景参照等。
+
+    Args:
+        handle:       实体句柄
+        transparency: 透明度值 (0-90)
+    """
+    return edit_tools.set_entity_transparency(handle, transparency)
+
+
+@mcp.tool()
+def set_entity_plot_style(ctx: Context, handle: str,
+                            plot_style: str) -> str:
+    """设置实体的打印样式。
+
+    打印样式控制在打印/出图时实体的外观（覆盖颜色、线宽等）。
+
+    Args:
+        handle:     实体句柄
+        plot_style: 打印样式名称
+    """
+    return edit_tools.set_entity_plot_style(handle, plot_style)
+
+
+@mcp.tool()
+def get_extension_dictionary(ctx: Context, handle: str) -> str:
+    """获取实体的扩展字典信息。
+
+    扩展字典是可附加在任何实体上的用户自定义数据容器。
+    可用于存储 XRecords（自定义命名数据）。
+
+    Args:
+        handle: 实体句柄
+    """
+    return edit_tools.get_extension_dictionary(handle)
+
+
+@mcp.tool()
+def fillet_entities(ctx: Context, handle1: str, handle2: str,
+                    radius: float) -> str:
+    """对两个实体执行圆角倒角（用指定半径的圆弧平滑连接）。
+
+    适用于直线、多段线、圆弧等。圆角是机械制图中最常见的边角处理。
+
+    Args:
+        handle1: 第一个实体句柄
+        handle2: 第二个实体句柄
+        radius:  圆角半径（必须为正数）
+    """
+    return edit_tools.fillet_entities(handle1, handle2, radius)
+
+
+@mcp.tool()
+def chamfer_entities(ctx: Context, handle1: str, handle2: str,
+                      distance1: float, distance2: float) -> str:
+    """对两个实体执行倒角（斜角连接）。
+
+    在两条线的交点处创建指定距离的斜角边。
+
+    Args:
+        handle1:   第一个实体句柄
+        handle2:   第二个实体句柄
+        distance1: 第一条边的倒角距离
+        distance2: 第二条边的倒角距离
+    """
+    return edit_tools.chamfer_entities(handle1, handle2, distance1, distance2)
+
+
+@mcp.tool()
+def trim_entity(ctx: Context, trim_handle: str,
+                 cutting_handles: List[str]) -> str:
+    """用剪切边修剪实体（切除超出边界的部分）。
+
+    需要指定一个或多个剪切边（作为边界），以及需要被修剪的实体。
+
+    Args:
+        trim_handle:     需要被修剪的实体句柄
+        cutting_handles: 作为剪切边界的实体句柄列表
+    """
+    return edit_tools.trim_entity(trim_handle, cutting_handles)
+
+
+@mcp.tool()
+def extend_entity(ctx: Context, extend_handle: str,
+                   boundary_handles: List[str]) -> str:
+    """延伸实体到指定边界。
+
+    将实体的一端延伸到与边界相交的位置。
+
+    Args:
+        extend_handle:   需要延伸的实体句柄
+        boundary_handles:边界实体句柄列表
+    """
+    return edit_tools.extend_entity(extend_handle, boundary_handles)
+
+
+@mcp.tool()
+def break_entity(ctx: Context, handle: str, point1_x: float,
+                  point1_y: float, point1_z: float = 0.0,
+                  point2_x: Optional[float] = None,
+                  point2_y: Optional[float] = None,
+                  point2_z: float = 0.0) -> str:
+    """在指定点处打断实体（将实体一分为二）。
+
+    如果只指定一个点，则在该点处将实体分为两部分。
+    如果指定两个点，则移除两点之间的部分。
+
+    Args:
+        handle:       实体句柄
+        point1_x,y,z: 第一个打断点
+        point2_x,y,z: 第二个打断点（可选，省略则在同一点打断）
+    """
+    return edit_tools.break_entity(handle, point1_x, point1_y, point1_z,
+                                    point2_x, point2_y, point2_z)
+
+
+@mcp.tool()
+def join_entities(ctx: Context, handles: List[str]) -> str:
+    """将多个同类型实体合并为一个连续实体。
+
+    支持合并共线的直线、同心同半径的圆弧、相同多段线等。
+
+    Args:
+        handles: 需要合并的实体句柄列表（至少2个）
+    """
+    return edit_tools.join_entities(handles)
+
+
+@mcp.tool()
+def stretch_entities(ctx: Context, x1: float, y1: float,
+                      x2: float, y2: float, from_x: float,
+                      from_y: float, from_z: float = 0.0,
+                      to_x: float = 0.0, to_y: float = 0.0,
+                      to_z: float = 0.0) -> str:
+    """拉伸选择窗口内实体（移动被选中的顶点/端点）。
+
+    与 MOVE 不同，STRETCH 只移动实体中被选中的端点，
+    保持与其他固定部分的连接。这是最常用的编辑操作之一。
+
+    Args:
+        x1,y1:     交叉选择窗口的第一个角点
+        x2,y2:     交叉选择窗口的对角点
+        from_x,y,z: 位移起点
+        to_x,y,z:   位移终点
+    """
+    return edit_tools.stretch_entities(x1, y1, x2, y2, from_x, from_y,
+                                        from_z, to_x, to_y, to_z)
+
+
+@mcp.tool()
+def lengthen_entity(ctx: Context, handle: str, mode: str = "delta",
+                     value: float = 1.0, end: str = "both") -> str:
+    """修改实体的长度（延长或缩短）。
+
+    三种模式：
+      delta   — 线性增量（正值=延长，负值=缩短）
+      percent — 百分比（100=不变，200=翻倍，50=缩短一半）
+      total   — 设置为指定总长度
+
+    Args:
+        handle: 实体句柄
+        mode:   "delta"(增量), "percent"(百分比), "total"(总长)
+        value:  修改量（与mode相关）
+        end:    修改端: "both"(两端), "start"(起点端), "end"(终点端)
+    """
+    return edit_tools.lengthen_entity(handle, mode, value, end)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  LAYER TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def create_layer(ctx: Context, name: str, color: int = 7,
+                 linetype: str = "Continuous") -> str:
+    """创建新图层或修改已有图层的颜色。
+
+    图层是 CAD 组织图形的基本单位。创建图层后，绘图工具可指定 layer 参数。
+
+    Args:
+        name:     图层名称（建议使用有意义的名称，如 WALL, DOOR, DIM）
+        color:    颜色索引 (1=红,2=黄,3=绿,4=青,5=蓝,6=洋红,7=白/黑)
+        linetype: 线型名称 (Continuous, Dashed, Center, Hidden, Phantom, Divide, Border)
+    """
+    return layer_tools.create_layer(name, color, linetype)
+
+
+@mcp.tool()
+def delete_layer(ctx: Context, name: str) -> str:
+    """删除图层。注意：不能删除当前图层、0图层或包含实体的图层。
+
+    Args:
+        name: 要删除的图层名称
+    """
+    return layer_tools.delete_layer(name)
+
+
+@mcp.tool()
+def rename_layer(ctx: Context, old_name: str, new_name: str) -> str:
+    """重命名图层。
+
+    Args:
+        old_name: 当前图层名
+        new_name: 新图层名
+    """
+    return layer_tools.rename_layer(old_name, new_name)
+
+
+@mcp.tool()
+def freeze_layer(ctx: Context, name: str) -> str:
+    """冻结图层（图层不可见且不参与重生成，提升性能）。
+
+    Args:
+        name: 图层名称
+    """
+    return layer_tools.freeze_layer(name)
+
+
+@mcp.tool()
+def thaw_layer(ctx: Context, name: str) -> str:
+    """解冻图层（恢复冻结图层的可见性）。
+
+    Args:
+        name: 图层名称
+    """
+    return layer_tools.thaw_layer(name)
+
+
+@mcp.tool()
+def lock_layer(ctx: Context, name: str) -> str:
+    """锁定图层（图层可见但不能编辑）。
+
+    锁定图层上的实体可以被看到、捕捉、测量，但不能被修改或删除。
+
+    Args:
+        name: 图层名称
+    """
+    return layer_tools.lock_layer(name)
+
+
+@mcp.tool()
+def unlock_layer(ctx: Context, name: str) -> str:
+    """解锁图层（恢复可编辑状态）。
+
+    Args:
+        name: 图层名称
+    """
+    return layer_tools.unlock_layer(name)
+
+
+@mcp.tool()
+def turn_off_layer(ctx: Context, name: str) -> str:
+    """关闭图层（不可见但参与重生成计算）。
+
+    与冻结不同，关闭的图层仍参与重生成。
+
+    Args:
+        name: 图层名称
+    """
+    return layer_tools.turn_off_layer(name)
+
+
+@mcp.tool()
+def turn_on_layer(ctx: Context, name: str) -> str:
+    """打开图层（恢复可见）。
+
+    Args:
+        name: 图层名称
+    """
+    return layer_tools.turn_on_layer(name)
+
+
+@mcp.tool()
+def set_current_layer(ctx: Context, name: str) -> str:
+    """设置当前图层。后续绘图操作默认在此图层上进行。
+
+    Args:
+        name: 图层名称
+    """
+    return layer_tools.set_current_layer(name)
+
+
+@mcp.tool()
+def get_all_layers(ctx: Context) -> str:
+    """列出所有图层及其状态。
+
+    显示每个图层的名称、颜色、线型、状态（冻结/锁定/关闭/正常）。
+    """
+    return layer_tools.get_all_layers()
+
+
+@mcp.tool()
+def isolate_layer(ctx: Context, name: str) -> str:
+    """隔离图层：关闭除指定图层外的所有其他图层。
+
+    这让你可以专注于特定图层上的内容。
+
+    Args:
+        name: 要保留可见的图层名称
+    """
+    return layer_tools.isolate_layer(name)
+
+
+@mcp.tool()
+def unisolate_layers(ctx: Context) -> str:
+    """取消图层隔离：打开所有被隔离关闭的图层。"""
+    return layer_tools.unisolate_layers()
+
+
+# ══════════════════════════════════════════════════════════════════
+#  TEXT & ANNOTATION TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def create_text_style(ctx: Context, name: str, font: str = "Arial",
+                      height: float = 0.0, width: float = 1.0) -> str:
+    """创建文字样式（定义字体和默认属性）。
+
+    Args:
+        name:   样式名称（如 "标题", "标注"）
+        font:   字体名称 (Arial, SimSun/宋体, SimHei/黑体, Romans, txt.shx)
+        height: 默认文字高度（0=每次提示输入高度, 正数=固定高度）
+        width:  宽度因子（1=正常宽度, <1=窄体, >1=宽体）
+    """
+    return text_tools.create_text_style(name, font, height, width)
+
+
+@mcp.tool()
+def set_current_text_style(ctx: Context, name: str) -> str:
+    """设置当前文字样式。后续创建的文字将使用此样式。
+
+    Args:
+        name: 文字样式名称
+    """
+    return text_tools.set_current_text_style(name)
+
+
+@mcp.tool()
+def get_text_styles(ctx: Context) -> str:
+    """列出所有文字样式及其字体配置。"""
+    return text_tools.get_text_styles()
+
+
+@mcp.tool()
+def add_leader(ctx: Context, points: List[float],
+               annotation: Optional[str] = None,
+               layer: Optional[str] = None) -> str:
+    """绘制引线标注（带箭头的指引线 + 可选文字注释）。
+
+    引线通常用于指向图形中的特定位置并添加说明文字。
+
+    Args:
+        points:     引线顶点列表 [x1,y1,z1, x2,y2,z2, ...]，至少2个点
+                    最后一个点是箭头指向的位置
+        annotation: 引线末端注释文字（可选）
+        layer:      图层名称
+    """
+    return text_tools.add_leader(points, annotation, layer)
+
+
+@mcp.tool()
+def add_mleader(ctx: Context, text: str, points: List[float],
+                layer: Optional[str] = None) -> str:
+    """绘制多重引线（现代化的引线标注，带文字和更好的格式）。
+
+    Args:
+        text:   引线文字内容
+        points: 引线顶点列表 [x1,y1,z1, x2,y2,z2, ...]，至少2个点
+        layer:  图层名称
+    """
+    return text_tools.add_mleader(text, points, layer)
+
+
+@mcp.tool()
+def add_table(ctx: Context, insert_x: float, insert_y: float,
+              rows: int, columns: int, row_height: float = 1.0,
+              column_width: float = 5.0, insert_z: float = 0.0,
+              layer: Optional[str] = None) -> str:
+    """在图纸中插入表格。
+
+    适合创建材料清单、零件表、标注表等。
+
+    Args:
+        insert_x:     插入点 X 坐标
+        insert_y:     插入点 Y 坐标
+        rows:         行数
+        columns:      列数
+        row_height:   行高（默认1.0）
+        column_width: 列宽（默认5.0）
+        insert_z:     插入点 Z 坐标（默认0）
+        layer:        图层名称
+    """
+    return text_tools.add_table(insert_x, insert_y, rows, columns,
+                                row_height, column_width, insert_z, layer)
+
+
+@mcp.tool()
+def edit_table_cell(ctx: Context, table_handle: str, row: int,
+                    col: int, text: str) -> str:
+    """编辑表格中指定单元格的文字内容。
+
+    Args:
+        table_handle: 表格实体的句柄
+        row:          行号（从0开始计数）
+        col:          列号（从0开始计数）
+        text:         要设置的文字内容
+    """
+    return text_tools.edit_table_cell(table_handle, row, col, text)
+
+
+@mcp.tool()
+def find_text(ctx: Context, pattern: str, highlight_color: int = 1) -> str:
+    """在图纸中搜索包含指定文本的所有文字实体。
+
+    搜索范围包括单行文字(Text)和多行文字(MText)。
+    匹配的实体可选地被高亮显示。
+
+    Args:
+        pattern:         要搜索的文本模式（区分大小写）
+        highlight_color: 高亮颜色 (1=红, 2=黄, 3=绿, 0=不高亮)
+    """
+    return text_tools.find_text(pattern, highlight_color)
+
+
+@mcp.tool()
+def replace_text(ctx: Context, find: str, replace: str) -> str:
+    """替换图纸中所有文字实体中的指定文本。
+
+    会遍历所有文字实体，将其中的匹配部分替换为新文本。
+
+    Args:
+        find:    要查找的文本
+        replace: 替换为的文本
+    """
+    return text_tools.replace_text(find, replace)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  DIMENSION TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def add_linear_dimension(ctx: Context, x1: float, y1: float,
+                         x2: float, y2: float, text_x: float, text_y: float,
+                         z1: float = 0.0, z2: float = 0.0,
+                         text_z: float = 0.0,
+                         layer: Optional[str] = None) -> str:
+    """添加对齐线性标注（自动测量两点间距离并显示）。
+
+    适用于标注墙长、间距、尺寸等。
+
+    Args:
+        x1, y1:  第一个测量点坐标
+        x2, y2:  第二个测量点坐标
+        text_x, text_y: 标注文字线位置（距离标注对象多远）
+        z1, z2, text_z: Z坐标（二维可忽略）
+        layer:   图层名称
+    """
+    return dimension_tools.add_linear_dimension(x1, y1, x2, y2, text_x, text_y,
+                                                z1, z2, text_z, layer)
+
+
+@mcp.tool()
+def add_rotated_dimension(ctx: Context, x1: float, y1: float,
+                          x2: float, y2: float, text_x: float, text_y: float,
+                          rotation: float, layer: Optional[str] = None) -> str:
+    """添加旋转线性标注（可指定标注方向）。
+
+    适用于标注斜向距离。
+
+    Args:
+        x1, y1:   第一个测量点
+        x2, y2:   第二个测量点
+        text_x, text_y: 标注文字位置
+        rotation: 标注线的旋转角度（度）
+        layer:    图层名称
+    """
+    return dimension_tools.add_rotated_dimension(x1, y1, x2, y2, text_x, text_y,
+                                                 rotation, layer)
+
+
+@mcp.tool()
+def add_angular_dimension(ctx: Context, center_x: float, center_y: float,
+                          x1: float, y1: float, x2: float, y2: float,
+                          text_x: float, text_y: float,
+                          layer: Optional[str] = None) -> str:
+    """添加角度标注（测量并显示两条线之间的角度）。
+
+    Args:
+        center_x, center_y: 角的顶点坐标
+        x1, y1:  第一条边上的任意点
+        x2, y2:  第二条边上的任意点
+        text_x, text_y: 标注文字位置
+        layer:   图层名称
+    """
+    return dimension_tools.add_angular_dimension(center_x, center_y,
+                                                 x1, y1, x2, y2,
+                                                 text_x, text_y, layer)
+
+
+@mcp.tool()
+def add_radial_dimension(ctx: Context, center_x: float, center_y: float,
+                         chord_x: float, chord_y: float,
+                         leader_length: float = 0.0,
+                         layer: Optional[str] = None) -> str:
+    """添加半径标注（用于标注圆弧或圆的半径）。
+
+    标注文字会自动添加 R 前缀。
+
+    Args:
+        center_x, center_y: 圆心坐标
+        chord_x, chord_y:   圆弧上的标注点
+        leader_length:      引线长度（0=自动）
+        layer:              图层名称
+    """
+    return dimension_tools.add_radial_dimension(center_x, center_y,
+                                                chord_x, chord_y,
+                                                leader_length, layer)
+
+
+@mcp.tool()
+def add_diametric_dimension(ctx: Context, chord1_x: float, chord1_y: float,
+                            chord2_x: float, chord2_y: float,
+                            leader_length: float = 0.0,
+                            layer: Optional[str] = None) -> str:
+    """添加直径标注（用于标注圆的直径）。
+
+    标注文字会自动添加 ⌀ 前缀。
+
+    Args:
+        chord1_x, chord1_y: 直径的一个端点（圆周上）
+        chord2_x, chord2_y: 直径的另一个端点（对面的圆周上）
+        leader_length:      引线长度（0=自动）
+        layer:              图层名称
+    """
+    return dimension_tools.add_diametric_dimension(chord1_x, chord1_y,
+                                                   chord2_x, chord2_y,
+                                                   leader_length, layer)
+
+
+@mcp.tool()
+def add_ordinate_dimension(ctx: Context, x: float, y: float,
+                           leader_end_x: float, leader_end_y: float,
+                           use_x_axis: bool = True,
+                           layer: Optional[str] = None) -> str:
+    """添加坐标标注（显示 X 或 Y 坐标值）。
+
+    用于标注点的绝对坐标位置，常用于加工图纸。
+
+    Args:
+        x, y:           要标注的点坐标
+        leader_end_x, leader_end_y: 引线终点（标注文字位置）
+        use_x_axis:     True=标注X坐标, False=标注Y坐标
+        layer:          图层名称
+    """
+    return dimension_tools.add_ordinate_dimension(x, y, leader_end_x,
+                                                  leader_end_y, use_x_axis, layer)
+
+
+@mcp.tool()
+def get_dimension_styles(ctx: Context) -> str:
+    """列出所有标注样式。"""
+    return dimension_tools.get_dimension_styles()
+
+
+@mcp.tool()
+def set_current_dimension_style(ctx: Context, name: str) -> str:
+    """设置当前标注样式。后续创建的标注将使用此样式。
+
+    Args:
+        name: 标注样式名称（如 "Standard", "ISO-25"）
+    """
+    return dimension_tools.set_current_dimension_style(name)
+
+
+@mcp.tool()
+def copy_dimension_style(ctx: Context, source_name: str,
+                         new_name: str) -> str:
+    """复制标注样式。基于现有样式创建新的标注样式。
+
+    Args:
+        source_name: 源样式名称
+        new_name:    新样式名称
+    """
+    return dimension_tools.copy_dimension_style(source_name, new_name)
+
+
+@mcp.tool()
+def add_qdim(ctx: Context, entity_handles: List[str],
+              dimension_type: str = "continuous",
+              layer: Optional[str] = None) -> str:
+    """快速标注 (QDIM) — 一次性为多个实体生成连续尺寸。
+
+    选择一组实体，快速生成连续/交错/基线等类型的尺寸链。
+    这是最高效的批量标注方法。
+
+    Args:
+        entity_handles: 需要标注的实体句柄列表
+        dimension_type: "continuous"(连续), "staggered"(交错),
+                        "baseline"(基线), "ordinate"(坐标),
+                        "radius"(半径), "diameter"(直径)
+        layer:          图层名称
+    """
+    return dimension_tools.add_qdim(entity_handles, dimension_type, layer)
+
+
+@mcp.tool()
+def add_baseline_dimension(ctx: Context, x: float, y: float,
+                             z: float = 0.0,
+                             layer: Optional[str] = None) -> str:
+    """添加基线标注（从上一个标注的公共基线延伸）。
+
+    使用前提：必须先有一个线性标注作为基准标注。
+    所有后续基线标注共享基准标注的第一条尺寸界线。
+
+    Args:
+        x, y, z: 下一个标注的第二个测量点（基准标注的起点为公共基线）
+        layer:   图层名称
+    """
+    return dimension_tools.add_baseline_dimension(x, y, z, layer)
+
+
+@mcp.tool()
+def add_continue_dimension(ctx: Context, x: float, y: float,
+                             z: float = 0.0,
+                             layer: Optional[str] = None) -> str:
+    """添加连续标注（首尾相接的尺寸链）。
+
+    使用前提：必须先有一个线性标注作为起始标注。
+    每个后续标注以上一个标注的终点为起点，形成尺寸链。
+
+    Args:
+        x, y, z: 下一个标注的第二个测量点
+        layer:   图层名称
+    """
+    return dimension_tools.add_continue_dimension(x, y, z, layer)
+
+
+@mcp.tool()
+def draw_wipeout(ctx: Context, p1_x: float, p1_y: float,
+                  p2_x: float, p2_y: float,
+                  p3_x: Optional[float] = None,
+                  p3_y: Optional[float] = None,
+                  p4_x: Optional[float] = None,
+                  p4_y: Optional[float] = None,
+                  layer: Optional[str] = None) -> str:
+    """创建区域覆盖 (Wipeout) — 用空白遮罩覆盖背后对象。
+
+    用于在密集图纸中创建清晰的标注空间，或隐藏不需要显示的部分。
+
+    Args:
+        p1_x,y,p1_y: 第一个顶点
+        p2_x,y,p2_y: 第二个顶点
+        p3_x,y,p3_y: 第三个顶点（可选，省略则为三角形覆盖区）
+        p4_x,y,p4_y: 第四个顶点（可选，省略则为三角形覆盖区）
+        layer:       图层名称
+    """
+    return dimension_tools.draw_wipeout(p1_x, p1_y, p2_x, p2_y,
+                                         p3_x, p3_y, p4_x, p4_y, layer)
+
+
+@mcp.tool()
+def add_arc_dimension(ctx: Context, center_x: float, center_y: float,
+                       start_x: float, start_y: float,
+                       end_x: float, end_y: float,
+                       text_x: float, text_y: float,
+                       layer: Optional[str] = None) -> str:
+    """添加弧长标注（标注圆弧的弧长）。
+
+    弧长标注在圆弧上方显示弧长值和小弧符号。
+
+    Args:
+        center_x, center_y: 圆心坐标
+        start_x, start_y:   圆弧起点
+        end_x, end_y:       圆弧终点
+        text_x, text_y:     标注文字位置
+        layer:              图层名称
+    """
+    return dimension_tools.add_arc_dimension(center_x, center_y,
+                                               start_x, start_y,
+                                               end_x, end_y,
+                                               text_x, text_y, layer)
+
+
+@mcp.tool()
+def add_3point_angular_dimension(ctx: Context, vertex_x: float,
+                                    vertex_y: float, ref1_x: float,
+                                    ref1_y: float, ref2_x: float,
+                                    ref2_y: float, text_x: float,
+                                    text_y: float,
+                                    layer: Optional[str] = None) -> str:
+    """添加三点角度标注（通过三个点定义角度）。
+
+    不需要圆心参数，直接通过三个点定义夹角。
+
+    Args:
+        vertex_x, vertex_y: 角度顶点
+        ref1_x, ref1_y:     第一条参照线的端点
+        ref2_x, ref2_y:     第二条参照线的端点
+        text_x, text_y:     标注文字位置
+        layer:              图层名称
+    """
+    return dimension_tools.add_3point_angular_dimension(
+        vertex_x, vertex_y, ref1_x, ref1_y,
+        ref2_x, ref2_y, text_x, text_y, layer)
+
+
+@mcp.tool()
+def set_dimension_text_override(ctx: Context, handle: str,
+                                  text: str) -> str:
+    """覆盖标注文字（用自定义文本替换自动测量值）。
+
+    例如将 "100.00" 替换为 "100±0.5" 或 "参考尺寸"。
+    空字符串 "" 恢复自动测量值。
+
+    Args:
+        handle: 标注实体句柄
+        text:   自定义文字（空字符串=恢复自动）
+    """
+    return dimension_tools.set_dimension_text_override(handle, text)
+
+
+@mcp.tool()
+def get_dimension_measurement(ctx: Context, handle: str) -> str:
+    """获取标注的测量值、文字覆盖、旋转角度等详细信息。
+
+    Args:
+        handle: 标注实体句柄
+    """
+    return dimension_tools.get_dimension_measurement(handle)
+
+
+@mcp.tool()
+def set_text_alignment(ctx: Context, handle: str, alignment: int,
+                        align_x: Optional[float] = None,
+                        align_y: Optional[float] = None,
+                        align_z: float = 0.0) -> str:
+    """设置文字对象的对齐方式。
+
+    0=Left, 1=Center, 2=Right, 4=Middle,
+    7=TopCenter, 10=MiddleCenter, 13=BottomCenter 等。
+
+    Args:
+        handle:    文字实体句柄
+        alignment: 对齐代码 (0-14)
+        align_x, align_y: 对齐点坐标
+        align_z:   Z坐标
+    """
+    return dimension_tools.set_text_alignment(handle, alignment,
+                                                align_x, align_y, align_z)
+
+
+@mcp.tool()
+def set_text_properties(ctx: Context, handle: str,
+                         oblique_angle: Optional[float] = None,
+                         scale_factor: Optional[float] = None,
+                         style_name: Optional[str] = None) -> str:
+    """设置文字的高级属性（倾斜角度、宽度因子、文字样式）。
+
+    倾斜角度可用于创建斜体效果，宽度因子控制字体宽度。
+
+    Args:
+        handle:        文字实体句柄
+        oblique_angle: 倾斜角度（度，0=正常）
+        scale_factor:  宽度因子（1=正常, 0.8=窄体, 1.2=宽体）
+        style_name:    文字样式名称
+    """
+    return dimension_tools.set_text_properties(handle, oblique_angle,
+                                                 scale_factor, style_name)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  BLOCK TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def create_block(ctx: Context, name: str, base_x: float, base_y: float,
+                 base_z: float, entity_handles: List[str]) -> str:
+    """创建图块定义（将多个实体组合为一个可重复使用的图块）。
+
+    图块是 CAD 中最重要的重用机制。创建图块后，可以用 insert_block
+    在多个位置插入它的实例。
+
+    Args:
+        name:            图块名称（建议有意义的名称，如 "Door_900", "Screw_M8"）
+        base_x,base_y,base_z: 图块基点（插入时的参考点）
+        entity_handles:  要包含在图块中的实体句柄列表
+    """
+    return block_tools.create_block(name, base_x, base_y, base_z, entity_handles)
+
+
+@mcp.tool()
+def insert_block(ctx: Context, name: str, x: float, y: float,
+                 z: float = 0.0, x_scale: float = 1.0,
+                 y_scale: float = 1.0, z_scale: float = 1.0,
+                 rotation: float = 0.0,
+                 layer: Optional[str] = None) -> str:
+    """在当前图形中插入图块参照。
+
+    可以指定插入点、缩放和旋转角度。缩放可用于创建不同尺寸的变体。
+
+    Args:
+        name:     图块名称（必须是已定义的图块）
+        x, y, z:  插入点坐标
+        x_scale:  X方向缩放（默认1=原始大小, 负值=镜像）
+        y_scale:  Y方向缩放（默认1）
+        z_scale:  Z方向缩放（默认1）
+        rotation: 旋转角度（度，默认0）
+        layer:    图层名称
+    """
+    return block_tools.insert_block(name, x, y, z, x_scale, y_scale, z_scale,
+                                    rotation, layer)
+
+
+@mcp.tool()
+def get_all_blocks(ctx: Context) -> str:
+    """列出图纸中所有图块定义（包括它们的实体数量和类型）。
+
+    这对于了解图纸中有哪些可复用的图块非常有用。
+    """
+    return block_tools.get_all_blocks()
+
+
+@mcp.tool()
+def explode_block(ctx: Context, handle: str) -> str:
+    """分解图块引用为基本实体。
+
+    分解后的实体可以被单独编辑。
+
+    Args:
+        handle: 图块引用的句柄（不是图块定义名）
+    """
+    return block_tools.explode_block(handle)
+
+
+@mcp.tool()
+def attach_xref(ctx: Context, filepath: str, insert_x: float = 0,
+                insert_y: float = 0, insert_z: float = 0,
+                scale: float = 1.0, rotation: float = 0.0,
+                layer: Optional[str] = None) -> str:
+    """附加外部参照 (Xref)：将另一个 DWG 文件链接到当前图纸。
+
+    外部参照文件独立存在，修改源文件会自动更新所有引用它的图纸。
+
+    Args:
+        filepath: 外部参照文件(.dwg)的完整路径
+        insert_x, insert_y, insert_z: 插入点坐标
+        scale:    缩放比例
+        rotation: 旋转角度（度）
+        layer:    图层名称
+    """
+    return block_tools.attach_xref(filepath, insert_x, insert_y, insert_z,
+                                   scale, rotation, layer)
+
+
+@mcp.tool()
+def get_xrefs(ctx: Context) -> str:
+    """列出所有外部参照及其状态。"""
+    return block_tools.get_xrefs()
+
+
+@mcp.tool()
+def unload_xref(ctx: Context, name: str) -> str:
+    """卸载外部参照（保留链接但不加载，提高性能）。
+
+    Args:
+        name: 外部参照名称
+    """
+    return block_tools.unload_xref(name)
+
+
+@mcp.tool()
+def reload_xref(ctx: Context, name: str) -> str:
+    """重新加载外部参照（获取源文件的最新内容）。
+
+    Args:
+        name: 外部参照名称
+    """
+    return block_tools.reload_xref(name)
+
+
+@mcp.tool()
+def insert_block_with_attributes(ctx: Context, block_name: str,
+                                   x: float, y: float,
+                                   z: float = 0.0, x_scale: float = 1.0,
+                                   y_scale: float = 1.0,
+                                   z_scale: float = 1.0,
+                                   rotation: float = 0.0,
+                                   attributes: Optional[List[Dict[str, str]]] = None,
+                                   layer: Optional[str] = None) -> str:
+    """插入带有属性值的图块参照。
+
+    在插入图块时同时设置属性值，避免了先插入再逐个设置属性的麻烦。
+    属性列表格式: [{"tag": "DOOR_NO", "value": "D01"}, ...]
+
+    Args:
+        block_name: 图块名称
+        x, y, z:    插入点坐标
+        x_scale:    X缩放
+        y_scale:    Y缩放
+        z_scale:    Z缩放
+        rotation:   旋转角度（度）
+        attributes: 属性列表 [{"tag": "标签名", "value": "值"}, ...]
+        layer:      图层名称
+    """
+    return attribute_tools.insert_block_with_attributes(
+        block_name, x, y, z, x_scale, y_scale, z_scale,
+        rotation, attributes, layer)
+
+
+@mcp.tool()
+def get_block_attributes(ctx: Context, handle: str) -> str:
+    """获取图块参照的所有属性标签、值、提示等信息。
+
+    返回完整的属性列表，每个属性包含 tag、value、prompt、height、rotation 等。
+
+    Args:
+        handle: 图块参照的实体句柄
+    """
+    return attribute_tools.get_block_attributes(handle)
+
+
+@mcp.tool()
+def set_block_attribute(ctx: Context, handle: str, tag: str,
+                         value: str) -> str:
+    """通过标签名设置图块参照中的单个属性值。
+
+    精确地修改指定标签的属性值，其他属性保持不变。
+
+    Args:
+        handle: 图块参照的实体句柄
+        tag:    属性标签名称
+        value:  要设置的新值
+    """
+    return attribute_tools.set_block_attribute(handle, tag, value)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  VIEW TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def zoom_extents(ctx: Context) -> str:
+    """缩放到图形范围（让所有对象可见并填满视图）。
+
+    这是最常用的视图命令，确保你能看到图纸中的所有内容。
+    """
+    return view_tools.zoom_extents()
+
+
+@mcp.tool()
+def zoom_window(ctx: Context, x1: float, y1: float,
+                x2: float, y2: float) -> str:
+    """缩放到指定矩形窗口区域。
+
+    Args:
+        x1, y1: 窗口第一个角点坐标
+        x2, y2: 窗口对角点坐标
+    """
+    return view_tools.zoom_window(x1, y1, x2, y2)
+
+
+@mcp.tool()
+def zoom_center(ctx: Context, center_x: float, center_y: float,
+                height: float) -> str:
+    """居中缩放到指定位置。
+
+    Args:
+        center_x, center_y: 新的视图中心坐标
+        height:             视图高度（图形单位，越小越放大）
+    """
+    return view_tools.zoom_center(center_x, center_y, height)
+
+
+@mcp.tool()
+def zoom_scale(ctx: Context, scale: float) -> str:
+    """按比例缩放视图。
+
+    Args:
+        scale: 缩放倍率（2=放大2倍, 0.5=缩小一半）
+    """
+    return view_tools.zoom_scale(scale)
+
+
+@mcp.tool()
+def zoom_previous(ctx: Context) -> str:
+    """恢复到前一个视图（撤销视图变化）。"""
+    return view_tools.zoom_previous()
+
+
+@mcp.tool()
+def zoom_all(ctx: Context) -> str:
+    """缩放到图形界限（显示整个绘图区域）。"""
+    return view_tools.zoom_all()
+
+
+@mcp.tool()
+def pan(ctx: Context, x_offset: float, y_offset: float) -> str:
+    """平移视图（不改变缩放级别）。
+
+    Args:
+        x_offset: X方向平移量（正值向右移动视图）
+        y_offset: Y方向平移量（正值向上移动视图）
+    """
+    return view_tools.pan(x_offset, y_offset)
+
+
+@mcp.tool()
+def get_current_view(ctx: Context) -> str:
+    """获取当前视图信息（中心、高度、宽度、目标等）。"""
+    return view_tools.get_current_view()
+
+
+@mcp.tool()
+def get_layouts(ctx: Context) -> str:
+    """列出所有布局（模型空间和所有图纸空间布局）。"""
+    return view_tools.get_layouts()
+
+
+@mcp.tool()
+def set_active_layout(ctx: Context, name: str) -> str:
+    """切换到指定布局。
+
+    Args:
+        name: 布局名称。使用 "Model" 切换到模型空间
+    """
+    return view_tools.set_active_layout(name)
+
+
+@mcp.tool()
+def create_layout(ctx: Context, name: str) -> str:
+    """创建新的图纸空间布局（用于打印/出图设置）。
+
+    Args:
+        name: 新布局名称
+    """
+    return view_tools.create_layout(name)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  QUERY & SELECTION TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def scan_all_entities(ctx: Context, clear_db: bool = True,
+                      max_entities: int = 5000) -> str:
+    """扫描当前图纸中的所有实体并保存到数据库。
+
+    这是 AI 理解图纸的核心工具 — 它将 AutoCAD 中的图形对象转换为结构化数据，
+    存入 SQLite 数据库。之后 AI 可以通过 execute_query 进行 SQL 查询、
+    统计分析和智能过滤。
+
+    建议在对图纸进行重大修改后重新扫描。
+
+    Args:
+        clear_db:     是否先清空数据库（默认True=重新扫描, False=追加）
+        max_entities: 最大扫描实体数（默认5000，超大图纸请谨慎）
+    """
+    return query_tools.scan_all_entities(clear_db, max_entities)
+
+
+@mcp.tool()
+def scan_entities_in_area(ctx: Context, x_min: float, y_min: float,
+                          x_max: float, y_max: float) -> str:
+    """扫描指定矩形区域内的实体。
+
+    用于关注图纸的特定区域，避免扫描整个图纸。
+
+    Args:
+        x_min, y_min: 区域左下角坐标
+        x_max, y_max: 区域右上角坐标
+    """
+    return query_tools.scan_entities_in_area(x_min, y_min, x_max, y_max)
+
+
+@mcp.tool()
+def select_by_window(ctx: Context, x1: float, y1: float,
+                     x2: float, y2: float) -> str:
+    """窗口选择（完全在矩形窗口内的实体被选中）。
+
+    Args:
+        x1, y1: 选择窗口的第一个角点
+        x2, y2: 选择窗口的对角点
+    """
+    return query_tools.select_by_window(x1, y1, x2, y2)
+
+
+@mcp.tool()
+def select_by_crossing(ctx: Context, x1: float, y1: float,
+                       x2: float, y2: float) -> str:
+    """交叉选择（与选择框相交的实体都被选中，比窗口选择更宽松）。
+
+    Args:
+        x1, y1: 选择框的第一个角点
+        x2, y2: 选择框的对角点
+    """
+    return query_tools.select_by_crossing(x1, y1, x2, y2)
+
+
+@mcp.tool()
+def select_all(ctx: Context) -> str:
+    """选择当前图纸中的所有实体。"""
+    return query_tools.select_all()
+
+
+@mcp.tool()
+def highlight_entity(ctx: Context, handle: str, color: int = 1) -> str:
+    """通过句柄高亮显示指定实体（临时改变其颜色）。
+
+    这是查看特定实体在图中位置的最直接方式。
+
+    Args:
+        handle: 实体句柄
+        color:  高亮颜色索引 (1=红, 2=黄, 3=绿, 4=青, 5=蓝, 6=洋红)
+    """
+    return query_tools.highlight_entity(handle, color)
+
+
+@mcp.tool()
+def highlight_entities(ctx: Context, handles: List[str],
+                       color: int = 1) -> str:
+    """批量高亮多个实体。
+
+    Args:
+        handles: 实体句柄列表
+        color:   高亮颜色索引
+    """
+    return query_tools.highlight_entities(handles, color)
+
+
+@mcp.tool()
+def reset_entity_color(ctx: Context, handle: str,
+                       original_color: int = 256) -> str:
+    """重置实体颜色（恢复到高亮前的颜色）。
+
+    Args:
+        handle:         实体句柄
+        original_color: 原始颜色索引（默认256=ByLayer）
+    """
+    return query_tools.reset_entity_color(handle, original_color)
+
+
+@mcp.tool()
+def highlight_query_results(ctx: Context, sql_query: str,
+                            color: int = 1) -> str:
+    """执行数据库查询并用结果在 CAD 中高亮对应实体。
+
+    这是 AI 最强大的分析工具之一：
+    1. 用 SQL 查询找出所有符合特定条件的实体
+    2. 在 CAD 中高亮它们，方便人工查看
+
+    使用 workflow:
+    1. scan_all_entities  → 扫描图纸到数据库
+    2. execute_query      → 用 SQL 分析数据
+    3. highlight_query_results → 在 CAD 中高亮结果
+
+    Args:
+        sql_query: 必须返回 handle 列的 SQL 查询
+        color:     高亮颜色 (1-6)
+    """
+    return query_tools.highlight_query_results(sql_query, color)
+
+
+@mcp.tool()
+def get_entity_statistics(ctx: Context) -> str:
+    """获取当前图纸的实体统计信息（按类型和图层分类）。
+
+    显示数据库中各类实体的数量和分布，帮助快速了解图纸的构成。
+    """
+    return query_tools.get_entity_statistics()
+
+
+# ══════════════════════════════════════════════════════════════════
+#  FILE & SYSTEM TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def export_pdf(ctx: Context, filepath: str) -> str:
+    """将当前图纸导出为 PDF 文件。
+
+    生成的 PDF 可用于打印、分享和归档。
+
+    Args:
+        filepath: PDF 保存路径，如 C:/output/drawing.pdf
+    """
+    return file_tools.export_pdf(filepath)
+
+
+@mcp.tool()
+def export_dxf(ctx: Context, filepath: str) -> str:
+    """将当前图纸导出为 DXF 文件。
+
+    DXF 是一种开放的 CAD 交换格式，可被大多数 CAD 软件读取。
+
+    Args:
+        filepath: DXF 保存路径，如 C:/output/drawing.dxf
+    """
+    return file_tools.export_dxf(filepath)
+
+
+@mcp.tool()
+def export_dwf(ctx: Context, filepath: str) -> str:
+    """将当前图纸导出为 DWF (Design Web Format) 文件。
+
+    DWF 用于在线查看和标记，文件小、不可编辑。
+
+    Args:
+        filepath: DWF 保存路径
+    """
+    return file_tools.export_dwf(filepath)
+
+
+@mcp.tool()
+def export_image(ctx: Context, filepath: str) -> str:
+    """将当前视图导出为图片（BMP 或 WMF 格式）。
+
+    Args:
+        filepath: 图片保存路径（.bmp 或 .wmf 扩展名）
+    """
+    return file_tools.export_image(filepath)
+
+
+@mcp.tool()
+def purge_drawing(ctx: Context) -> str:
+    """清理图纸：删除所有未使用的图层、线型、文字样式、块等。
+
+    这可以减小文件大小，提高性能。
+    """
+    return file_tools.purge_drawing()
+
+
+@mcp.tool()
+def audit_drawing(ctx: Context) -> str:
+    """审计并修复当前图纸中的错误。"""
+    return file_tools.audit_drawing()
+
+
+@mcp.tool()
+def undo(ctx: Context, count: int = 1) -> str:
+    """撤销操作（回退到之前的状态）。
+
+    Args:
+        count: 撤销步数（默认1，最大100）
+    """
+    return file_tools.undo(count)
+
+
+@mcp.tool()
+def redo(ctx: Context, count: int = 1) -> str:
+    """重做被撤销的操作。
+
+    Args:
+        count: 重做步数（默认1）
+    """
+    return file_tools.redo(count)
+
+
+@mcp.tool()
+def regen(ctx: Context, which: str = "all") -> str:
+    """重新生成图形显示（刷新视图）。
+
+    Args:
+        which: "all"=所有视口, "active"=仅活动视口
+    """
+    return file_tools.regen(which)
+
+
+@mcp.tool()
+def send_command(ctx: Context, command: str) -> str:
+    """向 AutoCAD 命令行发送原始命令。
+
+    高级工具 — 当内置工具无法满足需求时，可以直接执行任何 AutoCAD 命令。
+    使用前请确保理解命令的含义。
+
+    Args:
+        command: AutoCAD 命令字符串。例如 "CIRCLE 0,0 10" 在原点绘制半径10的圆
+    """
+    return file_tools.send_command(command)
+
+
+@mcp.tool()
+def get_variable(ctx: Context, variable_name: str) -> str:
+    """获取 AutoCAD 系统变量的当前值。
+
+    常见变量: INSUNITS(单位), LTSCALE(线型比例), DIMSCALE(标注比例),
+    TEXTSIZE(文字高度), PDMODE(点样式), FILLETRAD(圆角半径), etc.
+
+    Args:
+        variable_name: 系统变量名称（不区分大小写）
+    """
+    return file_tools.get_variable(variable_name)
+
+
+@mcp.tool()
+def set_variable(ctx: Context, variable_name: str, value: str) -> str:
+    """设置 AutoCAD 系统变量的值。
+
+    可以修改 CAD 行为的各种参数。
+
+    Args:
+        variable_name: 系统变量名称（如 LTSCALE, DIMSCALE, FILLETRAD）
+        value:         要设置的值（数字或字符串，会自动转换类型）
+    """
+    return file_tools.set_variable(variable_name, value)
+
+
+@mcp.tool()
+def measure_distance(ctx: Context, x1: float, y1: float,
+                     x2: float, y2: float, z1: float = 0.0,
+                     z2: float = 0.0) -> str:
+    """计算两点之间的直线距离和角度。
+
+    不依赖 AutoCAD — 纯数学计算。
+
+    Args:
+        x1, y1, z1: 第一个点坐标
+        x2, y2, z2: 第二个点坐标
+    """
+    return file_tools.measure_distance(x1, y1, x2, y2, z1, z2)
+
+
+@mcp.tool()
+def create_snapshot(ctx: Context, name: str = "") -> str:
+    """创建当前图纸状态的快照（保存到数据库用于追踪变化）。
+
+    可以在不同时间点创建多个快照，然后对比。
+
+    Args:
+        name: 快照名称（可选，默认使用图纸文件名）
+    """
+    return file_tools.create_snapshot(name)
+
+
+@mcp.tool()
+def get_snapshots(ctx: Context, limit: int = 5) -> str:
+    """列出最近的图纸快照记录。
+
+    Args:
+        limit: 返回的快照数量（默认5）
+    """
+    return file_tools.get_snapshots(limit)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  DATABASE TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def get_all_tables(ctx: Context) -> str:
+    """获取 CAD 元数据库中的所有表名。
+
+    查看数据库中有哪些数据可用。
+    """
+    return utility_tools.get_all_tables()
+
+
+@mcp.tool()
+def get_table_schema(ctx: Context, table_name: str) -> str:
+    """获取指定数据库表的列结构（列名、类型、约束）。
+
+    Args:
+        table_name: 表名（如 cad_entities, cad_layers）
+    """
+    return utility_tools.get_table_schema(table_name)
+
+
+@mcp.tool()
+def execute_query(ctx: Context, query: str) -> str:
+    """在 CAD 元数据数据库上执行 SQL 查询。
+
+    数据库包含扫描后的实体、图层、图块、文本模式等信息。
+    这是 AI 理解和分析图纸内容的核心工具。
+
+    常用表：
+      cad_entities     — 所有扫描的实体（type, layer, color, properties JSON）
+      cad_layers       — 图层配置
+      cad_blocks       — 图块定义
+      text_patterns    — 文本搜索统计
+      drawing_snapshots— 图纸快照
+
+    常用查询示例：
+      SELECT type, COUNT(*) as n FROM cad_entities GROUP BY type ORDER BY n DESC
+      SELECT * FROM cad_entities WHERE layer = 'WALL'
+      SELECT * FROM cad_entities WHERE json_extract(geometry, '$.radius') > 10
+      SELECT * FROM cad_entities WHERE type = 'AcDbText' AND json_extract(geometry, '$.text_string') LIKE '%门%'
+
+    Args:
+        query: SQL 查询字符串
+    """
+    return utility_tools.execute_query(query)
+
+
+@mcp.tool()
+def execute_sql_query(ctx: Context, query: str) -> str:
+    """执行 SQL 查询（execute_query 的别名，兼容不同的命名习惯）。"""
+    return utility_tools.execute_sql_query(query)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  GROUP & HATCH TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def create_group(ctx: Context, name: str, handles: List[str]) -> str:
+    """创建实体组（将多个实体编组为一个可整体操作的组）。
+
+    组的优势：可以一次性选择/编辑组内所有实体，但每个实体仍保持独立。
+
+    Args:
+        name:    组名称（建议有意义的名称）
+        handles: 要包含在组中的实体句柄列表
+    """
+    return utility_tools.create_group(name, handles)
+
+
+@mcp.tool()
+def get_all_groups(ctx: Context) -> str:
+    """列出所有已定义的实体组。"""
+    return utility_tools.get_all_groups()
+
+
+@mcp.tool()
+def add_hatch(ctx: Context, pattern_name: str = "ANSI31",
+              associativity: bool = True, layer: Optional[str] = None,
+              color: str = "bylayer") -> str:
+    """创建图案填充对象。
+
+    常用填充图案：
+      ANSI31 = 斜线（最常用，表示剖面）
+      ANSI32 = 交叉斜线
+      ANSI33 = 三线交叉
+      SOLID  = 实心填充
+      AR-CONC= 混凝土纹理
+      AR-BRSTD= 砖纹理
+      AR-SAND= 沙土纹理
+      EARTH  = 泥土纹理
+      GRASS  = 草地纹理
+
+    注意：创建填充对象后，还需要用 hatch_add_boundary 添加边界，
+    或者直接使用 send_command 执行完整 HATCH 命令。
+
+    Args:
+        pattern_name: 填充图案名称
+        associativity: 是否关联（边界改变时填充自动更新）
+        layer:   图层名称
+        color:   颜色
+    """
+    return utility_tools.add_hatch(pattern_name, associativity, layer, color)
+
+
+@mcp.tool()
+def hatch_add_boundary(ctx: Context, handle: str,
+                        boundary_handles: List[str]) -> str:
+    """为已有填充对象添加外边界环。
+
+    填充对象必须先通过 add_hatch 创建。
+    边界实体必须是闭合曲线（圆、椭圆、闭合多段线等）。
+
+    Args:
+        handle:          填充对象句柄（由 add_hatch 返回）
+        boundary_handles: 边界实体句柄列表
+    """
+    return hatch_tools.hatch_add_boundary(handle, boundary_handles)
+
+
+@mcp.tool()
+def hatch_add_inner_loop(ctx: Context, handle: str,
+                          inner_handles: List[str]) -> str:
+    """向已有填充对象添加内部环（孤岛/空洞）。
+
+    内部环定义了填充区域内的空白区域。
+
+    Args:
+        handle:        填充对象句柄
+        inner_handles: 内部环实体句柄列表
+    """
+    return hatch_tools.hatch_add_inner_loop(handle, inner_handles)
+
+
+@mcp.tool()
+def hatch_set_properties(ctx: Context, handle: str,
+                          pattern_scale: Optional[float] = None,
+                          pattern_angle: Optional[float] = None,
+                          pattern_double: Optional[bool] = None,
+                          hatch_style: Optional[int] = None) -> str:
+    """修改已有填充对象的图案属性。
+
+    可同时设置填充比例、旋转角度、双线等。
+
+    Args:
+        handle:         填充对象句柄
+        pattern_scale:  图案缩放比例（如 2=放大2倍, 0.5=缩小一半）
+        pattern_angle:  图案旋转角度（度）
+        pattern_double: 是否启用双线填充（True/False）
+        hatch_style:    孤岛检测: 0=Normal, 1=Outer, 2=Ignore
+    """
+    return hatch_tools.hatch_set_properties(handle, pattern_scale,
+                                              pattern_angle,
+                                              pattern_double, hatch_style)
+
+
+@mcp.tool()
+def hatch_get_properties(ctx: Context, handle: str) -> str:
+    """获取填充对象的所有属性（图案名、缩放、角度、面积、环数等）。
+
+    Args:
+        handle: 填充对象句柄
+    """
+    return hatch_tools.hatch_get_properties(handle)
+
+
+@mcp.tool()
+def hatch_set_gradient(ctx: Context, handle: str,
+                        gradient_type: int = 0,
+                        color1: str = "cyan",
+                        color2: str = "blue") -> str:
+    """将已有填充对象设置为渐变色填充。
+
+    支持各种渐变类型（线性、圆柱、球体等）。
+
+    Args:
+        handle:         填充对象句柄
+        gradient_type:  渐变类型 (0=线性, 1=圆柱, 3=球体...)
+        color1:         起始颜色名称
+        color2:         终止颜色名称
+    """
+    return hatch_tools.hatch_set_gradient(handle, gradient_type,
+                                           color1, color2)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  HELP TOOL
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def get_tool_help(ctx: Context, tool_name: Optional[str] = None) -> str:
+    """获取 CAD MCP 工具帮助。
+
+    无参数时列出所有可用工具的分类概览。
+    指定工具名称时显示该工具的简要说明。
+
+    Args:
+        tool_name: 工具名称（可选，不指定则显示全部工具概览）
+    """
+    return utility_tools.get_tool_help(tool_name)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  3D SOLID TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def draw_box(ctx: Context, center_x: float, center_y: float,
+              center_z: float, length: float, width: float, height: float,
+              layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """在AutoCAD中绘制三维长方体。
+
+    长方体是最基本的三维实体。length=X方向, width=Y方向, height=Z方向。
+
+    Args:
+        center_x, center_y, center_z: 底面中心点坐标
+        length: X方向长度（正数）
+        width:  Y方向宽度（正数）
+        height: Z方向高度（正数）
+        layer:  图层名称
+        color:  颜色
+    """
+    return solid_tools.draw_box(center_x, center_y, center_z,
+                                   length, width, height, layer, color)
+
+
+@mcp.tool()
+def draw_cone(ctx: Context, center_x: float, center_y: float,
+               center_z: float, base_radius: float, height: float,
+               layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """在AutoCAD中绘制三维圆锥体。
+
+    Args:
+        center_x, center_y, center_z: 底面中心点坐标
+        base_radius: 底面半径（正数）
+        height:      高度（正数）
+        layer:       图层名称
+        color:       颜色
+    """
+    return solid_tools.draw_cone(center_x, center_y, center_z,
+                                    base_radius, height, layer, color)
+
+
+@mcp.tool()
+def draw_cylinder(ctx: Context, center_x: float, center_y: float,
+                   center_z: float, radius: float, height: float,
+                   layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """在AutoCAD中绘制三维圆柱体。
+
+    Args:
+        center_x, center_y, center_z: 底面中心点坐标
+        radius: 底面半径（正数）
+        height: 高度（正数）
+        layer:  图层名称
+        color:  颜色
+    """
+    return solid_tools.draw_cylinder(center_x, center_y, center_z,
+                                        radius, height, layer, color)
+
+
+@mcp.tool()
+def draw_sphere(ctx: Context, center_x: float, center_y: float,
+                 center_z: float, radius: float,
+                 layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """在AutoCAD中绘制三维球体。
+
+    Args:
+        center_x, center_y, center_z: 球心坐标
+        radius: 半径（正数）
+        layer:  图层名称
+        color:  颜色
+    """
+    return solid_tools.draw_sphere(center_x, center_y, center_z,
+                                      radius, layer, color)
+
+
+@mcp.tool()
+def draw_torus(ctx: Context, center_x: float, center_y: float,
+                center_z: float, torus_radius: float, tube_radius: float,
+                layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """在AutoCAD中绘制三维圆环体。
+
+    Args:
+        center_x, center_y, center_z: 环心坐标
+        torus_radius: 环半径（中心到管心的距离）
+        tube_radius:  管半径
+        layer:        图层名称
+        color:        颜色
+    """
+    return solid_tools.draw_torus(center_x, center_y, center_z,
+                                     torus_radius, tube_radius, layer, color)
+
+
+@mcp.tool()
+def draw_wedge(ctx: Context, center_x: float, center_y: float,
+                center_z: float, length: float, width: float, height: float,
+                layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """在AutoCAD中绘制三维楔形体（楔形块）。
+
+    Args:
+        center_x, center_y, center_z: 底面中心点坐标
+        length: X方向长度
+        width:  Y方向宽度
+        height: Z方向高度
+        layer:  图层名称
+        color:  颜色
+    """
+    return solid_tools.draw_wedge(center_x, center_y, center_z,
+                                     length, width, height, layer, color)
+
+
+@mcp.tool()
+def draw_elliptical_cone(ctx: Context, center_x: float, center_y: float,
+                           center_z: float, major_radius: float,
+                           minor_radius: float, height: float,
+                           layer: Optional[str] = None,
+                           color: str = "bylayer") -> str:
+    """在AutoCAD中绘制三维椭圆锥体。
+
+    Args:
+        center_x, center_y, center_z: 底面中心
+        major_radius: 长轴半径（X方向）
+        minor_radius: 短轴半径（Y方向）
+        height:       高度（Z方向）
+        layer:        图层名称
+        color:        颜色
+    """
+    return solid_tools.draw_elliptical_cone(center_x, center_y, center_z,
+                                               major_radius, minor_radius,
+                                               height, layer, color)
+
+
+@mcp.tool()
+def draw_elliptical_cylinder(ctx: Context, center_x: float, center_y: float,
+                               center_z: float, major_radius: float,
+                               minor_radius: float, height: float,
+                               layer: Optional[str] = None,
+                               color: str = "bylayer") -> str:
+    """在AutoCAD中绘制三维椭圆柱体。
+
+    Args:
+        center_x, center_y, center_z: 底面中心
+        major_radius: 长轴半径
+        minor_radius: 短轴半径
+        height:       高度
+        layer:        图层名称
+        color:        颜色
+    """
+    return solid_tools.draw_elliptical_cylinder(center_x, center_y, center_z,
+                                                   major_radius, minor_radius,
+                                                   height, layer, color)
+
+
+@mcp.tool()
+def draw_3d_mesh(ctx: Context, m_size: int, n_size: int,
+                  vertices: List[float],
+                  layer: Optional[str] = None,
+                  color: str = "bylayer") -> str:
+    """绘制三维多边形网格 (M×N 顶点网格)。
+
+    Args:
+        m_size:   M方向顶点数 (2-256)
+        n_size:   N方向顶点数 (2-256)
+        vertices: 顶点坐标列表 [x1,y1,z1, x2,y2,z2, ...] 数量 = M×N×3
+        layer:    图层名称
+        color:    颜色
+    """
+    return solid_tools.draw_3d_mesh(m_size, n_size, vertices, layer, color)
+
+
+@mcp.tool()
+def draw_polyface_mesh(ctx: Context, vertices: List[float],
+                        face_list: List[int],
+                        layer: Optional[str] = None,
+                        color: str = "bylayer") -> str:
+    """绘制多面网格。
+
+    Args:
+        vertices:  顶点坐标 [x1,y1,z1, x2,y2,z2, ...]
+        face_list: 面索引列表，每个面4个整数（负值表示不可见边）
+        layer:     图层名称
+        color:     颜色
+    """
+    return solid_tools.draw_polyface_mesh(vertices, face_list, layer, color)
+
+
+@mcp.tool()
+def draw_3d_face(ctx: Context,
+                  x1: float, y1: float, z1: float,
+                  x2: float, y2: float, z2: float,
+                  x3: float, y3: float, z3: float,
+                  x4: Optional[float] = None,
+                  y4: Optional[float] = None,
+                  z4: Optional[float] = None,
+                  layer: Optional[str] = None,
+                  color: str = "bylayer") -> str:
+    """绘制三维面（三角形或四边形）。
+
+    四个顶点可定义一个四边形面；如果省略第四个顶点则为三角形面。
+
+    Args:
+        x1,y1,z1: 第一个顶点
+        x2,y2,z2: 第二个顶点
+        x3,y3,z3: 第三个顶点
+        x4,y4,z4: 第四个顶点（可选，省略则为三角形）
+        layer:    图层名称
+        color:    颜色
+    """
+    return solid_tools.draw_3d_face(x1, y1, z1, x2, y2, z2,
+                                       x3, y3, z3, x4, y4, z4, layer, color)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  REGION & SOLID EDITING TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def add_region(ctx: Context, entity_handles: List[str],
+                layer: Optional[str] = None) -> str:
+    """将闭合曲线转换为面域对象。
+
+    面域是二维封闭区域，可用于拉伸、旋转生成三维实体。
+    原始曲线会被删除。
+
+    Args:
+        entity_handles: 闭合曲线的实体句柄列表（圆、封闭多段线、椭圆等）
+        layer:          图层名称
+    """
+    return solid_tools.add_region(entity_handles, layer)
+
+
+@mcp.tool()
+def extrude_region(ctx: Context, region_handle: str, height: float,
+                    taper_angle: float = 0.0,
+                    layer: Optional[str] = None) -> str:
+    """将面域拉伸为三维实体。
+
+    Args:
+        region_handle: 面域实体句柄
+        height:        拉伸高度（正值向Z正向）
+        taper_angle:   拔模角度（度，-90~90，0=垂直拉伸）
+        layer:         图层名称
+    """
+    return solid_tools.extrude_region(region_handle, height,
+                                         taper_angle, layer)
+
+
+@mcp.tool()
+def extrude_region_along_path(ctx: Context, region_handle: str,
+                               path_handle: str,
+                               layer: Optional[str] = None) -> str:
+    """沿路径曲线拉伸面域生成三维实体。
+
+    路径可以是多段线、样条曲线、圆弧等曲线对象。
+
+    Args:
+        region_handle: 面域实体句柄
+        path_handle:   路径曲线句柄
+        layer:         图层名称
+    """
+    return solid_tools.extrude_region_along_path(region_handle,
+                                                    path_handle, layer)
+
+
+@mcp.tool()
+def revolve_region(ctx: Context, region_handle: str,
+                    axis_x: float, axis_y: float, axis_z: float,
+                    dir_x: float, dir_y: float, dir_z: float,
+                    angle: float = 360.0,
+                    layer: Optional[str] = None) -> str:
+    """将面域绕轴旋转生成三维旋转体。
+
+    常用于创建回转体零件，如轴、轮毂、花瓶等。
+
+    Args:
+        region_handle: 面域实体句柄
+        axis_x,y,z:    旋转轴起点坐标
+        dir_x,y,z:     旋转轴方向向量
+        angle:         旋转角度（度，默认360=完整旋转体）
+        layer:         图层名称
+    """
+    return solid_tools.revolve_region(region_handle,
+                                         axis_x, axis_y, axis_z,
+                                         dir_x, dir_y, dir_z,
+                                         angle, layer)
+
+
+@mcp.tool()
+def solid_boolean(ctx: Context, target_handle: str, tool_handle: str,
+                   operation: str = "union") -> str:
+    """对两个三维实体执行布尔运算（并集/交集/差集）。
+
+    这是三维建模的核心操作之一，可以组合多个简单实体创建复杂形状。
+
+    Args:
+        target_handle: 目标实体句柄（被修改的实体）
+        tool_handle:   工具实体句柄
+        operation:     运算类型: "union"(并集), "intersect"(交集), "subtract"(差集)
+    """
+    return solid_tools.solid_boolean(target_handle, tool_handle, operation)
+
+
+@mcp.tool()
+def check_interference(ctx: Context, handle1: str, handle2: str,
+                        create_solid: bool = True) -> str:
+    """检查两个三维实体是否干涉（相交/碰撞）。
+
+    可用于检查零件装配干涉、碰撞检测等。
+
+    Args:
+        handle1:      第一个实体句柄
+        handle2:      第二个实体句柄
+        create_solid: 是否创建干涉体（True=创建相交部分的实体）
+    """
+    return solid_tools.check_interference(handle1, handle2, create_solid)
+
+
+@mcp.tool()
+def slice_solid(ctx: Context, handle: str,
+                 p1_x: float, p1_y: float, p1_z: float,
+                 p2_x: float, p2_y: float, p2_z: float,
+                 p3_x: float, p3_y: float, p3_z: float,
+                 negative_side_only: bool = False) -> str:
+    """用三点定义的平面对三维实体进行剖切。
+
+    Args:
+        handle:             实体句柄
+        p1_x,y,z:           平面上第一个点
+        p2_x,y,z:           平面上第二个点
+        p3_x,y,z:           平面上第三个点
+        negative_side_only: 是否只保留一侧（默认保留两侧）
+    """
+    return solid_tools.slice_solid(handle,
+                                      p1_x, p1_y, p1_z,
+                                      p2_x, p2_y, p2_z,
+                                      p3_x, p3_y, p3_z,
+                                      negative_side_only)
+
+
+@mcp.tool()
+def section_solid(ctx: Context, handle: str,
+                   p1_x: float, p1_y: float, p1_z: float,
+                   p2_x: float, p2_y: float, p2_z: float,
+                   p3_x: float, p3_y: float, p3_z: float) -> str:
+    """创建三维实体的截面（生成二维面域）。
+
+    不修改原始实体，生成一个新的面域表示截面形状。
+
+    Args:
+        handle:      实体句柄
+        p1_x,y,z:    截面上第一个点
+        p2_x,y,z:    截面上第二个点
+        p3_x,y,z:    截面上第三个点
+    """
+    return solid_tools.section_solid(handle,
+                                        p1_x, p1_y, p1_z,
+                                        p2_x, p2_y, p2_z,
+                                        p3_x, p3_y, p3_z)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  3D ENTITY OPERATIONS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def rotate_3d(ctx: Context, handle: str,
+               axis_x1: float, axis_y1: float, axis_z1: float,
+               axis_x2: float, axis_y2: float, axis_z2: float,
+               angle: float) -> str:
+    """围绕三维空间中的轴旋转实体。
+
+    与普通旋转不同，此操作可围绕任意3D轴旋转。
+
+    Args:
+        handle:                  实体句柄
+        axis_x1,y1,z1:           旋转轴起点
+        axis_x2,y2,z2:           旋转轴终点
+        angle:                   旋转角度（度，右手法则）
+    """
+    return solid_tools.rotate_3d(handle,
+                                    axis_x1, axis_y1, axis_z1,
+                                    axis_x2, axis_y2, axis_z2,
+                                    angle)
+
+
+@mcp.tool()
+def mirror_3d(ctx: Context, handle: str,
+               p1_x: float, p1_y: float, p1_z: float,
+               p2_x: float, p2_y: float, p2_z: float,
+               p3_x: float, p3_y: float, p3_z: float) -> str:
+    """关于三维空间中的平面对实体进行3D镜像。
+
+    Args:
+        handle:       实体句柄
+        p1_x,y,z:     平面上第一个点
+        p2_x,y,z:     平面上第二个点
+        p3_x,y,z:     平面上第三个点
+    """
+    return solid_tools.mirror_3d(handle,
+                                    p1_x, p1_y, p1_z,
+                                    p2_x, p2_y, p2_z,
+                                    p3_x, p3_y, p3_z)
+
+
+@mcp.tool()
+def get_bounding_box(ctx: Context, handle: str) -> str:
+    """获取实体的轴对齐包围盒（最小/最大坐标）。
+
+    Args:
+        handle: 实体句柄
+    """
+    return solid_tools.get_bounding_box(handle)
+
+
+@mcp.tool()
+def intersect_with(ctx: Context, handle1: str, handle2: str,
+                    extend_option: int = 0) -> str:
+    """计算两个实体的交点。
+
+    适用于直线、圆弧、圆、椭圆、样条曲线、多段线之间的求交。
+
+    Args:
+        handle1:       第一个实体句柄
+        handle2:       第二个实体句柄
+        extend_option: 延伸选项:
+                       0=都延伸 1=延伸第一个
+                       2=延伸第二个 3=都不延伸
+    """
+    return solid_tools.intersect_with(handle1, handle2, extend_option)
+
+
+@mcp.tool()
+def transform_entity(ctx: Context, handle: str,
+                      matrix: List[List[float]]) -> str:
+    """对实体应用4×4变换矩阵（平移、旋转、缩放的综合变换）。
+
+    矩阵格式: [[a,b,c,d], [e,f,g,h], [i,j,k,l], [m,n,o,p]]
+
+    Args:
+        handle: 实体句柄
+        matrix: 4×4变换矩阵（16个数值的二维数组）
+    """
+    return solid_tools.transform_entity(handle, matrix)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  HYPERLINKS & XDATA TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def add_hyperlink(ctx: Context, handle: str, url: str,
+                   description: str = "",
+                   named_location: str = "") -> str:
+    """为实体添加超链接。
+
+    可以链接到网页、本地文件或图纸中的命名视图。
+
+    Args:
+        handle:          实体句柄
+        url:             链接URL（网页地址或本地文件路径）
+        description:     链接描述文字（鼠标悬停时显示）
+        named_location:  目标中的命名位置（可选）
+    """
+    return advanced_tools.add_hyperlink(handle, url, description,
+                                         named_location)
+
+
+@mcp.tool()
+def get_hyperlinks(ctx: Context, handle: str) -> str:
+    """获取实体上所有超链接的详细信息。
+
+    Args:
+        handle: 实体句柄
+    """
+    return advanced_tools.get_hyperlinks(handle)
+
+
+@mcp.tool()
+def remove_hyperlink(ctx: Context, handle: str, index: int = 0) -> str:
+    """删除实体上的指定超链接。
+
+    Args:
+        handle: 实体句柄
+        index:  超链接索引（0=第一个，1=第二个，...）
+    """
+    return advanced_tools.remove_hyperlink(handle, index)
+
+
+@mcp.tool()
+def get_xdata(ctx: Context, handle: str, app_name: str = "") -> str:
+    """获取实体上的扩展数据 (XData)。
+
+    扩展数据是附着在实体上的自定义数据，
+    可用于存储AI生成的元数据、分类标签、注释等。
+
+    Args:
+        handle:   实体句柄
+        app_name: 注册应用名称（空字符串=获取所有应用的XData）
+    """
+    return advanced_tools.get_xdata(handle, app_name)
+
+
+@mcp.tool()
+def set_xdata(ctx: Context, handle: str, app_name: str,
+               data_pairs: List[Dict[str, Any]]) -> str:
+    """为实体设置扩展数据 (XData)。
+
+    可以在实体上存储自定义的结构化数据。
+    例如: [{"code": 1000, "value": "承重墙"}, {"code": 1040, "value": 3.5}]
+
+    常用DXF组码:
+      1000: ASCII字符串  1001: 应用名称
+      1040: 实数        1070: 整数
+
+    Args:
+        handle:     实体句柄
+        app_name:   注册应用名称（会自动注册）
+        data_pairs: 数据对列表 [{"code": 组码, "value": 值}, ...]
+    """
+    return advanced_tools.set_xdata(handle, app_name, data_pairs)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  UCS TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def create_ucs(ctx: Context, origin_x: float, origin_y: float,
+                origin_z: float, x_axis_x: float, x_axis_y: float,
+                x_axis_z: float, y_axis_x: float, y_axis_y: float,
+                y_axis_z: float, name: str) -> str:
+    """创建命名用户坐标系 (UCS)。
+
+    UCS 定义自定义坐标系统，用于在3D空间中的特定平面上绘图。
+
+    Args:
+        origin_x,y,z:  UCS原点（WCS坐标）
+        x_axis_x,y,z:  X轴正方向点（定义X轴方向）
+        y_axis_x,y,z:  Y轴正方向点（定义Y轴方向）
+        name:          UCS名称
+    """
+    return advanced_tools.create_ucs(origin_x, origin_y, origin_z,
+                                      x_axis_x, x_axis_y, x_axis_z,
+                                      y_axis_x, y_axis_y, y_axis_z,
+                                      name)
+
+
+@mcp.tool()
+def get_all_ucs(ctx: Context) -> str:
+    """列出所有命名UCS（用户坐标系）。"""
+    return advanced_tools.get_all_ucs()
+
+
+@mcp.tool()
+def set_active_ucs(ctx: Context, name: str) -> str:
+    """激活指定的UCS。
+
+    Args:
+        name: UCS名称
+    """
+    return advanced_tools.set_active_ucs(name)
+
+
+@mcp.tool()
+def get_active_ucs(ctx: Context) -> str:
+    """获取当前活动UCS的详细信息。"""
+    return advanced_tools.get_active_ucs()
+
+
+# ══════════════════════════════════════════════════════════════════
+#  NAMED VIEWS TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def save_named_view(ctx: Context, name: str) -> str:
+    """将当前视图保存为命名视图（方便后续快速恢复视角）。
+
+    Args:
+        name: 视图名称（如 "正面视角", "细节视图A"）
+    """
+    return advanced_tools.save_named_view(name)
+
+
+@mcp.tool()
+def restore_named_view(ctx: Context, name: str) -> str:
+    """恢复到之前保存的命名视图。
+
+    Args:
+        name: 视图名称
+    """
+    return advanced_tools.restore_named_view(name)
+
+
+@mcp.tool()
+def get_named_views(ctx: Context) -> str:
+    """列出所有命名视图及其配置。"""
+    return advanced_tools.get_named_views()
+
+
+@mcp.tool()
+def delete_named_view(ctx: Context, name: str) -> str:
+    """删除命名视图。
+
+    Args:
+        name: 视图名称
+    """
+    return advanced_tools.delete_named_view(name)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  VIEWPORT TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def add_viewport(ctx: Context, center_x: float, center_y: float,
+                  width: float, height: float,
+                  layer: Optional[str] = None) -> str:
+    """在图纸空间布局中创建视口。
+
+    视口用于在布局中显示模型空间的内容，可设置不同的比例和视角。
+
+    Args:
+        center_x, center_y: 视口中心点（图纸空间坐标）
+        width:              视口宽度
+        height:             视口高度
+        layer:              图层名称
+    """
+    return advanced_tools.add_viewport(center_x, center_y, width, height, layer)
+
+
+@mcp.tool()
+def get_viewports(ctx: Context) -> str:
+    """列出所有图纸空间视口。"""
+    return advanced_tools.get_viewports()
+
+
+@mcp.tool()
+def set_viewport_properties(ctx: Context, handle: str,
+                             display_locked: Optional[bool] = None,
+                             custom_scale: Optional[float] = None,
+                             on: Optional[bool] = None) -> str:
+    """设置图纸空间视口的属性。
+
+    Args:
+        handle:         视口句柄
+        display_locked: 是否锁定视口显示（锁定后无法缩放/平移）
+        custom_scale:   自定义缩放比例（如 1/100 = 0.01）
+        on:             是否打开视口
+    """
+    return advanced_tools.set_viewport_properties(handle,
+                                                   display_locked,
+                                                   custom_scale, on)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  PLOT/PRINT TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def plot_to_device(ctx: Context, plot_config: str = "") -> str:
+    """将当前布局发送到打印设备/绘图仪。
+
+    Args:
+        plot_config: 打印配置名称（PC3文件名或Windows打印机名称）
+    """
+    return advanced_tools.plot_to_device(plot_config)
+
+
+@mcp.tool()
+def plot_to_file(ctx: Context, filepath: str, plot_config: str = "") -> str:
+    """将当前布局打印输出到 PLT 文件。
+
+    Args:
+        filepath:    输出文件路径（如 C:/plots/drawing.plt）
+        plot_config: 打印配置名称
+    """
+    return advanced_tools.plot_to_file(filepath, plot_config)
+
+
+@mcp.tool()
+def plot_preview(ctx: Context, preview_type: int = 1) -> str:
+    """显示打印预览窗口。
+
+    Args:
+        preview_type: 0=部分预览（纸张大小）, 1=完整预览（含图形内容）
+    """
+    return advanced_tools.plot_preview(preview_type)
+
+
+@mcp.tool()
+def get_plot_devices(ctx: Context) -> str:
+    """列出所有可用的打印设备/绘图仪。"""
+    return advanced_tools.get_plot_devices()
+
+
+@mcp.tool()
+def get_plot_style_tables(ctx: Context) -> str:
+    """列出所有可用的打印样式表（CTB和STB文件）。"""
+    return advanced_tools.get_plot_style_tables()
+
+
+@mcp.tool()
+def get_plot_configurations(ctx: Context) -> str:
+    """列出所有命名页面设置（打印配置）。"""
+    return advanced_tools.get_plot_configurations()
+
+
+# ══════════════════════════════════════════════════════════════════
+#  MATERIALS TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def create_material(ctx: Context, name: str, description: str = "") -> str:
+    """创建新的渲染材质。
+
+    Args:
+        name:        材质名称（如 "不锈钢", "木材"）
+        description: 材质描述
+    """
+    return advanced_tools.create_material(name, description)
+
+
+@mcp.tool()
+def get_materials(ctx: Context) -> str:
+    """列出所有已定义的材质。"""
+    return advanced_tools.get_materials()
+
+
+@mcp.tool()
+def set_entity_material(ctx: Context, handle: str,
+                         material_name: str) -> str:
+    """为实体分配材质。
+
+    Args:
+        handle:        实体句柄
+        material_name: 材质名称
+    """
+    return advanced_tools.set_entity_material(handle, material_name)
+
+
+@mcp.tool()
+def set_active_material(ctx: Context, material_name: str) -> str:
+    """设置当前材质（新创建的对象将使用此材质）。
+
+    Args:
+        material_name: 材质名称
+    """
+    return advanced_tools.set_active_material(material_name)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  LINETYPE TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def load_linetype(ctx: Context, name: str, filename: str = "acad.lin") -> str:
+    """从线型库文件加载线型。
+
+    常用线型: HIDDEN(虚线), CENTER(中心线), DASHDOT(点划线),
+    PHANTOM(假想线), DIVIDE(分界线), BORDER(边界线)
+
+    Args:
+        name:     线型名称
+        filename: 线型库文件名（默认 acad.lin，也可用 acadiso.lin）
+    """
+    return advanced_tools.load_linetype(name, filename)
+
+
+@mcp.tool()
+def get_linetypes(ctx: Context) -> str:
+    """列出所有已加载的线型。"""
+    return advanced_tools.get_linetypes()
+
+
+# ══════════════════════════════════════════════════════════════════
+#  UTILITY / GEOMETRY TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def polar_point(ctx: Context, x: float, y: float, z: float,
+                 angle_deg: float, distance: float) -> str:
+    """计算从起点出发，指定角度和距离的目标点坐标。
+
+    常用于：已知一个点和方向，计算另一个点的位置。
+
+    Args:
+        x, y, z:   起点坐标
+        angle_deg: 角度（度，从X轴逆时针计算）
+        distance:  距离
+    """
+    return advanced_tools.polar_point(x, y, z, angle_deg, distance)
+
+
+@mcp.tool()
+def translate_coordinates(ctx: Context, x: float, y: float, z: float,
+                           from_cs: int = 0, to_cs: int = 1) -> str:
+    """在不同坐标系之间转换坐标。
+
+    坐标系统: 0=WCS世界, 1=UCS用户, 2=DCS显示, 3=PSDCS图纸空间, 4=OCS对象
+
+    Args:
+        x, y, z: 源坐标
+        from_cs: 源坐标系代码（默认0=WCS）
+        to_cs:   目标坐标系代码（默认1=UCS）
+    """
+    return advanced_tools.translate_coordinates(x, y, z, from_cs, to_cs)
+
+
+@mcp.tool()
+def angle_from_xaxis(ctx: Context, x1: float, y1: float,
+                      x2: float, y2: float, z1: float = 0.0,
+                      z2: float = 0.0) -> str:
+    """计算两点连线与X轴之间的夹角。
+
+    Args:
+        x1,y1,z1: 第一个点
+        x2,y2,z2: 第二个点
+    """
+    return advanced_tools.angle_from_xaxis(x1, y1, x2, y2, z1, z2)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  PREFERENCES TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def get_preference(ctx: Context, pref_path: str) -> str:
+    """读取单个 AutoCAD 偏好设置值。
+
+    pref_path 格式: "Category.Property"
+
+    常用示例:
+      Display.CursorSize — 十字光标大小 (1-100)
+      Drafting.AutoSnapMarker — 自动捕捉标记开关
+      OpenSave.AutoSaveInterval — 自动保存间隔(分钟)
+      Selection.PickBoxSize — 拾取框大小
+      Selection.DisplayGrips — 夹点显示
+
+    Args:
+        pref_path: 偏好路径
+    """
+    return advanced_tools.get_preference(pref_path)
+
+
+@mcp.tool()
+def set_preference(ctx: Context, pref_path: str, value: str) -> str:
+    """设置单个 AutoCAD 偏好设置。
+
+    Args:
+        pref_path: 偏好路径（如 OpenSave.AutoSaveInterval）
+        value:     新值（数字或 True/False）
+    """
+    return advanced_tools.set_preference(pref_path, value)
+
+
+@mcp.tool()
+def get_preferences_display(ctx: Context) -> str:
+    """获取显示相关偏好设置（光标大小、布局选项卡等）。"""
+    return advanced_tools.get_preferences_display()
+
+
+@mcp.tool()
+def get_preferences_drafting(ctx: Context) -> str:
+    """获取绘图相关偏好设置（自动捕捉、极轴追踪等）。"""
+    return advanced_tools.get_preferences_drafting()
+
+
+@mcp.tool()
+def get_preferences_files(ctx: Context) -> str:
+    """获取文件路径偏好设置（支持路径、模板路径等）。"""
+    return advanced_tools.get_preferences_files()
+
+
+@mcp.tool()
+def get_preferences_opensave(ctx: Context) -> str:
+    """获取打开/保存偏好设置（自动保存间隔、备份等）。"""
+    return advanced_tools.get_preferences_opensave()
+
+
+@mcp.tool()
+def get_preferences_selection(ctx: Context) -> str:
+    """获取选择偏好设置（夹点、拾取框大小等）。"""
+    return advanced_tools.get_preferences_selection()
+
+
+@mcp.tool()
+def get_preferences_system(ctx: Context) -> str:
+    """获取系统偏好设置。"""
+    return advanced_tools.get_preferences_system()
+
+
+@mcp.tool()
+def get_preferences_user(ctx: Context) -> str:
+    """获取用户偏好设置。"""
+    return advanced_tools.get_preferences_user()
+
+
+# ══════════════════════════════════════════════════════════════════
+#  APPLICATION & DOCUMENT UTILITY TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def get_application_info(ctx: Context) -> str:
+    """获取 AutoCAD 应用程序信息（版本号、安装路径等）。"""
+    return advanced_tools.get_application_info()
+
+
+@mcp.tool()
+def is_autocad_idle(ctx: Context) -> str:
+    """检查 AutoCAD 是否处于空闲状态（未处理命令）。"""
+    return advanced_tools.is_autocad_idle()
+
+
+@mcp.tool()
+def set_document_properties(ctx: Context, title: Optional[str] = None,
+                             subject: Optional[str] = None,
+                             author: Optional[str] = None,
+                             keywords: Optional[str] = None,
+                             comments: Optional[str] = None) -> str:
+    """设置当前图纸的摘要属性（标题、作者、关键词等）。
+
+    Args:
+        title:    图纸标题
+        subject:  主题
+        author:   作者
+        keywords: 关键词（逗号分隔）
+        comments: 注释
+    """
+    return advanced_tools.set_document_properties(title, subject, author,
+                                                   keywords, comments)
+
+
+@mcp.tool()
+def set_drawing_password(ctx: Context, password: str) -> str:
+    """为当前图纸设置打开密码（加密保存）。
+
+    注意：设置密码后必须保存文件才能生效。
+
+    Args:
+        password: 密码字符串
+    """
+    return advanced_tools.set_drawing_password(password)
+
+
+@mcp.tool()
+def get_file_dependencies(ctx: Context) -> str:
+    """列出当前图纸的所有文件依赖（外部参照、图片、字体等）。"""
+    return advanced_tools.get_file_dependencies()
+
+
+@mcp.tool()
+def get_active_space_info(ctx: Context) -> str:
+    """获取当前工作空间信息（模型空间还是图纸空间）。"""
+    return advanced_tools.get_active_space_info()
+
+
+# ══════════════════════════════════════════════════════════════════
+#  SELECTION ENHANCEMENTS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def select_by_fence(ctx: Context, points: List[float]) -> str:
+    """栏选：选择与指定折线相交的所有实体。
+
+    栏选是 CAD 中高效的批量选择方式，穿越栏选线的实体都会被选中。
+
+    Args:
+        points: 栏选折线的顶点坐标 [x1,y1, x2,y2, x3,y3, ...]
+    """
+    return advanced_tools.select_by_fence(points)
+
+
+@mcp.tool()
+def select_by_wpolygon(ctx: Context, points: List[float]) -> str:
+    """窗口多边形选择：选择完全在多边形内部的实体。
+
+    Args:
+        points: 多边形顶点坐标列表 [x1,y1, x2,y2, ...]
+    """
+    return advanced_tools.select_by_wpolygon(points)
+
+
+@mcp.tool()
+def select_by_cpolygon(ctx: Context, points: List[float]) -> str:
+    """交叉多边形选择：选择与多边形相交或在其内的实体。
+
+    Args:
+        points: 多边形顶点坐标列表 [x1,y1, x2,y2, ...]
+    """
+    return advanced_tools.select_by_cpolygon(points)
+
+
+@mcp.tool()
+def select_at_point(ctx: Context, x: float, y: float,
+                    z: float = 0.0) -> str:
+    """选择经过指定点的所有实体。
+
+    Args:
+        x, y, z: 选择点坐标
+    """
+    return advanced_tools.select_at_point(x, y, z)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  DICTIONARIES & REGISTERED APPS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def create_registered_application(ctx: Context, name: str) -> str:
+    """注册新的应用名称（用于存储扩展数据 XData）。
+
+    Args:
+        name: 应用名称（如 "MY_AI_METADATA", "PROJECT_DATA"）
+    """
+    return advanced_tools.create_registered_application(name)
+
+
+@mcp.tool()
+def get_registered_applications(ctx: Context) -> str:
+    """列出所有已注册的应用名称。"""
+    return advanced_tools.get_registered_applications()
+
+
+@mcp.tool()
+def get_dictionaries(ctx: Context) -> str:
+    """列出所有命名字典（用于存储自定义对象和 XRecords）。"""
+    return advanced_tools.get_dictionaries()
+
+
+# ══════════════════════════════════════════════════════════════════
+#  ADDITIONAL UTILITY TOOLS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def angle_to_real(ctx: Context, angle_str: str, unit: int = 0) -> str:
+    """将角度字符串解析为弧度值。
+
+    单位: 0=十进制度, 1=度/分/秒, 2=百分度(grads), 3=弧度
+
+    Args:
+        angle_str: 角度字符串（如 "45.5", "45d30'0\""）
+        unit:      角度单位
+    """
+    return utility_tools.angle_to_real(angle_str, unit)
+
+
+@mcp.tool()
+def angle_to_string(ctx: Context, angle_rad: float, unit: int = 0,
+                     precision: int = 2) -> str:
+    """将弧度角度格式化为指定单位的字符串。
+
+    Args:
+        angle_rad: 角度值（弧度）
+        unit:      单位: 0=十进制度, 1=度/分/秒, 2=百分度, 3=弧度
+        precision: 精度位数
+    """
+    return utility_tools.angle_to_string(angle_rad, unit, precision)
+
+
+@mcp.tool()
+def distance_to_real(ctx: Context, dist_str: str, unit: int = 0) -> str:
+    """将距离字符串解析为实数。
+
+    单位: 0=十进制, 1=工程制, 2=建筑制, 3=分数制
+
+    Args:
+        dist_str: 距离字符串
+        unit:     单位
+    """
+    return utility_tools.distance_to_real(dist_str, unit)
+
+
+@mcp.tool()
+def real_to_string(ctx: Context, value: float, unit: int = 0,
+                    precision: int = 2) -> str:
+    """将实数值格式化为指定单位的字符串。
+
+    Args:
+        value:     数值
+        unit:      单位: 0=十进制, 1=工程制, 2=建筑制, 3=分数制
+        precision: 精度位数
+    """
+    return utility_tools.real_to_string(value, unit, precision)
+
+
+@mcp.tool()
+def select_on_screen(ctx: Context) -> str:
+    """交互式屏幕选择 — 提示用户在 AutoCAD 中手动选择实体。
+
+    注意：这需要用户正在交互式使用 AutoCAD。
+    """
+    return utility_tools.select_on_screen()
+
+
+@mcp.tool()
+def delete_selection_set(ctx: Context, ss_name: str = "MCP_TEMP_SS") -> str:
+    """删除指定选择集中的所有实体。
+
+    Args:
+        ss_name: 选择集名称（默认 "MCP_TEMP_SS"）
+    """
+    return utility_tools.delete_selection_set(ss_name)
+
+
+@mcp.tool()
+def clear_selection_set(ctx: Context, ss_name: str = "MCP_TEMP_SS") -> str:
+    """清空指定选择集（不移除实体，只清空选择）。
+
+    Args:
+        ss_name: 选择集名称（默认 "MCP_TEMP_SS"）
+    """
+    return utility_tools.clear_selection_set(ss_name)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  POLYLINE OPERATIONS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def polyline_set_bulge(ctx: Context, handle: str, index: int,
+                        bulge: float) -> str:
+    """设置多段线顶点的凸度（创建曲线段/圆弧段）。
+
+    凸度因子: 0=直线段, 正值=逆时针圆弧, 负值=顺时针圆弧。
+    凸度 = tan(圆心角/4)，常用范围 -1 到 1。
+
+    Args:
+        handle: 多段线实体句柄
+        index:  顶点索引（从0开始）
+        bulge:  凸度值
+    """
+    return polyline_tools.polyline_set_bulge(handle, index, bulge)
+
+
+@mcp.tool()
+def polyline_get_bulge(ctx: Context, handle: str, index: int) -> str:
+    """获取多段线顶点的凸度值。
+
+    Args:
+        handle: 多段线实体句柄
+        index:  顶点索引
+    """
+    return polyline_tools.polyline_get_bulge(handle, index)
+
+
+@mcp.tool()
+def polyline_set_width(ctx: Context, handle: str, seg_index: int,
+                        start_width: float, end_width: float) -> str:
+    """设置多段线段的起点和终点宽度（创建变宽线段）。
+
+    可创建渐变宽度效果，如箭头、流线型等。
+
+    Args:
+        handle:      多段线实体句柄
+        seg_index:   段索引（段连接顶点 seg_index 和 seg_index+1）
+        start_width: 段起点宽度
+        end_width:   段终点宽度
+    """
+    return polyline_tools.polyline_set_width(handle, seg_index,
+                                              start_width, end_width)
+
+
+@mcp.tool()
+def polyline_get_width(ctx: Context, handle: str, seg_index: int) -> str:
+    """获取多段线段的起点和终点宽度。
+
+    Args:
+        handle:    多段线实体句柄
+        seg_index: 段索引
+    """
+    return polyline_tools.polyline_get_width(handle, seg_index)
+
+
+@mcp.tool()
+def polyline_add_vertex(ctx: Context, handle: str, index: int,
+                         x: float, y: float) -> str:
+    """向多段线在指定位置添加新顶点。
+
+    Args:
+        handle: 多段线实体句柄
+        index:  插入位置索引（0=开头, -1=末尾）
+        x, y:   新顶点坐标
+    """
+    return polyline_tools.polyline_add_vertex(handle, index, x, y)
+
+
+@mcp.tool()
+def polyline_constant_width(ctx: Context, handle: str,
+                             width: Optional[float] = None) -> str:
+    """获取或设置多段线的统一线宽。
+
+    不传 width 参数=获取当前统一宽度。
+    传入 width 值=将所有段设为该统一宽度。
+
+    Args:
+        handle: 多段线实体句柄
+        width:  统一宽度（不传=获取）
+    """
+    return polyline_tools.polyline_constant_width(handle, width)
+
+
+@mcp.tool()
+def polyline_num_vertices(ctx: Context, handle: str) -> str:
+    """获取多段线的顶点总数。
+
+    Args:
+        handle: 多段线实体句柄
+    """
+    return polyline_tools.polyline_num_vertices(handle)
+
+
+@mcp.tool()
+def polyline_get_point_at_param(ctx: Context, handle: str,
+                                 param: float) -> str:
+    """获取多段线上指定参数处的3D坐标。
+
+    Args:
+        handle: 多段线实体句柄
+        param:  参数值（沿多段线的归一化距离）
+    """
+    return polyline_tools.polyline_get_point_at_param(handle, param)
+
+
+@mcp.tool()
+def polyline_get_segment_type(ctx: Context, handle: str,
+                                index: int) -> str:
+    """获取多段线段的类型（直线段 "line" 或圆弧段 "arc"）。
+
+    Args:
+        handle: 多段线实体句柄
+        index:  段索引（从0开始）
+    """
+    return polyline_tools.polyline_get_segment_type(handle, index)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  PROMPTS
+# ══════════════════════════════════════════════════════════════════
+
+@mcp.prompt()
+def cad_workflow_guide() -> str:
+    """CAD MCP 工作流指南 — 教 AI 如何使用这套工具完成 CAD 任务。"""
+    return """你是 CAD MCP 专家。使用这套工具时请遵循以下工作流：
+
+## 基础工作流
+
+1. **开始工作** — 使用 create_new_drawing 或 open_drawing 打开/创建图纸
+2. **了解图纸** — 使用 scan_all_entities 扫描图纸，用 get_entity_statistics 了解构成
+3. **设置图层** — 使用 create_layer 创建组织图层（如 WALL, DOOR, DIM, TEXT）
+4. **绘制内容** — 使用 draw_* 系列工具绘制实体
+5. **编辑优化** — 使用 move_entity, copy_entity, array_* 等修改内容
+6. **标注尺寸** — 使用 add_*_dimension 系列工具添加尺寸标注
+7. **添加注释** — 使用 draw_text, add_leader 添加文字和引线
+8. **保存导出** — 使用 save_drawing, export_pdf 保存和导出
+
+## 数据分析工作流
+
+1. scan_all_entities → 将图纸转为结构化数据
+2. execute_query → 用 SQL 分析数据（用 execute_sql_query 也可以）
+   - 按类型统计: SELECT type, COUNT(*) FROM cad_entities GROUP BY type
+   - 图层分析: SELECT layer, COUNT(*) FROM cad_entities GROUP BY layer
+   - 搜索文字: SELECT * FROM cad_entities WHERE json_extract(geometry, '$.text_string') LIKE '%关键词%'
+3. highlight_query_results → 在 CAD 中高亮查询结果
+4. get_entity_properties → 查看特定实体的详细信息
+
+## 坐标参考
+
+- 默认使用毫米单位（INSUNITS=4）
+- A3图纸: 420×297, A4图纸: 297×210
+- 原点(0,0)在左下角
+- X轴向右，Y轴向上
+
+## 注意事项
+
+- 所有实体都有唯一的 handle（句柄），保存它用于后续编辑
+- 图层必须存在才能使用，绘图工具会自动创建不存在的图层
+- 使用 zoom_extents 确保能看到所有内容
+- 重大修改后使用 save_drawing 保存
+- 不确定时使用 get_tool_help 查看可用工具
+"""
+
+
+@mcp.prompt()
+def cad_layer_planning() -> str:
+    """CAD 图层规划提示 — 帮助 AI 设计合理的图层结构。"""
+    return """## CAD 图层规划指南
+
+在设计图层结构时，请遵循行业最佳实践：
+
+### 推荐图层命名规范
+
+基于 AIA CAD 图层标准简化版：
+
+| 类别 | 图层前缀 | 示例 |
+|------|---------|------|
+| 建筑 | A- | A-WALL, A-DOOR, A-WINDOW |
+| 结构 | S- | S-COLUMN, S-BEAM, S-FOUND |
+| 电气 | E- | E-LIGHT, E-POWER, E-DATA |
+| 暖通 | M- | M-DUCT, M-PIPE |
+| 给排水 | P- | P-COLD, P-HOT, P-DRAIN |
+| 标注 | DIM-| DIM-PLAN, DIM-SECTION |
+| 文字 | TEXT-| TEXT-NOTE, TEXT-TITLE |
+
+### 图层颜色约定
+
+- 深色对象（红色1/洋红6）: 主要构筑物
+- 浅色对象（青色4/绿色3）: 辅助对象
+- 蓝色(5): 文字和标注
+- 灰色(252-254): 底图/参照
+
+### AI 建图层示例
+
+开始绘图前，使用 create_layer 建立图层：
+```
+create_layer("A-WALL", color=1)     # 红-墙体
+create_layer("A-DOOR", color=3)     # 绿-门
+create_layer("A-WINDOW", color=4)   # 青-窗
+create_layer("DIM-PLAN", color=5)   # 蓝-尺寸
+create_layer("TEXT-NOTE", color=7)  # 白-文字
+```
+"""
+
+
+# ══════════════════════════════════════════════════════════════════
+#  MAIN
+# ══════════════════════════════════════════════════════════════════
+
+def main():
+    """Entry point for the cad-mcp console script."""
+    logger.info("CAD服务已初始化")
+    logger.info("服务器正在使用 stdio 传输运行")
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()
