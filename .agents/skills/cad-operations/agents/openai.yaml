@@ -1,0 +1,7 @@
+interface:
+  display_name: "CAD Operations"
+  short_description: "Use full best-cad-mcp tools for safe AutoCAD drafting"
+  default_prompt: "Use $cad-operations to create, inspect, edit, annotate, and verify an AutoCAD drawing with the correct MCP tools."
+
+policy:
+  allow_implicit_invocation: true

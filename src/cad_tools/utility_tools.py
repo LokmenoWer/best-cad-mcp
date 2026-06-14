@@ -32,10 +32,13 @@ def execute_query(query: str) -> str:
     """在 CAD 元数据数据库上执行 SQL 查询。
 
     数据库包含扫描后的实体、图层、图块、文本模式等信息。
-    这是 AI 理解图纸的关键工具 — 可以用 SQL 进行复杂的过滤、统计、关联分析。
+    这是 AI 理解图纸的关键工具 — 可以用只读 SQL 进行复杂的过滤、统计、关联分析。
 
     常用表:
       - cad_entities:  所有扫描的实体（handle, type, layer, color, properties JSON）
+      - cad_geometry_primitives: 派生点、线、曲线、面、体
+      - cad_geometry_relations:  派生拓扑关系（starts_at/ends_at/bounded_by）
+      - cad_topology_summary:    每个实体的点线面体摘要
       - cad_layers:    图层配置
       - cad_blocks:    图块定义
       - text_patterns: 文本搜索统计
@@ -44,13 +47,13 @@ def execute_query(query: str) -> str:
     常用查询示例:
       - 按类型统计: SELECT type, COUNT(*) FROM cad_entities GROUP BY type
       - 按图层过滤: SELECT * FROM cad_entities WHERE layer='WALL'
-      - 搜索文字:   SELECT * FROM cad_entities WHERE json_extract(properties, '$.text_string') LIKE '%门%'
+      - 搜索文字:   SELECT * FROM cad_entities WHERE json_extract(geometry, '$.text_string') LIKE '%门%'
 
     Args:
-        query: SQL 查询字符串（SELECT/INSERT/UPDATE/DELETE）
+        query: 只读 SQL 查询字符串（SELECT/WITH/PRAGMA/EXPLAIN）
     """
     try:
-        result = db.execute(query)
+        result = db.execute(query, read_only=True)
         if "columns" in result:
             # Return as formatted table
             cols = result["columns"]
@@ -67,6 +70,18 @@ def execute_query(query: str) -> str:
 def execute_sql_query(query: str) -> str:
     """执行 SQL 查询（execute_query 的别名）。"""
     return execute_query(query)
+
+
+def get_entity_topology(handle: str) -> str:
+    """Return derived point/line/surface topology for one entity."""
+    topology = db.get_entity_topology(handle)
+    return json.dumps(topology, indent=2, ensure_ascii=False, default=str)
+
+
+def get_topology_summary(limit: int = 100) -> str:
+    """Return compact topology summaries for scanned entities."""
+    rows = db.get_topology_summary(limit)
+    return json.dumps(rows, indent=2, ensure_ascii=False, default=str)
 
 
 # ── Group Tools ────────────────────────────────────────────────
@@ -199,6 +214,15 @@ def delete_selection_set(ss_name: str = "MCP_TEMP_SS") -> str:
     return r["message"]
 
 
+def erase_selection_entities(ss_name: str = "MCP_TEMP_SS") -> str:
+    """Erase all drawing entities in a selection set.
+
+    Args:
+        ss_name: selection set name
+    """
+    return delete_selection_set(ss_name)
+
+
 def clear_selection_set(ss_name: str = "MCP_TEMP_SS") -> str:
     """Clear a selection set (remove entities from set, not from drawing).
 
@@ -210,6 +234,345 @@ def clear_selection_set(ss_name: str = "MCP_TEMP_SS") -> str:
 
 
 # ── Help / Documentation ───────────────────────────────────────
+
+TOOL_ROUTING_CATALOG = [
+    {
+        "category": "2D drawing",
+        "tool": "draw_rectangle",
+        "use": "Draw any rectangle or square from two opposite corners.",
+        "avoid": "Do not draw rectangles as four draw_line calls.",
+        "keywords": ["rectangle", "rect", "square", "box outline", "矩形", "正方形"],
+    },
+    {
+        "category": "2D drawing",
+        "tool": "draw_polygon",
+        "use": "Draw regular triangles, pentagons, hexagons, octagons, and other equal-sided polygons.",
+        "avoid": "Do not build regular polygons from repeated line segments.",
+        "keywords": ["polygon", "triangle", "hexagon", "octagon", "regular", "多边形", "三角形", "六边形", "八边形"],
+    },
+    {
+        "category": "2D drawing",
+        "tool": "draw_mline",
+        "use": "Draw parallel multi-lines such as walls, roads, or double-line symbols.",
+        "avoid": "Do not fake walls with two offset draw_line calls.",
+        "keywords": ["wall", "walls", "parallel line", "double line", "mline", "墙", "墙体", "平行线", "双线"],
+    },
+    {
+        "category": "2D drawing",
+        "tool": "draw_spline",
+        "use": "Draw smooth free-form curves through fit points.",
+        "avoid": "Do not approximate smooth curves with many short lines.",
+        "keywords": ["spline", "smooth curve", "freeform", "curve", "样条", "曲线", "平滑"],
+    },
+    {
+        "category": "2D drawing",
+        "tool": "draw_donut",
+        "use": "Draw a ring, washer, gasket, or filled annulus.",
+        "avoid": "Do not draw a ring as separate circles unless hatch/fill behavior is intentional.",
+        "keywords": ["donut", "ring", "washer", "gasket", "annulus", "圆环", "垫圈"],
+    },
+    {
+        "category": "Polyline detailing",
+        "tool": "polyline_set_bulge",
+        "use": "Make a polyline segment into a true arc segment.",
+        "avoid": "Do not approximate arc segments with many short line segments.",
+        "keywords": ["bulge", "arc segment", "curved polyline", "圆弧段", "凸度"],
+    },
+    {
+        "category": "Polyline detailing",
+        "tool": "fillet_polyline",
+        "use": "Round all corners of one polyline in one operation.",
+        "avoid": "Do not fillet each corner manually when the whole polyline should be rounded.",
+        "keywords": ["fillet polyline", "round all corners", "rounded rectangle", "polyline fillet", "圆角矩形", "多段线圆角"],
+    },
+    {
+        "category": "Polyline detailing",
+        "tool": "chamfer_polyline",
+        "use": "Chamfer all corners of one polyline in one operation.",
+        "avoid": "Do not chamfer each corner manually when the whole polyline should be beveled.",
+        "keywords": ["chamfer polyline", "bevel all corners", "多段线倒角", "倒角"],
+    },
+    {
+        "category": "Editing",
+        "tool": "move_entity",
+        "use": "Move existing geometry by handle.",
+        "avoid": "Do not delete and redraw geometry just to reposition it.",
+        "keywords": ["move", "reposition", "shift", "移动", "平移"],
+    },
+    {
+        "category": "Editing",
+        "tool": "mirror_entity",
+        "use": "Mirror existing geometry across a line.",
+        "avoid": "Do not redraw a flipped copy by hand.",
+        "keywords": ["mirror", "symmetry", "reflect", "镜像", "对称"],
+    },
+    {
+        "category": "Editing",
+        "tool": "offset_entity",
+        "use": "Create a parallel or concentric copy at a distance.",
+        "avoid": "Do not redraw an offset line, circle, wall, or boundary manually.",
+        "keywords": ["offset", "parallel copy", "concentric", "偏移", "等距", "同心"],
+    },
+    {
+        "category": "Editing",
+        "tool": "array_rectangular",
+        "use": "Create a row/column grid of repeated entities.",
+        "avoid": "Do not use loops of copy_entity for grids.",
+        "keywords": ["array", "grid", "rows", "columns", "repeated", "rectangular array", "阵列", "矩形阵列", "行列", "网格"],
+    },
+    {
+        "category": "Editing",
+        "tool": "array_polar",
+        "use": "Create a circular/radial pattern around a center point.",
+        "avoid": "Do not place bolt holes, teeth, spokes, or radial copies one by one.",
+        "keywords": ["polar array", "circular pattern", "bolt holes", "gear teeth", "spokes", "radial", "环形阵列", "圆周阵列", "螺栓孔", "齿轮", "辐条"],
+    },
+    {
+        "category": "Editing",
+        "tool": "fillet_entities",
+        "use": "Round the corner between two selected edges/entities.",
+        "avoid": "Do not draw a tangent arc manually for a normal fillet.",
+        "keywords": ["fillet", "round corner", "radius corner", "圆角", "倒圆"],
+    },
+    {
+        "category": "Editing",
+        "tool": "chamfer_entities",
+        "use": "Bevel the corner between two selected edges/entities.",
+        "avoid": "Do not trim and redraw bevels manually.",
+        "keywords": ["chamfer", "bevel", "倒角"],
+    },
+    {
+        "category": "Editing",
+        "tool": "trim_entity",
+        "use": "Cut an entity back to one or more cutting boundaries.",
+        "avoid": "Do not manually calculate and redraw shortened geometry.",
+        "keywords": ["trim", "cut to boundary", "修剪", "裁剪"],
+    },
+    {
+        "category": "Editing",
+        "tool": "extend_entity",
+        "use": "Extend an entity to one or more boundary entities.",
+        "avoid": "Do not redraw a longer version of existing geometry.",
+        "keywords": ["extend", "extend to boundary", "延伸"],
+    },
+    {
+        "category": "Blocks",
+        "tool": "create_block",
+        "use": "Turn repeated geometry into a reusable block definition.",
+        "avoid": "Do not duplicate complex components as raw geometry when reuse is expected.",
+        "keywords": ["block", "component", "symbol", "reuse", "块", "图块", "组件", "符号"],
+    },
+    {
+        "category": "Blocks",
+        "tool": "insert_block",
+        "use": "Place an instance of an existing block.",
+        "avoid": "Do not redraw a known component instance by hand.",
+        "keywords": ["insert block", "place block", "block reference", "插入块", "图块参照"],
+    },
+    {
+        "category": "Blocks",
+        "tool": "insert_minsert_block",
+        "use": "Insert a block as a rectangular MInsert block array entity.",
+        "avoid": "Do not compose insert_block plus array_rectangular when a single MInsert entity is intended.",
+        "keywords": ["minsert", "m insert", "block array", "rectangular block array", "insert_minert_block", "MInsert", "图块阵列", "矩形图块阵列"],
+    },
+    {
+        "category": "Hatch and fill",
+        "tool": "add_hatch",
+        "use": "Create hatch/fill, then add boundaries with hatch_add_boundary.",
+        "avoid": "Do not imitate fill with dense parallel lines.",
+        "keywords": ["hatch", "fill", "section fill", "material fill", "填充", "剖面线", "图案"],
+    },
+    {
+        "category": "Dimensions",
+        "tool": "add_qdim",
+        "use": "Create multiple related dimensions quickly from entity handles.",
+        "avoid": "Do not build dimension chains from text and lines.",
+        "keywords": ["qdim", "quick dimension", "batch dimension", "dimension", "dimensions", "dimension chain", "快速标注", "批量标注", "尺寸链"],
+    },
+    {
+        "category": "Dimensions",
+        "tool": "add_linear_dimension",
+        "use": "Create an associative linear/aligned distance dimension.",
+        "avoid": "Do not write measured distances as draw_text.",
+        "keywords": ["linear dimension", "distance dimension", "length dimension", "dimension", "dimensions", "尺寸", "线性标注", "长度标注"],
+    },
+    {
+        "category": "Dimensions",
+        "tool": "add_radial_dimension",
+        "use": "Create a radius dimension for circles/arcs.",
+        "avoid": "Do not annotate radius as plain text.",
+        "keywords": ["radius dimension", "radial dimension", "半径标注", "R标注"],
+    },
+    {
+        "category": "Dimensions",
+        "tool": "add_diametric_dimension",
+        "use": "Create a diameter dimension for circles/arcs.",
+        "avoid": "Do not annotate diameter as plain text.",
+        "keywords": ["diameter dimension", "diametric dimension", "直径标注", "直径"],
+    },
+    {
+        "category": "Annotation",
+        "tool": "add_mleader",
+        "use": "Create a modern callout leader with text.",
+        "avoid": "Do not draw arrow lines and separate text manually for normal callouts.",
+        "keywords": ["leader", "callout", "note arrow", "mleader", "引线", "多重引线", "标注说明"],
+    },
+    {
+        "category": "Annotation",
+        "tool": "add_table",
+        "use": "Create a CAD table for schedules, BOMs, part lists, or notes.",
+        "avoid": "Do not build tables from many lines and text entities.",
+        "keywords": ["table", "schedule", "bom", "parts list", "表格", "材料表", "明细表"],
+    },
+    {
+        "category": "3D solids",
+        "tool": "draw_box",
+        "use": "Create a true 3D box solid.",
+        "avoid": "Do not draw a 3D box as a wireframe of lines.",
+        "keywords": ["3d box", "cuboid", "solid box", "盒子", "长方体", "立方体"],
+    },
+    {
+        "category": "3D solids",
+        "tool": "draw_cylinder",
+        "use": "Create a true 3D cylinder solid.",
+        "avoid": "Do not draw cylinders as circles plus lines.",
+        "keywords": ["cylinder", "hole cutter", "柱体", "圆柱"],
+    },
+    {
+        "category": "3D solids",
+        "tool": "add_region",
+        "use": "Convert closed 2D curves into a region before extrusion or revolve.",
+        "avoid": "Do not extrude loose open curves.",
+        "keywords": ["region", "closed profile", "profile", "面域", "轮廓"],
+    },
+    {
+        "category": "3D solids",
+        "tool": "extrude_region",
+        "use": "Create a 3D solid by extruding a region.",
+        "avoid": "Do not model extrusions as wireframes.",
+        "keywords": ["extrude", "extrusion", "拉伸", "挤出"],
+    },
+    {
+        "category": "3D solids",
+        "tool": "revolve_region",
+        "use": "Create a revolved solid from a region and axis.",
+        "avoid": "Do not approximate revolved solids with meshes unless required.",
+        "keywords": ["revolve", "lathe", "shaft", "vase", "旋转", "回转", "轴"],
+    },
+    {
+        "category": "3D solids",
+        "tool": "solid_boolean",
+        "use": "Union, subtract, or intersect 3D solids.",
+        "avoid": "Do not manually redraw cut or merged solids.",
+        "keywords": ["boolean", "subtract", "union", "intersect", "cut hole", "布尔", "差集", "并集", "交集", "开孔"],
+    },
+    {
+        "category": "Query",
+        "tool": "scan_all_entities",
+        "use": "Scan an existing drawing into SQLite before analysis or edits.",
+        "avoid": "Do not edit an unknown existing drawing without surveying handles first.",
+        "keywords": ["scan", "survey", "inspect drawing", "existing drawing", "扫描", "识别", "现有图纸"],
+    },
+    {
+        "category": "Query",
+        "tool": "execute_query",
+        "use": "Run read-only SQL over scanned CAD metadata to filter, count, and analyze entities.",
+        "avoid": "Do not manually inspect many entities when SQL can filter them; do not use it for writes.",
+        "keywords": ["sql", "query", "filter", "count", "statistics", "查询", "统计", "筛选"],
+    },
+    {
+        "category": "Query",
+        "tool": "get_topology_summary",
+        "use": "Inspect derived point/line/curve/surface/solid counts for scanned entities.",
+        "avoid": "Do not parse geometry JSON manually when topology summaries answer the relationship question.",
+        "keywords": ["topology", "point", "line", "surface", "face", "点", "线", "面", "拓扑", "关系"],
+    },
+    {
+        "category": "Query",
+        "tool": "get_entity_topology",
+        "use": "Inspect one entity's derived primitives and relations such as starts_at, ends_at, bounded_by.",
+        "avoid": "Do not infer endpoints or boundaries from raw JSON when this tool can return them directly.",
+        "keywords": ["topology", "entity topology", "relations", "bounded", "端点", "边界", "关系"],
+    },
+    {
+        "category": "System",
+        "tool": "send_command",
+        "use": "Raw AutoCAD command only when no dedicated MCP tool fits.",
+        "avoid": "Do not use send_command for normal drawing/editing/dimensioning covered by named tools.",
+        "keywords": ["raw command", "autocad command", "send command", "命令行", "原生命令"],
+    },
+]
+
+_TOOL_ROUTING_BY_NAME = {entry["tool"]: entry for entry in TOOL_ROUTING_CATALOG}
+
+
+def _score_tool_route(intent: str, entry: dict) -> int:
+    query = intent.lower()
+    score = 0
+    if entry["tool"].lower() in query:
+        score += 12
+    haystack = " ".join(
+        [entry["tool"], entry["category"], entry["use"], entry["avoid"]]
+        + entry["keywords"]
+    ).lower()
+    for keyword in entry["keywords"]:
+        kw = keyword.lower()
+        if kw and kw in query:
+            score += 6
+    for token in query.replace("_", " ").replace("-", " ").split():
+        if len(token) >= 3 and token in haystack:
+            score += 1
+    return score
+
+
+def recommend_cad_tools(intent: str, max_results: int = 8) -> str:
+    """Recommend purpose-built CAD MCP tools for a natural-language intent.
+
+    Args:
+        intent: Natural-language CAD task description.
+        max_results: Maximum recommendations to return.
+    """
+    if not intent or not intent.strip():
+        return (
+            "Provide a short CAD intent, for example: "
+            "recommend_cad_tools('draw a rounded rectangle with dimensions')."
+        )
+
+    max_results = max(1, min(int(max_results or 8), 20))
+    scored = [
+        (score, entry)
+        for entry in TOOL_ROUTING_CATALOG
+        if (score := _score_tool_route(intent, entry)) > 0
+    ]
+    scored.sort(key=lambda item: (-item[0], item[1]["category"], item[1]["tool"]))
+
+    if scored:
+        entries = [entry for _, entry in scored[:max_results]]
+    else:
+        entries = [
+            _TOOL_ROUTING_BY_NAME["scan_all_entities"],
+            _TOOL_ROUTING_BY_NAME["execute_query"],
+            _TOOL_ROUTING_BY_NAME["draw_rectangle"],
+            _TOOL_ROUTING_BY_NAME["array_rectangular"],
+            _TOOL_ROUTING_BY_NAME["add_qdim"],
+            _TOOL_ROUTING_BY_NAME["send_command"],
+        ][:max_results]
+
+    lines = [f"Recommended CAD MCP tools for: {intent.strip()}"]
+    for idx, entry in enumerate(entries, 1):
+        lines.append(f"{idx}. {entry['tool']} [{entry['category']}]")
+        lines.append(f"   Use: {entry['use']}")
+        lines.append(f"   Avoid: {entry['avoid']}")
+
+    lines.append("")
+    lines.append("Workflow guards:")
+    lines.append("- Existing drawing: scan_all_entities -> get_entity_statistics/execute_query before edits.")
+    lines.append("- Prefer named tools over draw_line/draw_circle/draw_polyline and repeated copy_entity.")
+    lines.append("- Use send_command only after the catalog has no suitable tool.")
+    lines.append("- Capture returned handles; most edits and dimensions need handles.")
+    return "\n".join(lines)
+
 
 def get_tool_help(tool_name: Optional[str] = None) -> str:
     """获取 MCP 工具的帮助信息。
@@ -280,7 +643,8 @@ def get_tool_help(tool_name: Optional[str] = None) -> str:
                       "select_by_cpolygon", "select_at_point",
                       "highlight_entity", "highlight_entities",
                       "highlight_query_results", "get_entity_statistics",
-                      "execute_query", "get_all_tables", "get_table_schema"],
+                      "execute_query", "get_all_tables", "get_table_schema",
+                      "get_entity_topology", "get_topology_summary"],
         "文件与系统": ["undo", "redo", "regen", "send_command",
                       "get_variable", "set_variable", "measure_distance",
                       "create_snapshot", "get_snapshots",
@@ -306,10 +670,23 @@ def get_tool_help(tool_name: Optional[str] = None) -> str:
     }
 
     if tool_name:
+        key = tool_name.strip()
+        entry = _TOOL_ROUTING_BY_NAME.get(key)
+        if entry:
+            return (
+                f"Tool: {entry['tool']}\n"
+                f"Category: {entry['category']}\n"
+                f"Use when: {entry['use']}\n"
+                f"Avoid: {entry['avoid']}\n"
+                f"Keywords: {', '.join(entry['keywords'])}"
+            )
         return f"工具 '{tool_name}' — 使用 {tool_name}(args) 调用。\n详细参数请参考各工具函数的文档字符串。"
 
     lines = ["📐 CAD MCP 服务器 — 可用工具类别"]
     lines.append("=" * 60)
+    lines.append("Tool selection: use the most specific named tool first.")
+    lines.append("If unsure, call recommend_cad_tools(intent).")
+    lines.append("Avoid rebuilding CAD features from primitives when a dedicated tool exists.")
     total = 0
     for cat, tools in categories.items():
         lines.append(f"\n## {cat} ({len(tools)} 个工具)")

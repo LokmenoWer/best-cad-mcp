@@ -348,10 +348,12 @@ def fillet_entities(handle1: str, handle2: str, radius: float) -> str:
     """
     if radius <= 0:
         return "错误: 圆角半径必须为正数"
-    ctrl.set_variable("FILLETRAD", radius)
-    r = ctrl.send_command(f"FILLET {handle1} {handle2} \n")
+    r = ctrl.fillet(handle1, handle2, radius)
+    if not r["success"]:
+        return f"圆角失败: {r['message']}"
     return format_success(f"已圆角倒角 (R={radius})",
-                          entities=f"{handle1} + {handle2}")
+                          entities=f"{handle1} + {handle2}",
+                          arc_handle=r.get("new_handle"))
 
 
 def chamfer_entities(handle1: str, handle2: str,
@@ -368,9 +370,9 @@ def chamfer_entities(handle1: str, handle2: str,
     """
     if distance1 < 0 or distance2 < 0:
         return "错误: 倒角距离不能为负数"
-    ctrl.set_variable("CHAMFERA", distance1)
-    ctrl.set_variable("CHAMFERB", distance2)
-    r = ctrl.send_command(f"CHAMFER {handle1} {handle2} \n")
+    r = ctrl.chamfer(handle1, handle2, distance1, distance2)
+    if not r["success"]:
+        return f"倒角失败: {r['message']}"
     return format_success(f"已倒角 (D1={distance1}, D2={distance2})",
                           entities=f"{handle1} + {handle2}")
 
@@ -386,13 +388,9 @@ def trim_entity(trim_handle: str, cutting_handles: List[str]) -> str:
     """
     if not cutting_handles:
         return "错误: 至少需要一个剪切边"
-    # Select cutting edges by handle
-    ctrl.send_command("TRIM \n")  # Enter TRIM command
-    for h in cutting_handles:
-        ctrl.send_command(f"(handsel {h}) \n")
-    ctrl.send_command("\n")  # End selection of cutting edges
-    ctrl.send_command(f"(handsel {trim_handle}) \n")  # Select object to trim
-    ctrl.send_command("\n")  # End
+    r = ctrl.trim([trim_handle], cutting_handles)
+    if not r["success"]:
+        return f"修剪失败: {r['message']}"
     return format_success(f"已修剪实体 {trim_handle}",
                           cutting_edges=cutting_handles)
 
@@ -409,12 +407,9 @@ def extend_entity(extend_handle: str,
     """
     if not boundary_handles:
         return "错误: 至少需要一个边界"
-    ctrl.send_command("EXTEND \n")
-    for h in boundary_handles:
-        ctrl.send_command(f"(handsel {h}) \n")
-    ctrl.send_command("\n")
-    ctrl.send_command(f"(handsel {extend_handle}) \n")
-    ctrl.send_command("\n")
+    r = ctrl.extend([extend_handle], boundary_handles)
+    if not r["success"]:
+        return f"延伸失败: {r['message']}"
     return format_success(f"已延伸实体 {extend_handle}",
                           boundaries=boundary_handles)
 
@@ -433,11 +428,11 @@ def break_entity(handle: str, point1_x: float, point1_y: float,
         point1_x,y,z: 第一个打断点
         point2_x,y,z: 第二个打断点（可选）
     """
-    if point2_x is None:
-        cmd = f"BREAK (handsel {handle}) {point1_x},{point1_y},{point1_z} @ \n"
-    else:
-        cmd = f"BREAK (handsel {handle}) {point1_x},{point1_y},{point1_z} {point2_x},{point2_y},{point2_z} \n"
-    r = ctrl.send_command(cmd)
+    p1 = [point1_x, point1_y, point1_z]
+    p2 = None if point2_x is None else [point2_x, point2_y, point2_z]
+    r = ctrl.break_at(handle, p1, p2)
+    if not r["success"]:
+        return f"打断失败: {r['message']}"
     return format_success(f"已打断实体 {handle}",
                           point1=f"({point1_x},{point1_y})",
                           point2=f"({point2_x},{point2_y})" if point2_x is not None else "同一点")
@@ -453,10 +448,9 @@ def join_entities(handles: List[str]) -> str:
     """
     if len(handles) < 2:
         return "错误: 至少需要2个实体进行合并"
-    ctrl.send_command("JOIN \n")
-    for h in handles:
-        ctrl.send_command(f"(handsel {h}) \n")
-    ctrl.send_command("\n")
+    r = ctrl.join(handles)
+    if not r["success"]:
+        return f"合并失败: {r['message']}"
     return format_success(f"已合并 {len(handles)} 个实体", handles=handles)
 
 
@@ -499,12 +493,92 @@ def lengthen_entity(handle: str, mode: str = "delta",
         end:    修改哪一端: "both"(默认), "start", "end"
     """
     opts = {"delta": "DE", "percent": "P", "total": "T"}
-    ends = {"both": "", "start": "S", "end": "E"}
     if mode not in opts:
         return f"错误: 不支持的修改模式 '{mode}'。请使用: delta, percent, total"
-    mode_code = opts[mode]
-    end_code = ends.get(end, "")
-    cmd = f"LENGTHEN {mode_code} {value} {end_code} (handsel {handle}) \n"
-    r = ctrl.send_command(cmd)
+    r = ctrl.lengthen(handle, mode, value, end)
+    if not r["success"]:
+        return f"修改长度失败: {r['message']}"
+    return format_success(f"已修改实体 {handle} 长度", mode=mode, value=value)
+
+
+def divide_entity(handle: str, segments: int, block_name: str = "") -> str:
+    """定数等分实体（在实体上按指定段数等分插入点或图块）。
+
+    Args:
+        handle:     实体句柄
+        segments:   等分段数 (2-32767)
+        block_name: (可选)用于标记的块名，留空则插入点对象
+    """
+    if segments < 2:
+        return "错误: 段数必须大于等于2"
+    r = ctrl.divide(handle, segments, block_name)
+    if not r["success"]:
+        return f"等分失败: {r['message']}"
+    return format_success(f"已将实体 {handle} 等分为 {segments} 段")
+
+
+def measure_entity(handle: str, length: float, block_name: str = "") -> str:
+    """定距等分实体（在实体上按指定间距插入点或图块）。
+
+    Args:
+        handle:     实体句柄
+        length:     间距距离
+        block_name: (可选)用于标记的块名，留空则插入点对象
+    """
+    if length <= 0:
+        return "错误: 间距必须大于0"
+    r = ctrl.measure(handle, length, block_name)
+    if not r["success"]:
+        return f"等分失败: {r['message']}"
+    return format_success(f"已将实体 {handle} 按间距 {length} 等分")
+
+
+def align_entities(handles: List[str], points: List[List[float]]) -> str:
+    """对齐实体。通过成对的源点和目标点集移动、旋转实体的二维或三维操作。
+    如果是两对点，执行 2D 对齐（平移+旋转+缩放）。
+    如果是三对点，执行 3D 对齐。
+
+    Args:
+        handles: 需要对齐的实体句柄列表
+        points:  对齐点对。格式为 [[源点1, 目标点1], [源点2, 目标点2], ...]
+                 其中源点1格式为 [x, y, z]
+    """
+    if len(points) < 1 or len(points) > 3:
+        return "错误: 对齐点对必须为 1 到 3 对之间"
+    r = ctrl.align(handles, points)
+    if not r["success"]:
+        return f"对齐失败: {r['message']}"
+    return format_success(f"已对齐 {len(handles)} 个实体", points_used=len(points))
+
+
+def chamfer_polyline(handle: str, distance1: float, distance2: float) -> str:
+    """对整个多段线的所有角点进行倒角。
+
+    Args:
+        handle:     多段线实体句柄
+        distance1:  第一条边的倒角距离
+        distance2:  第二条边的倒角距离
+    """
+    if distance1 < 0 or distance2 < 0:
+        return "错误: 倒角距离不能为负数"
+    r = ctrl.chamfer_poly(handle, distance1, distance2)
+    if not r["success"]:
+        return f"多段线倒角失败: {r['message']}"
+    return format_success(f"已对多段线倒角 (D1={distance1}, D2={distance2})")
+
+
+def fillet_polyline(handle: str, radius: float) -> str:
+    """对整个多段线的所有角点进行圆角。
+
+    Args:
+        handle:多段线实体句柄
+        radius:圆角半径
+    """
+    if radius <= 0:
+        return "错误: 半径必须大于0"
+    r = ctrl.fillet_poly(handle, radius)
+    if not r["success"]:
+        return f"多段线圆角失败: {r['message']}"
+    return format_success(f"已对多段线圆角 (R={radius})")
     return format_success(f"已修改实体长度",
                           handle=handle, mode=mode, value=value)

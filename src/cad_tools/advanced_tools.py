@@ -66,6 +66,46 @@ def get_xdata(handle: str, app_name: str = "") -> str:
     return json.dumps(r, indent=2, ensure_ascii=False, default=str)
 
 
+def _normalize_xdata_pairs(app_name: str,
+                           data_pairs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not isinstance(app_name, str) or not app_name.strip():
+        raise ValueError("app_name is required for XData")
+    if not isinstance(data_pairs, list):
+        raise ValueError("data_pairs must be a list")
+
+    supported_codes = {1000, 1002, 1003, 1005, 1040, 1041, 1042, 1070, 1071}
+    float_codes = {1040, 1041, 1042}
+    int_codes = {1070, 1071}
+    normalized: List[Dict[str, Any]] = []
+
+    for index, pair in enumerate(data_pairs):
+        if not isinstance(pair, dict) or "code" not in pair or "value" not in pair:
+            raise ValueError(f"data_pairs[{index}] must contain code and value")
+        try:
+            code = int(pair["code"])
+        except (TypeError, ValueError):
+            raise ValueError(f"data_pairs[{index}].code must be an integer")
+        if code == 1001:
+            raise ValueError("Do not include DXF code 1001; app_name is added automatically")
+        if code not in supported_codes:
+            raise ValueError(f"Unsupported XData DXF code: {code}")
+
+        value = pair["value"]
+        if isinstance(value, (dict, list, tuple)):
+            raise ValueError(f"data_pairs[{index}].value must be scalar")
+        if code in float_codes:
+            value = float(value)
+        elif code in int_codes:
+            if isinstance(value, bool):
+                raise ValueError(f"data_pairs[{index}].value must be an integer")
+            value = int(value)
+        else:
+            value = str(value)
+        normalized.append({"code": code, "value": value})
+
+    return normalized
+
+
 def set_xdata(handle: str, app_name: str,
                data_pairs: List[Dict[str, Any]]) -> str:
     """为实体设置扩展数据 (XData)。
@@ -85,10 +125,11 @@ def set_xdata(handle: str, app_name: str,
         app_name:   注册应用名称（必须先在RegisteredApplications中注册）
         data_pairs: 数据对列表，每项包含 code (int) 和 value
     """
+    normalized_pairs = _normalize_xdata_pairs(app_name, data_pairs)
     # Ensure app_name is registered
     ctrl.create_registered_application(app_name)
     # First pair must be 1001 with the app name
-    full_pairs = [{"code": 1001, "value": app_name}] + data_pairs
+    full_pairs = [{"code": 1001, "value": app_name}] + normalized_pairs
     r = ctrl.set_xdata(handle, full_pairs)
     return r["message"]
 

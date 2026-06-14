@@ -101,7 +101,8 @@ class TestModuleImports(unittest.TestCase):
             'draw_spline', 'draw_point', 'draw_text', 'draw_mtext',
             'draw_donut', 'draw_ray', 'draw_xline', 'draw_mline',
             'draw_2d_solid', 'draw_raster_image', 'draw_tolerance',
-            'draw_trace', 'insert_minert_block', 'add_shape',
+            'draw_trace', 'insert_minert_block', 'insert_minsert_block',
+            'add_shape',
         ]
         for name in expected:
             with self.subTest(name=name):
@@ -222,7 +223,10 @@ class TestModuleImports(unittest.TestCase):
             'execute_sql_query', 'create_group', 'get_all_groups',
             'add_hatch', 'angle_to_real', 'angle_to_string',
             'distance_to_real', 'real_to_string', 'select_on_screen',
-            'delete_selection_set', 'clear_selection_set', 'get_tool_help',
+            'delete_selection_set', 'erase_selection_entities',
+            'clear_selection_set',
+            'recommend_cad_tools', 'get_tool_help',
+            'get_entity_topology', 'get_topology_summary',
         ]
         for name in expected:
             with self.subTest(name=name):
@@ -485,6 +489,165 @@ class TestServerToolCoverage(unittest.TestCase):
             f"Expected 100+ tools, got {len(tool_names)}")
 
 
+class TestMCPToolSchemas(unittest.TestCase):
+    """Verify registered MCP schemas are concrete enough for clients to call."""
+
+    def _get_input_schema(self, tool_name):
+        import asyncio
+        from src import server
+
+        async def find_tool():
+            tools = await server.mcp.list_tools()
+            for tool in tools:
+                if tool.name == tool_name:
+                    return tool.inputSchema
+            return None
+
+        schema = asyncio.run(find_tool())
+        self.assertIsNotNone(schema, f"MCP tool not registered: {tool_name}")
+        return schema
+
+    def _get_tool_description(self, tool_name):
+        import asyncio
+        from src import server
+
+        async def find_tool():
+            tools = await server.mcp.list_tools()
+            for tool in tools:
+                if tool.name == tool_name:
+                    return tool.description
+            return None
+
+        description = asyncio.run(find_tool())
+        self.assertIsNotNone(description, f"MCP tool not registered: {tool_name}")
+        return description
+
+    def _resolve_schema_ref(self, root_schema, node):
+        ref = node.get("$ref") if isinstance(node, dict) else None
+        if not ref:
+            return node
+        self.assertTrue(ref.startswith("#/$defs/"), f"Unexpected schema ref: {ref}")
+        return root_schema["$defs"][ref.rsplit("/", 1)[-1]]
+
+    def test_add_mleader_points_schema_has_typed_items(self):
+        schema = self._get_input_schema("add_mleader")
+        points_schema = schema["properties"]["points"]
+
+        variants = points_schema.get("anyOf", [points_schema])
+        self.assertEqual(len(variants), 2)
+        for variant in variants:
+            self.assertEqual(variant.get("type"), "array")
+            self.assertNotEqual(variant.get("items"), {},
+                                "points schema must not be untyped List[Any]")
+
+    def test_add_mleader_registered_call_reaches_text_tool(self):
+        import asyncio
+        from src import server
+
+        async def call_tool():
+            with patch.object(server.text_tools, "add_mleader",
+                              return_value="ok") as mocked:
+                result = await server.mcp.call_tool(
+                    "add_mleader",
+                    {"text": "Note",
+                     "points": [[0, 0, 0], [10, 10, 0]]},
+                )
+                return result, mocked.call_args
+
+        result, call_args = asyncio.run(call_tool())
+
+        self.assertEqual(result[1], {"result": "ok"})
+        self.assertEqual(call_args.args,
+                         ("Note", [[0.0, 0.0, 0.0], [10.0, 10.0, 0.0]], None))
+
+    def test_tool_descriptions_steer_away_from_primitive_overuse(self):
+        draw_line_desc = self._get_tool_description("draw_line")
+        rectangle_desc = self._get_tool_description("draw_rectangle")
+        send_command_desc = self._get_tool_description("send_command")
+
+        self.assertIn("LAST RESORT", draw_line_desc)
+        self.assertIn("draw_rectangle", draw_line_desc)
+        self.assertIn("instead of four draw_line", rectangle_desc)
+        self.assertIn("LAST RESORT raw AutoCAD command", send_command_desc)
+        self.assertIn("recommend_cad_tools", send_command_desc)
+
+    def test_recommend_cad_tools_registered_and_routes_common_intents(self):
+        schema = self._get_input_schema("recommend_cad_tools")
+        self.assertIn("intent", schema["properties"])
+
+        result = utility_tools.recommend_cad_tools("draw a rectangle floor plan with dimensions")
+
+        self.assertIn("draw_rectangle", result)
+        self.assertIn("add_linear_dimension", result)
+        self.assertIn("Avoid", result)
+
+    def test_set_xdata_schema_requires_code_value(self):
+        schema = self._get_input_schema("set_xdata")
+        data_pairs_schema = schema["properties"]["data_pairs"]
+        item_schema = self._resolve_schema_ref(schema, data_pairs_schema["items"])
+
+        self.assertEqual(item_schema.get("type"), "object")
+        self.assertEqual(set(item_schema.get("required", [])), {"code", "value"})
+        self.assertIn("code", item_schema["properties"])
+        self.assertIn("value", item_schema["properties"])
+
+    def test_database_query_tools_are_read_only_and_topology_registered(self):
+        execute_desc = self._get_tool_description("execute_query")
+        topology_schema = self._get_input_schema("get_entity_topology")
+        summary_schema = self._get_input_schema("get_topology_summary")
+
+        self.assertIn("只读", execute_desc)
+        self.assertIn("handle", topology_schema["properties"])
+        self.assertIn("limit", summary_schema["properties"])
+
+    def test_get_tool_help_uses_registered_tool_index(self):
+        import asyncio
+        from src import server
+
+        async def list_tool_names():
+            return {tool.name for tool in await server.mcp.list_tools()}
+
+        tool_names = asyncio.run(list_tool_names())
+        help_text = server.get_tool_help(None)
+
+        self.assertIn(f"CAD MCP registered tools: {len(tool_names)}", help_text)
+        for name in [
+            "polyline_set_bulge",
+            "hatch_add_boundary",
+            "insert_block_with_attributes",
+            "insert_minsert_block",
+            "erase_selection_entities",
+        ]:
+            self.assertIn(name, tool_names)
+            self.assertIn(name, help_text)
+
+    def test_recommend_cad_tools_routes_minsert_alias(self):
+        result = utility_tools.recommend_cad_tools("MInsert block array")
+
+        self.assertIn("insert_minsert_block", result)
+        self.assertIn("insert_block plus array_rectangular", result)
+
+    def test_add_mleader_rejects_mixed_point_shapes_without_throwing(self):
+        result = text_tools.add_mleader("Note", [[0, 0, 0], 10, 10, 0])
+
+        self.assertIn("points must be either", result)
+
+    def test_xdata_validation_rejects_ambiguous_pairs(self):
+        with self.assertRaises(ValueError):
+            advanced_tools._normalize_xdata_pairs("APP", [{"value": "missing code"}])
+        with self.assertRaises(ValueError):
+            advanced_tools._normalize_xdata_pairs("APP", [{"code": 1001, "value": "APP"}])
+        with self.assertRaises(ValueError):
+            advanced_tools._normalize_xdata_pairs("APP", [{"code": 1000, "value": {"bad": "shape"}}])
+
+        pairs = advanced_tools._normalize_xdata_pairs(
+            "APP",
+            [{"code": 1000, "value": "wall"}, {"code": 1040, "value": "3.5"}],
+        )
+        self.assertEqual(pairs, [{"code": 1000, "value": "wall"},
+                                 {"code": 1040, "value": 3.5}])
+
+
 # ══════════════════════════════════════════════════════════════════
 #  Test: Data model integrity
 # ══════════════════════════════════════════════════════════════════
@@ -565,6 +728,9 @@ class TestDatabase(unittest.TestCase):
     def test_get_tables(self):
         tables = self.db.get_tables()
         self.assertIn('cad_entities', tables)
+        self.assertIn('cad_geometry_primitives', tables)
+        self.assertIn('cad_geometry_relations', tables)
+        self.assertIn('cad_topology_summary', tables)
         self.assertIn('cad_layers', tables)
         self.assertIn('cad_blocks', tables)
         self.assertIn('text_patterns', tables)
@@ -583,6 +749,17 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(ent["type"], "AcDbLine")
         geom = ent.get("geometry", {})
         self.assertEqual(geom["start_point"], [0, 0, 0])
+        topo = self.db.get_entity_topology("TEST001")
+        self.assertEqual(topo["summary"]["point_count"], 2)
+        self.assertEqual(topo["summary"]["line_count"], 1)
+        self.assertEqual(topo["summary"]["dimensionality"], 1)
+        relation_types = {r["relation_type"] for r in topo["relations"]}
+        self.assertIn("starts_at", relation_types)
+        self.assertIn("ends_at", relation_types)
+
+        ent = self.db.get_entity("TEST001")
+        self.assertEqual(ent["bbox_min_x"], 0.0)
+        self.assertEqual(ent["bbox_max_x"], 10.0)
 
     def test_query_entities(self):
         self.db.clear_entities()
@@ -601,6 +778,42 @@ class TestDatabase(unittest.TestCase):
         self.db.upsert_entity("H4", "Test", "AcDbLine")
         self.db.clear_entities()
         self.assertIsNone(self.db.get_entity("H4"))
+        self.assertIsNone(self.db.get_entity_topology("H4")["summary"])
+
+    def test_closed_polyline_topology_has_surface(self):
+        self.db.upsert_entity(
+            "P1", "Rect", "AcDbPolyline",
+            geometry={
+                "vertices": [[0, 0, 0], [10, 0, 0], [10, 5, 0], [0, 5, 0]],
+                "closed": True,
+            },
+        )
+        topology = self.db.get_entity_topology("P1")
+        summary = topology["summary"]
+
+        self.assertEqual(summary["point_count"], 4)
+        self.assertEqual(summary["line_count"], 4)
+        self.assertEqual(summary["surface_count"], 1)
+        self.assertEqual(summary["dimensionality"], 2)
+        self.assertAlmostEqual(summary["area"], 50.0)
+        self.assertIn("bounded_by", {r["relation_type"] for r in topology["relations"]})
+
+    def test_query_text_and_near_point_use_geometry(self):
+        self.db.clear_entities()
+        self.db.upsert_entity(
+            "T1", "DoorText", "AcDbText", layer="TEXT",
+            geometry={"text": "Door 900", "position": [5, 5, 0]},
+        )
+        self.db.upsert_entity(
+            "L1", "Line", "AcDbLine", layer="WALL",
+            geometry={"start": [0, 0, 0], "end": [10, 0, 0]},
+        )
+
+        text_results = self.db.query_entities(text_contains="Door")
+        self.assertEqual([r["handle"] for r in text_results], ["T1"])
+
+        near_results = self.db.query_near_point(5, 0, 6)
+        self.assertIn("L1", {r["handle"] for r in near_results})
 
     def test_type_stats(self):
         self.db.clear_entities()
@@ -643,12 +856,28 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["rows"][0]["handle"], "H1")
 
+    def test_execute_read_only_rejects_writes(self):
+        self.db.clear_entities()
+        self.db.upsert_entity("H1", "L1", "AcDbLine", layer="0", color=1)
+
+        with self.assertRaises(ValueError):
+            self.db.execute("UPDATE cad_entities SET color = 2", read_only=True)
+        with self.assertRaises(Exception):
+            self.db.execute("PRAGMA journal_mode=OFF", read_only=True)
+
+        ent = self.db.get_entity("H1")
+        self.assertEqual(ent["color"], 1)
+
     def test_table_schema(self):
         schema = self.db.get_table_schema("cad_entities")
         self.assertGreater(len(schema), 5)
         col_names = [c["name"] for c in schema]
         self.assertIn("handle", col_names)
         self.assertIn("type", col_names)
+
+    def test_table_schema_rejects_unknown_table(self):
+        with self.assertRaises(ValueError):
+            self.db.get_table_schema("cad_entities); DROP TABLE cad_entities;--")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -830,7 +1059,10 @@ class TestToolWiring(unittest.TestCase):
         tools = self._parse_tool_body_calls()
         # Tools that don't have a direct module call (like help, prompts, main)
         exceptions = {
-            'cad_workflow_guide', 'cad_layer_planning', 'main',
+            '_registered_tools', '_tool_category', '_first_description_line',
+            '_build_registered_tool_help', 'cad_tool_selection_resource',
+            'cad_registered_tools_resource', 'cad_workflow_guide',
+            'cad_layer_planning', 'main',
         }
 
         missing = []
@@ -843,7 +1075,7 @@ class TestToolWiring(unittest.TestCase):
         # Some tools may have complex bodies - check manually
         known_complex = {
             'create_block', 'create_group', 'save_named_view',
-            'restore_named_view', 'get_named_views',
+            'restore_named_view', 'get_named_views', 'get_tool_help',
         }
         # These have multi-line bodies, just ensure they exist in server.py
         for name in known_complex:
@@ -857,7 +1089,95 @@ class TestToolWiring(unittest.TestCase):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  Test: Bug detection — known issues that need fixing
+#  Test: COM call shapes for fragile ActiveX APIs
+# ══════════════════════════════════════════════════════════════════
+
+class TestActiveXCallShapes(unittest.TestCase):
+    """Verify tools call AutoCAD ActiveX APIs with usable signatures."""
+
+    def _controller_with_doc(self, doc):
+        from src.cad_controller import CADController
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.Documents.Count = 1
+        controller.acad.ActiveDocument = doc
+        controller.doc = doc
+        return controller
+
+    def test_array_rectangular_uses_six_activex_arguments(self):
+        doc = MagicMock()
+        ent = MagicMock()
+        copy_a = MagicMock()
+        copy_a.Handle = "A2"
+        copy_b = MagicMock()
+        copy_b.Handle = "A3"
+        ent.ArrayRectangular.return_value = [copy_a, copy_b]
+        doc.HandleToObject.return_value = ent
+
+        controller = self._controller_with_doc(doc)
+        result = controller.array_rectangular("A1", 2, 3, 10.0, 20.0)
+
+        self.assertTrue(result["success"], result)
+        ent.ArrayRectangular.assert_called_once_with(2, 3, 1, 10.0, 20.0, 0.0)
+        self.assertEqual(result["new_handles"], ["A2", "A3"])
+
+    def test_export_pdf_uses_plot_to_file_not_document_export(self):
+        doc = MagicMock()
+        doc.ActiveLayout = MagicMock()
+        controller = self._controller_with_doc(doc)
+
+        result = controller.export_drawing(r"C:\tmp\out.pdf", "PDF")
+
+        self.assertTrue(result["success"], result)
+        doc.Plot.PlotToFile.assert_called_once_with(
+            r"C:\tmp\out.pdf", "DWG To PDF.pc3"
+        )
+        doc.Export.assert_not_called()
+
+    def test_export_dxf_supplies_required_selection_set(self):
+        doc = MagicMock()
+        selection_set = MagicMock()
+        doc.SelectionSets.Item.side_effect = Exception("not found")
+        doc.SelectionSets.Add.return_value = selection_set
+        controller = self._controller_with_doc(doc)
+
+        result = controller.export_drawing(r"C:\tmp\out.dxf", "DXF")
+
+        self.assertTrue(result["success"], result)
+        doc.Export.assert_called_once_with(r"C:\tmp\out", "DXF", selection_set)
+        selection_set.Delete.assert_called_once()
+
+    def test_text_tool_mleader_handles_controller_error_dict(self):
+        with patch.object(text_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.add_mleader.return_value = {
+                "success": False,
+                "message": "boom",
+            }
+
+            result = text_tools.add_mleader("Note", [0, 0, 0, 10, 10, 0])
+
+        self.assertIn("boom", result)
+
+    def test_text_tool_mleader_accepts_nested_point_lists(self):
+        mleader = MagicMock()
+        mleader.Handle = "ML1"
+        with patch.object(text_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.add_mleader.return_value = mleader
+
+            result = text_tools.add_mleader(
+                "Note",
+                [[0, 0, 0], [10, 10, 0]],
+            )
+
+        self.assertIn("ML1", result)
+        mock_ctrl.add_mleader.assert_called_once_with(
+            "Note",
+            [(0.0, 0.0, 0.0), (10.0, 10.0, 0.0)],
+        )
+
+
+# ══════════════════════════════════════════════════════════════════
+#  Test: Bug detection – known issues that need fixing
 # ══════════════════════════════════════════════════════════════════
 
 class TestBugDetection(unittest.TestCase):
@@ -907,11 +1227,11 @@ class TestBugDetection(unittest.TestCase):
                 "pan() should use current view center for proper offset")
 
     def test_chamfer_fillet_use_send_command_with_handles(self):
-        """chamfer_entities and fillet_entities use send_command with raw handles."""
+        """chamfer_entities and fillet_entities use run_lisp or ctrl wrappers."""
         source = inspect.getsource(edit_tools.fillet_entities)
-        self.assertIn('send_command', source)
+        self.assertIn('ctrl.fillet', source)
         source = inspect.getsource(edit_tools.chamfer_entities)
-        self.assertIn('send_command', source)
+        self.assertIn('ctrl.chamfer', source)
 
     def test_advanced_tools_add_viewport_on_property(self):
         """add_viewport uses vp.ViewportOn (correct property name)."""

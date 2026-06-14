@@ -195,14 +195,14 @@ def add_qdim(entity_handles: List[str],
         "ordinate": "O", "radius": "R", "diameter": "D", "datum": "P"
     }
     dt = type_map.get(dimension_type, "C")
-    # First select entities
-    cmd = "QSELECT \n"  # Placeholder — use direct QDIM
-    handles_str = " ".join(f"(handsel {h})" for h in entity_handles)
-    cmd = f"QDIM {handles_str} \n \n"  # Select entities then accept
-    cmd += f"{dt} \n"  # Choose dimension type
-    if dt in ("C", "S", "B", "O"):
-        cmd += "0,0 \n"  # Default placement location
-    r = ctrl.send_command(cmd)
+    # Build a selection set of the entities by handle, then run QDIM on it.
+    ssadd = "".join(f'(ssadd (handent "{h}") ss)' for h in entity_handles)
+    place = ' "0,0"' if dt in ("C", "S", "B", "O") else ""
+    lisp = (f'(setq ss (ssadd)){ssadd}'
+            f'(command "._QDIM" ss "" "_{dt}"{place})')
+    r = ctrl.run_lisp(lisp)
+    if not r["success"]:
+        return f"快速标注失败: {r['message']}"
     return format_success(f"已快速标注 {len(entity_handles)} 个实体",
                           type=dimension_type)
 

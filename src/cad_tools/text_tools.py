@@ -1,11 +1,50 @@
 """CAD MCP Tools — Text, MText, leaders, tables, text styles."""
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Any
 from src.cad_controller import get_controller
 from src.cad_database import get_database
 from src.cad_utils import format_success
 
 ctrl = get_controller()
 db = get_database()
+
+
+def _normalize_points(points: List[Any]) -> List[Tuple[float, float, float]]:
+    if not points:
+        return []
+    if isinstance(points[0], (list, tuple)):
+        normalized = []
+        for p in points:
+            if not isinstance(p, (list, tuple)):
+                raise ValueError(
+                    "points must be either a flat [x1,y1,z1,...] list or a nested [[x,y,z],...] list"
+                )
+            if len(p) < 2:
+                raise ValueError("每个点至少需要 x,y 坐标")
+            z = p[2] if len(p) > 2 else 0.0
+            normalized.append((float(p[0]), float(p[1]), float(z)))
+        return normalized
+    if any(isinstance(p, (list, tuple)) for p in points):
+        raise ValueError(
+            "points must be either a flat [x1,y1,z1,...] list or a nested [[x,y,z],...] list"
+        )
+    if len(points) % 3 != 0:
+        raise ValueError("点列表必须是 [x1,y1,z1, x2,y2,z2, ...] 或 [[x,y,z], ...]")
+    return [
+        (float(points[i]), float(points[i+1]), float(points[i+2]))
+        for i in range(0, len(points), 3)
+    ]
+
+
+def _extract_handle_or_error(result: Any, action: str) -> Tuple[Optional[str], Optional[str]]:
+    if isinstance(result, dict):
+        if not result.get("success", False):
+            return None, f"{action}失败: {result.get('message', result)}"
+        handle = result.get("handle") or result.get("new_handle")
+    else:
+        handle = getattr(result, "Handle", None)
+    if not handle:
+        return None, f"{action}失败: 未返回实体句柄"
+    return str(handle), None
 
 
 def create_text_style(name: str, font: str = "Arial",
@@ -44,44 +83,54 @@ def get_text_styles() -> str:
     return "\n".join(lines)
 
 
-def add_leader(points: List[float], annotation: Optional[str] = None,
+def add_leader(points: List[Any], annotation: Optional[str] = None,
                layer: Optional[str] = None) -> str:
     """绘制引线标注。
 
     Args:
-        points:     引线顶点列表 [x1,y1,z1, x2,y2,z2, ...]，至少2个点
+        points:     引线顶点列表 [x1,y1,z1, x2,y2,z2, ...] 或 [[x,y,z], ...]，至少2个点
         annotation: 引线末端注释文字（可选）
         layer:      图层名称
     """
-    if len(points) < 6:
+    try:
+        pts = _normalize_points(points)
+    except (TypeError, ValueError) as e:
+        return f"错误: {e}"
+    if len(pts) < 2:
         return "错误: 至少需要2个引线点（6个值）"
     if layer:
         ctrl.create_layer(layer)
         ctrl.set_current_layer(layer)
-    pts = [(points[i], points[i+1], points[i+2])
-           for i in range(0, len(points), 3)]
     leader = ctrl.add_leader(pts, annotation)
-    return format_success(f"已绘制引线", handle=leader.Handle)
+    handle, error = _extract_handle_or_error(leader, "绘制引线")
+    if error:
+        return error
+    return format_success(f"已绘制引线", handle=handle)
 
 
-def add_mleader(text: str, points: List[float],
+def add_mleader(text: str, points: List[Any],
                 layer: Optional[str] = None) -> str:
     """绘制多重引线（带文字内容）。
 
     Args:
         text:   引线文字内容
-        points: 引线顶点列表 [x1,y1,z1, x2,y2,z2, ...]
+        points: 引线顶点列表 [x1,y1,z1, x2,y2,z2, ...] 或 [[x,y,z], ...]
         layer:  图层名称
     """
-    if len(points) < 6:
+    try:
+        pts = _normalize_points(points)
+    except (TypeError, ValueError) as e:
+        return f"错误: {e}"
+    if len(pts) < 2:
         return "错误: 至少需要2个点（6个值）"
     if layer:
         ctrl.create_layer(layer)
         ctrl.set_current_layer(layer)
-    pts = [(points[i], points[i+1], points[i+2])
-           for i in range(0, len(points), 3)]
     ml = ctrl.add_mleader(text, pts)
-    return format_success(f"已绘制多重引线 '{text}'", handle=ml.Handle)
+    handle, error = _extract_handle_or_error(ml, "绘制多重引线")
+    if error:
+        return error
+    return format_success(f"已绘制多重引线 '{text}'", handle=handle)
 
 
 def add_table(insert_x: float, insert_y: float, rows: int, columns: int,

@@ -1,0 +1,7 @@
+interface:
+  display_name: "中国施工CAD制图"
+  short_description: "按中国大陆施工图习惯绘制可施工、可审图的标准CAD图纸"
+  default_prompt: "Use $draft-cn-construction-cad to draft a mainland China construction CAD drawing with Chinese layers, local fonts, and constructible annotations."
+
+policy:
+  allow_implicit_invocation: true
