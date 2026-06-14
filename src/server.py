@@ -48,7 +48,8 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from mcp.server.fastmcp import FastMCP, Context
-from typing import Optional, List, Tuple, Dict, Any
+from mcp.types import ToolAnnotations
+from typing import Optional, List, Tuple, Dict, Any, Union, TypedDict
 
 # 日志文件存储在 Agent 的工作目录（MCP 客户端的 cwd）
 logging.basicConfig(
@@ -61,10 +62,175 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mcp_cad_server")
 
+TOOL_SELECTION_INSTRUCTIONS = """
+This AutoCAD MCP exposes 251 specialized CAD tools. Always choose the most
+specific tool for the CAD intent before composing low-level primitives.
+
+Tool-choice rules:
+- For rectangles, polygons, splines, donuts, mlines, arrays, blocks, hatches,
+  dimensions, leaders, 3D solids, trims, fillets, chamfers, offsets, and
+  transforms, use the named tool. Do not rebuild them from draw_line,
+  draw_circle, draw_polyline, or repeated copy_entity calls.
+- Use draw_line/draw_circle/draw_polyline only for simple one-off geometry or
+  when no named tool fits.
+- Use send_command only as the final escape hatch after checking the exposed
+  tools. It is raw AutoCAD command execution and is less validated.
+- For existing drawings, scan first with scan_all_entities and query with
+  get_entity_statistics/execute_query before editing. Capture returned handles;
+  edits operate on handles.
+- If unsure which tool to use, call recommend_cad_tools(intent) or
+  get_tool_help(tool_name) before drawing.
+"""
+
+TOOL_DESCRIPTIONS = {
+    "draw_line": (
+        "Draw one straight line segment. LAST RESORT for composite shapes: "
+        "use draw_rectangle for rectangles, draw_polygon for regular polygons, "
+        "draw_mline for parallel wall lines, draw_spline for smooth curves, "
+        "and dimension tools for measurements. Do not call draw_line repeatedly "
+        "to fake a higher-level CAD object."
+    ),
+    "draw_circle": (
+        "Draw one circle. For repeated holes or circular patterns, draw one "
+        "circle and use array_polar instead of placing every circle manually."
+    ),
+    "draw_rectangle": (
+        "Preferred tool for any rectangle or square from two opposite corners. "
+        "Use this instead of four draw_line calls or a hand-built closed "
+        "polyline."
+    ),
+    "draw_polygon": (
+        "Preferred tool for regular polygons such as triangles, pentagons, "
+        "hexagons, and octagons. Use this instead of manually calculating and "
+        "drawing each side."
+    ),
+    "draw_polyline": (
+        "Draw a connected 2D path. Use this for real polylines. Prefer "
+        "draw_rectangle for rectangles, draw_polygon for regular polygons, "
+        "draw_spline for smooth curves, polyline_set_bulge for arc segments, "
+        "and fillet_polyline/chamfer_polyline for all-corner edits."
+    ),
+    "draw_spline": (
+        "Preferred tool for smooth free-form curves through fit points. Use this "
+        "instead of approximating curves with many short draw_line segments."
+    ),
+    "draw_mline": (
+        "Preferred tool for parallel multi-lines such as walls, roads, and "
+        "double-line symbols. Use this instead of drawing separate offset lines."
+    ),
+    "insert_minsert_block": (
+        "Preferred tool for AutoCAD MInsert block arrays: insert one block "
+        "reference as a rectangular row/column array entity. Use this when the "
+        "intent says MInsert or block array; do not compose insert_block plus "
+        "array_rectangular unless separate editable instances are required."
+    ),
+    "draw_text": (
+        "Draw single-line annotation text. Do NOT fake dimensions with text and "
+        "lines; use add_linear_dimension, add_qdim, add_radial_dimension, or "
+        "the other add_*_dimension tools."
+    ),
+    "draw_mtext": (
+        "Draw multiline annotation text. Do NOT use this for measured dimensions; "
+        "use the associative dimension tools instead."
+    ),
+    "copy_entity": (
+        "Make a single duplicate of an entity. For repeated grids or circular "
+        "patterns, prefer array_rectangular or array_polar instead of loops of "
+        "copy_entity."
+    ),
+    "array_rectangular": (
+        "Preferred one-call tool for a row/column grid of repeated entities "
+        "(columns, holes, fixtures, symbols). Use this instead of repeated "
+        "copy_entity calls."
+    ),
+    "array_polar": (
+        "Preferred one-call tool for circular patterns such as bolt holes, gear "
+        "teeth, radial spokes, or repeated symbols around a center. Use this "
+        "instead of manually placing each copy."
+    ),
+    "add_qdim": (
+        "Fast batch dimension tool. Use for multiple related entities when a "
+        "continuous, baseline, ordinate, radius, diameter, or staggered dimension "
+        "set is needed. Do not fake dimension chains with lines and text."
+    ),
+    "add_linear_dimension": (
+        "Preferred associative dimension for linear/aligned distance. Use this "
+        "instead of drawing extension lines and writing measured text manually."
+    ),
+    "add_mleader": (
+        "Preferred callout tool for an arrow leader with text. Use this instead "
+        "of separate arrow lines plus draw_text."
+    ),
+    "add_table": (
+        "Preferred CAD table tool for schedules, BOMs, part lists, and tabular "
+        "notes. Use this instead of many draw_line/draw_text entities."
+    ),
+    "create_block": (
+        "Create a reusable block definition from existing entity handles. Use "
+        "blocks for repeated components instead of duplicating raw geometry."
+    ),
+    "insert_block": (
+        "Insert an existing block reference. Use this for reusable components "
+        "instead of redrawing the component each time."
+    ),
+    "add_hatch": (
+        "Create hatch/fill, then call hatch_add_boundary. Use this for section "
+        "patterns and fills instead of dense manual linework."
+    ),
+    "draw_box": (
+        "Preferred true 3D box/cuboid solid. Use this instead of drawing a "
+        "wireframe box from lines."
+    ),
+    "draw_cylinder": (
+        "Preferred true 3D cylinder solid. Use this instead of circles plus "
+        "vertical lines, and use solid_boolean for cylinder-cut holes."
+    ),
+    "fillet_polyline": (
+        "Round all corners of a polyline in one operation. Use this instead of "
+        "filleting each segment pair manually when the whole polyline is affected."
+    ),
+    "chamfer_polyline": (
+        "Chamfer all corners of a polyline in one operation. Use this instead of "
+        "editing each corner manually when the whole polyline is affected."
+    ),
+    "send_command": (
+        "LAST RESORT raw AutoCAD command execution. Use only when no dedicated "
+        "MCP tool covers the task after checking recommend_cad_tools/get_tool_help. "
+        "Prefer validated named tools for drawing, editing, dimensioning, blocks, "
+        "hatches, views, exports, and queries."
+    ),
+    "delete_selection_set": (
+        "DESTRUCTIVE compatibility alias: erases the drawing entities contained "
+        "in a selection set. It does not merely remove the selection-set container. "
+        "Prefer erase_selection_entities for clarity; use clear_selection_set to "
+        "clear a selection without deleting entities."
+    ),
+    "erase_selection_entities": (
+        "DESTRUCTIVE: erase/delete all drawing entities currently contained in "
+        "the named selection set. Use clear_selection_set instead when you only "
+        "want to empty the selection."
+    ),
+    "clear_selection_set": (
+        "Clear/remove members from a selection set without deleting drawing "
+        "entities. Use erase_selection_entities/delete_selection_set only when "
+        "the selected entities should be erased from the drawing."
+    ),
+    "get_tool_help": (
+        "Read the CAD MCP tool index. Call with a tool name for guidance, or "
+        "without arguments for categories. For an intent like 'draw a floor plan' "
+        "or 'make bolt holes', prefer recommend_cad_tools(intent)."
+    ),
+    "recommend_cad_tools": (
+        "Semantic router for this CAD MCP. Pass a short natural-language intent "
+        "and it returns the named tools to use, anti-patterns to avoid, and a "
+        "safe workflow. Use this before composing primitives when unsure."
+    ),
+}
+
 # Create the MCP server
 mcp = FastMCP(
     "AutoCAD-Comprehensive-Server",
-    instructions="完整的 AutoCAD 2020+ MCP 服务器 — 提供 100+ 工具覆盖 CAD 全功能",
+    instructions=TOOL_SELECTION_INSTRUCTIONS,
 )
 
 # ── Import tool modules ─────────────────────────────────────────
@@ -94,6 +260,13 @@ db = get_database()
 
 logger.info("启动 CAD MCP 服务器")
 logger.info("配置文件加载成功")
+
+PointListInput = Union[List[float], List[List[float]]]
+
+
+class XDataPair(TypedDict):
+    code: int
+    value: Union[str, int, float]
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -157,7 +330,7 @@ def get_document_info(ctx: Context) -> str:
 #  DRAWING TOOLS — Primitives
 # ══════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_line"])
 def draw_line(ctx: Context, start_x: float, start_y: float,
               end_x: float, end_y: float, start_z: float = 0.0,
               end_z: float = 0.0, layer: Optional[str] = None,
@@ -181,7 +354,7 @@ def draw_line(ctx: Context, start_x: float, start_y: float,
                                    start_z, end_z, layer, color)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_circle"])
 def draw_circle(ctx: Context, center_x: float, center_y: float,
                 radius: float, layer: Optional[str] = None,
                 color: str = "bylayer") -> str:
@@ -239,7 +412,7 @@ def draw_ellipse(ctx: Context, center_x: float, center_y: float,
                                       radius_ratio, layer, color)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_polyline"])
 def draw_polyline(ctx: Context, points: List[float],
                   closed: bool = False, layer: Optional[str] = None,
                   color: str = "bylayer") -> str:
@@ -256,7 +429,7 @@ def draw_polyline(ctx: Context, points: List[float],
     return drawing_tools.draw_polyline(points, closed, layer, color)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_rectangle"])
 def draw_rectangle(ctx: Context, x1: float, y1: float,
                    x2: float, y2: float, layer: Optional[str] = None,
                    color: str = "bylayer") -> str:
@@ -273,7 +446,7 @@ def draw_rectangle(ctx: Context, x1: float, y1: float,
     return drawing_tools.draw_rectangle(x1, y1, x2, y2, layer, color)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_polygon"])
 def draw_polygon(ctx: Context, center_x: float, center_y: float,
                  radius: float, sides: int, start_angle: float = 0.0,
                  layer: Optional[str] = None, color: str = "bylayer") -> str:
@@ -292,7 +465,7 @@ def draw_polygon(ctx: Context, center_x: float, center_y: float,
                                       start_angle, layer, color)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_spline"])
 def draw_spline(ctx: Context, fit_points: List[float],
                 start_tangent: Optional[Tuple[float,float,float]] = None,
                 end_tangent: Optional[Tuple[float,float,float]] = None,
@@ -344,7 +517,7 @@ def draw_3d_polyline(ctx: Context, points: List[float],
     return drawing_tools.draw_3d_polyline(points, closed, layer, color)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_text"])
 def draw_text(ctx: Context, text: str, insert_x: float, insert_y: float,
               height: float = 2.5, rotation: float = 0.0, z: float = 0.0,
               layer: Optional[str] = None, color: str = "bylayer") -> str:
@@ -366,7 +539,7 @@ def draw_text(ctx: Context, text: str, insert_x: float, insert_y: float,
                                    rotation, z, layer, color)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_mtext"])
 def draw_mtext(ctx: Context, text: str, insert_x: float, insert_y: float,
                width: float = 0.0, height: float = 2.5,
                rotation: float = 0.0, layer: Optional[str] = None,
@@ -449,7 +622,7 @@ def draw_xline(ctx: Context, point1_x: float, point1_y: float,
                                      layer, color)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_mline"])
 def draw_mline(ctx: Context, points: List[float],
                 layer: Optional[str] = None, color: str = "bylayer") -> str:
     """绘制多线（平行多线，如墙体双线）。
@@ -554,7 +727,34 @@ def draw_trace(ctx: Context, points: List[float],
     return drawing_tools.draw_trace(points, layer, color)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["insert_minsert_block"])
+def insert_minsert_block(ctx: Context, block_name: str, x: float,
+                         y: float, z: float = 0.0, x_scale: float = 1.0,
+                         y_scale: float = 1.0, z_scale: float = 1.0,
+                         rotation: float = 0.0, rows: int = 1,
+                         cols: int = 1, row_spacing: float = 0.0,
+                         col_spacing: float = 0.0,
+                         layer: Optional[str] = None) -> str:
+    """Insert a block as an AutoCAD MInsert rectangular block array.
+
+    Args:
+        block_name: Block definition name.
+        x, y, z: Insertion point.
+        x_scale, y_scale, z_scale: Block scale factors.
+        rotation: Rotation angle in degrees.
+        rows: Number of rows.
+        cols: Number of columns.
+        row_spacing: Row spacing.
+        col_spacing: Column spacing.
+        layer: Optional layer name.
+    """
+    return drawing_tools.insert_minsert_block(block_name, x, y, z, x_scale,
+                                              y_scale, z_scale, rotation,
+                                              rows, cols, row_spacing,
+                                              col_spacing, layer)
+
+
+@mcp.tool(description=TOOL_DESCRIPTIONS["insert_minsert_block"])
 def insert_minert_block(ctx: Context, block_name: str, x: float,
                           y: float, z: float = 0.0, x_scale: float = 1.0,
                           y_scale: float = 1.0, z_scale: float = 1.0,
@@ -638,7 +838,7 @@ def rotate_entity(ctx: Context, handle: str, base_point: List[float],
     return edit_tools.rotate_entity(handle, base_point, angle)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["copy_entity"])
 def copy_entity(ctx: Context, handle: str,
                 from_point: Optional[List[float]] = None,
                 to_point: Optional[List[float]] = None) -> str:
@@ -713,7 +913,7 @@ def offset_entity(ctx: Context, handle: str, distance: float) -> str:
     return edit_tools.offset_entity(handle, distance)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["array_rectangular"])
 def array_rectangular(ctx: Context, handle: str, rows: int, columns: int,
                       row_spacing: float, column_spacing: float) -> str:
     """矩形阵列：按行和列复制实体。
@@ -731,7 +931,7 @@ def array_rectangular(ctx: Context, handle: str, rows: int, columns: int,
                                         row_spacing, column_spacing)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["array_polar"])
 def array_polar(ctx: Context, handle: str, count: int, fill_angle: float,
                 center_x: float, center_y: float,
                 center_z: float = 0.0) -> str:
@@ -994,6 +1194,66 @@ def lengthen_entity(ctx: Context, handle: str, mode: str = "delta",
     return edit_tools.lengthen_entity(handle, mode, value, end)
 
 
+@mcp.tool()
+def divide_entity(ctx: Context, handle: str, segments: int, block_name: str = "") -> str:
+    """定数等分实体（在实体上按指定段数等分插入点或图块）。
+
+    Args:
+        handle:     实体句柄
+        segments:   等分段数 (2-32767)
+        block_name: (可选)用于标记的块名，留空则插入点对象
+    """
+    return edit_tools.divide_entity(handle, segments, block_name)
+
+
+@mcp.tool()
+def measure_entity(ctx: Context, handle: str, length: float, block_name: str = "") -> str:
+    """定距等分实体（在实体上按指定间距插入点或图块）。
+
+    Args:
+        handle:     实体句柄
+        length:     间距距离
+        block_name: (可选)用于标记的块名，留空则插入点对象
+    """
+    return edit_tools.measure_entity(handle, length, block_name)
+
+
+@mcp.tool()
+def align_entities(ctx: Context, handles: List[str], points: List[List[float]]) -> str:
+    """对齐实体。通过成对的源点和目标点集移动、旋转实体的二维或三维操作。
+    如果是两对点，执行 2D 对齐（平移+旋转+缩放）。
+    如果是三对点，执行 3D 对齐。
+
+    Args:
+        handles: 需要对齐的实体句柄列表
+        points:  对齐点对。格式为 [[源点1, 目标点1], [源点2, 目标点2], ...]
+    """
+    return edit_tools.align_entities(handles, points)
+
+
+@mcp.tool(description=TOOL_DESCRIPTIONS["chamfer_polyline"])
+def chamfer_polyline(ctx: Context, handle: str, distance1: float, distance2: float) -> str:
+    """对整个多段线的所有角点进行倒角。实用接口。
+
+    Args:
+        handle:     多段线实体句柄
+        distance1:  第一条边的倒角距离
+        distance2:  第二条边的倒角距离
+    """
+    return edit_tools.chamfer_polyline(handle, distance1, distance2)
+
+
+@mcp.tool(description=TOOL_DESCRIPTIONS["fillet_polyline"])
+def fillet_polyline(ctx: Context, handle: str, radius: float) -> str:
+    """对整个多段线的所有角点进行圆角。实用接口。
+
+    Args:
+        handle: 多段线实体句柄
+        radius: 圆角半径
+    """
+    return edit_tools.fillet_polyline(handle, radius)
+
+
 # ══════════════════════════════════════════════════════════════════
 #  LAYER TOOLS
 # ══════════════════════════════════════════════════════════════════
@@ -1170,7 +1430,7 @@ def get_text_styles(ctx: Context) -> str:
 
 
 @mcp.tool()
-def add_leader(ctx: Context, points: List[float],
+def add_leader(ctx: Context, points: PointListInput,
                annotation: Optional[str] = None,
                layer: Optional[str] = None) -> str:
     """绘制引线标注（带箭头的指引线 + 可选文字注释）。
@@ -1178,7 +1438,7 @@ def add_leader(ctx: Context, points: List[float],
     引线通常用于指向图形中的特定位置并添加说明文字。
 
     Args:
-        points:     引线顶点列表 [x1,y1,z1, x2,y2,z2, ...]，至少2个点
+        points:     引线顶点列表 [x1,y1,z1, x2,y2,z2, ...] 或 [[x,y,z], ...]，至少2个点
                     最后一个点是箭头指向的位置
         annotation: 引线末端注释文字（可选）
         layer:      图层名称
@@ -1186,20 +1446,20 @@ def add_leader(ctx: Context, points: List[float],
     return text_tools.add_leader(points, annotation, layer)
 
 
-@mcp.tool()
-def add_mleader(ctx: Context, text: str, points: List[float],
+@mcp.tool(description=TOOL_DESCRIPTIONS["add_mleader"])
+def add_mleader(ctx: Context, text: str, points: PointListInput,
                 layer: Optional[str] = None) -> str:
     """绘制多重引线（现代化的引线标注，带文字和更好的格式）。
 
     Args:
         text:   引线文字内容
-        points: 引线顶点列表 [x1,y1,z1, x2,y2,z2, ...]，至少2个点
+        points: 引线顶点列表 [x1,y1,z1, x2,y2,z2, ...] 或 [[x,y,z], ...]，至少2个点
         layer:  图层名称
     """
     return text_tools.add_mleader(text, points, layer)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["add_table"])
 def add_table(ctx: Context, insert_x: float, insert_y: float,
               rows: int, columns: int, row_height: float = 1.0,
               column_width: float = 5.0, insert_z: float = 0.0,
@@ -1267,7 +1527,7 @@ def replace_text(ctx: Context, find: str, replace: str) -> str:
 #  DIMENSION TOOLS
 # ══════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["add_linear_dimension"])
 def add_linear_dimension(ctx: Context, x1: float, y1: float,
                          x2: float, y2: float, text_x: float, text_y: float,
                          z1: float = 0.0, z2: float = 0.0,
@@ -1413,7 +1673,7 @@ def copy_dimension_style(ctx: Context, source_name: str,
     return dimension_tools.copy_dimension_style(source_name, new_name)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["add_qdim"])
 def add_qdim(ctx: Context, entity_handles: List[str],
               dimension_type: str = "continuous",
               layer: Optional[str] = None) -> str:
@@ -1601,7 +1861,7 @@ def set_text_properties(ctx: Context, handle: str,
 #  BLOCK TOOLS
 # ══════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["create_block"])
 def create_block(ctx: Context, name: str, base_x: float, base_y: float,
                  base_z: float, entity_handles: List[str]) -> str:
     """创建图块定义（将多个实体组合为一个可重复使用的图块）。
@@ -1617,7 +1877,7 @@ def create_block(ctx: Context, name: str, base_x: float, base_y: float,
     return block_tools.create_block(name, base_x, base_y, base_z, entity_handles)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["insert_block"])
 def insert_block(ctx: Context, name: str, x: float, y: float,
                  z: float = 0.0, x_scale: float = 1.0,
                  y_scale: float = 1.0, z_scale: float = 1.0,
@@ -2093,7 +2353,10 @@ def regen(ctx: Context, which: str = "all") -> str:
     return file_tools.regen(which)
 
 
-@mcp.tool()
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["send_command"],
+    annotations=ToolAnnotations(destructiveHint=True, openWorldHint=True),
+)
 def send_command(ctx: Context, command: str) -> str:
     """向 AutoCAD 命令行发送原始命令。
 
@@ -2173,7 +2436,7 @@ def get_snapshots(ctx: Context, limit: int = 5) -> str:
 #  DATABASE TOOLS
 # ══════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
 def get_all_tables(ctx: Context) -> str:
     """获取 CAD 元数据库中的所有表名。
 
@@ -2182,7 +2445,7 @@ def get_all_tables(ctx: Context) -> str:
     return utility_tools.get_all_tables()
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
 def get_table_schema(ctx: Context, table_name: str) -> str:
     """获取指定数据库表的列结构（列名、类型、约束）。
 
@@ -2192,7 +2455,7 @@ def get_table_schema(ctx: Context, table_name: str) -> str:
     return utility_tools.get_table_schema(table_name)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
 def execute_query(ctx: Context, query: str) -> str:
     """在 CAD 元数据数据库上执行 SQL 查询。
 
@@ -2203,6 +2466,9 @@ def execute_query(ctx: Context, query: str) -> str:
       cad_entities     — 所有扫描的实体（type, layer, color, properties JSON）
       cad_layers       — 图层配置
       cad_blocks       — 图块定义
+      cad_geometry_primitives — 派生点/线/曲线/面/体
+      cad_geometry_relations  — starts_at/ends_at/bounded_by 等拓扑关系
+      cad_topology_summary    — 每个实体的点线面体摘要
       text_patterns    — 文本搜索统计
       drawing_snapshots— 图纸快照
 
@@ -2213,15 +2479,27 @@ def execute_query(ctx: Context, query: str) -> str:
       SELECT * FROM cad_entities WHERE type = 'AcDbText' AND json_extract(geometry, '$.text_string') LIKE '%门%'
 
     Args:
-        query: SQL 查询字符串
+        query: 只读 SQL 查询字符串（SELECT/WITH/PRAGMA/EXPLAIN）
     """
     return utility_tools.execute_query(query)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
 def execute_sql_query(ctx: Context, query: str) -> str:
     """执行 SQL 查询（execute_query 的别名，兼容不同的命名习惯）。"""
     return utility_tools.execute_sql_query(query)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
+def get_entity_topology(ctx: Context, handle: str) -> str:
+    """获取单个实体派生出的点、线、面与拓扑关系。"""
+    return utility_tools.get_entity_topology(handle)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
+def get_topology_summary(ctx: Context, limit: int = 100) -> str:
+    """列出实体的点/线/面/体拓扑摘要，便于理解图纸几何关系。"""
+    return utility_tools.get_topology_summary(limit)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -2247,7 +2525,7 @@ def get_all_groups(ctx: Context) -> str:
     return utility_tools.get_all_groups()
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["add_hatch"])
 def add_hatch(ctx: Context, pattern_name: str = "ANSI31",
               associativity: bool = True, layer: Optional[str] = None,
               color: str = "bylayer") -> str:
@@ -2360,7 +2638,176 @@ def hatch_set_gradient(ctx: Context, handle: str,
 #  HELP TOOL
 # ══════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+def _registered_tools():
+    return sorted(mcp._tool_manager.list_tools(), key=lambda tool: tool.name)
+
+
+def _tool_category(name: str) -> str:
+    if name in {"create_new_drawing", "open_drawing", "save_drawing",
+                "close_drawing", "get_document_info"} or name.startswith("export_"):
+        return "Document and export"
+    if name.startswith(("draw_box", "draw_cone", "draw_cylinder", "draw_sphere",
+                        "draw_torus", "draw_wedge", "draw_elliptical",
+                        "draw_3d", "add_region", "extrude_", "revolve_",
+                        "solid_", "check_interference", "slice_solid",
+                        "section_solid", "rotate_3d", "mirror_3d",
+                        "transform_entity", "intersect_with",
+                        "get_bounding_box")):
+        return "3D solids and surfaces"
+    if name.startswith(("draw_", "insert_minsert", "insert_minert", "add_shape")):
+        return "Drawing primitives and entities"
+    if name.startswith("polyline_"):
+        return "Polyline operations"
+    if name.endswith("_entity") or name.endswith("_entities") or name in {
+        "copy_entity", "move_entity", "rotate_entity", "mirror_entity",
+        "scale_entity", "offset_entity", "array_rectangular", "array_polar",
+        "explode_entity", "fillet_entities", "chamfer_entities", "trim_entity",
+        "extend_entity", "break_entity", "join_entities", "stretch_entities",
+        "lengthen_entity", "divide_entity", "measure_entity", "align_entities",
+        "fillet_polyline", "chamfer_polyline",
+    }:
+        return "Editing and transforms"
+    if "dimension" in name or name in {"add_qdim", "set_text_alignment",
+                                        "set_text_properties"}:
+        return "Dimensions"
+    if name.startswith(("create_layer", "delete_layer", "rename_layer",
+                        "freeze_layer", "thaw_layer", "lock_layer",
+                        "unlock_layer", "turn_", "set_current_layer",
+                        "get_all_layers", "isolate_layer", "unisolate")):
+        return "Layers"
+    if "text" in name or "leader" in name or "table" in name:
+        return "Text and annotation"
+    if "block" in name or "xref" in name or "attribute" in name:
+        return "Blocks, xrefs, attributes"
+    if "hatch" in name:
+        return "Hatch and fill"
+    if name.startswith(("scan_", "select_", "highlight_", "reset_", "get_entity",
+                        "execute_", "get_all_tables", "get_table_schema",
+                        "get_topology_summary",
+                        "get_tool_help", "recommend_cad_tools")):
+        return "Query, selection, help"
+    if name.startswith(("zoom_", "pan", "get_current_view", "get_layout",
+                        "set_active_layout", "create_layout", "save_named_view",
+                        "restore_named_view", "get_named_views", "delete_named_view",
+                        "add_viewport", "get_viewports", "set_viewport")):
+        return "Views and layouts"
+    if name.startswith(("plot_", "get_plot")):
+        return "Plotting"
+    if name.startswith(("create_ucs", "get_all_ucs", "set_active_ucs",
+                        "get_active_ucs", "translate_coordinates",
+                        "polar_point", "angle_from_xaxis", "angle_to_",
+                        "distance_to_", "real_to_")):
+        return "Coordinates and units"
+    if name.startswith(("add_hyperlink", "get_hyperlinks", "remove_hyperlink",
+                        "get_xdata", "set_xdata", "create_registered",
+                        "get_registered", "get_dictionaries", "create_material",
+                        "get_materials", "set_entity_material",
+                        "set_active_material", "load_linetype", "get_linetypes")):
+        return "Metadata, materials, linetypes"
+    return "System and utilities"
+
+
+def _first_description_line(description: Optional[str]) -> str:
+    if not description:
+        return ""
+    return " ".join(description.strip().splitlines()[0].split())
+
+
+def _build_registered_tool_help(tool_name: Optional[str] = None) -> str:
+    tools = _registered_tools()
+    by_name = {tool.name: tool for tool in tools}
+
+    if tool_name:
+        name = tool_name.strip()
+        tool = by_name.get(name)
+        if not tool:
+            matches = [t.name for t in tools if name.lower() in t.name.lower()]
+            if matches:
+                return (
+                    f"Tool '{tool_name}' was not found. Similar tools:\n"
+                    + "\n".join(f"  - {match}" for match in matches[:30])
+                )
+            return f"Tool '{tool_name}' was not found. Call get_tool_help() for the full registered list."
+
+        lines = [f"Tool: {tool.name}", f"Category: {_tool_category(tool.name)}"]
+        route_help = utility_tools.get_tool_help(tool.name)
+        if route_help.startswith("Tool: "):
+            lines.append("")
+            lines.append(route_help)
+        if tool.description:
+            lines.append("")
+            lines.append(tool.description.strip())
+        props = tool.parameters.get("properties", {})
+        required = set(tool.parameters.get("required", []))
+        if props:
+            lines.append("")
+            lines.append("Parameters:")
+            for param_name, schema in props.items():
+                req = "required" if param_name in required else "optional"
+                param_type = schema.get("type") or " / ".join(
+                    item.get("type", "any") for item in schema.get("anyOf", [])
+                ) or "any"
+                default = f", default={schema['default']!r}" if "default" in schema else ""
+                lines.append(f"  - {param_name}: {param_type} ({req}{default})")
+        return "\n".join(lines)
+
+    grouped: Dict[str, List[str]] = {}
+    for tool in tools:
+        grouped.setdefault(_tool_category(tool.name), []).append(tool.name)
+
+    lines = [
+        f"CAD MCP registered tools: {len(tools)}",
+        "Use recommend_cad_tools(intent) when unsure; use named tools before primitives.",
+        "send_command is a last-resort raw AutoCAD escape hatch.",
+        "",
+    ]
+    for category in sorted(grouped):
+        names = grouped[category]
+        lines.append(f"## {category} ({len(names)})")
+        for name in names:
+            desc = _first_description_line(by_name[name].description)
+            suffix = f" - {desc}" if desc else ""
+            lines.append(f"  - {name}{suffix}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+@mcp.resource("cad://tool-selection",
+              name="CAD Tool Selection Rules",
+              mime_type="text/markdown")
+def cad_tool_selection_resource() -> str:
+    """Model-facing rules for choosing the right CAD MCP tool."""
+    return TOOL_SELECTION_INSTRUCTIONS.strip()
+
+
+@mcp.resource("cad://tools",
+              name="Registered CAD Tool Index",
+              mime_type="text/markdown")
+def cad_registered_tools_resource() -> str:
+    """Complete index generated from registered MCP tools."""
+    return _build_registered_tool_help()
+
+
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["recommend_cad_tools"],
+    annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+)
+def recommend_cad_tools(ctx: Context, intent: str,
+                        max_results: int = 8) -> str:
+    """Recommend purpose-built CAD MCP tools for a natural-language intent.
+
+    Args:
+        intent: Short task description, e.g. "draw a rectangle floor plan",
+                "make 12 bolt holes", or "dimension all wall segments".
+        max_results: Maximum number of matching tool recommendations to return.
+    """
+    return utility_tools.recommend_cad_tools(intent, max_results)
+
+
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["get_tool_help"],
+    annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+)
 def get_tool_help(ctx: Context, tool_name: Optional[str] = None) -> str:
     """获取 CAD MCP 工具帮助。
 
@@ -2370,14 +2817,14 @@ def get_tool_help(ctx: Context, tool_name: Optional[str] = None) -> str:
     Args:
         tool_name: 工具名称（可选，不指定则显示全部工具概览）
     """
-    return utility_tools.get_tool_help(tool_name)
+    return _build_registered_tool_help(tool_name)
 
 
 # ══════════════════════════════════════════════════════════════════
 #  3D SOLID TOOLS
 # ══════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_box"])
 def draw_box(ctx: Context, center_x: float, center_y: float,
               center_z: float, length: float, width: float, height: float,
               layer: Optional[str] = None, color: str = "bylayer") -> str:
@@ -2414,7 +2861,7 @@ def draw_cone(ctx: Context, center_x: float, center_y: float,
                                     base_radius, height, layer, color)
 
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_cylinder"])
 def draw_cylinder(ctx: Context, center_x: float, center_y: float,
                    center_z: float, radius: float, height: float,
                    layer: Optional[str] = None, color: str = "bylayer") -> str:
@@ -2873,9 +3320,9 @@ def get_xdata(ctx: Context, handle: str, app_name: str = "") -> str:
     return advanced_tools.get_xdata(handle, app_name)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
 def set_xdata(ctx: Context, handle: str, app_name: str,
-               data_pairs: List[Dict[str, Any]]) -> str:
+               data_pairs: List[XDataPair]) -> str:
     """为实体设置扩展数据 (XData)。
 
     可以在实体上存储自定义的结构化数据。
@@ -3465,7 +3912,10 @@ def select_on_screen(ctx: Context) -> str:
     return utility_tools.select_on_screen()
 
 
-@mcp.tool()
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["delete_selection_set"],
+    annotations=ToolAnnotations(destructiveHint=True),
+)
 def delete_selection_set(ctx: Context, ss_name: str = "MCP_TEMP_SS") -> str:
     """删除指定选择集中的所有实体。
 
@@ -3475,7 +3925,23 @@ def delete_selection_set(ctx: Context, ss_name: str = "MCP_TEMP_SS") -> str:
     return utility_tools.delete_selection_set(ss_name)
 
 
-@mcp.tool()
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["erase_selection_entities"],
+    annotations=ToolAnnotations(destructiveHint=True),
+)
+def erase_selection_entities(ctx: Context, ss_name: str = "MCP_TEMP_SS") -> str:
+    """Erase/delete all drawing entities contained in the named selection set.
+
+    Args:
+        ss_name: Selection set name (default "MCP_TEMP_SS").
+    """
+    return utility_tools.erase_selection_entities(ss_name)
+
+
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["clear_selection_set"],
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
 def clear_selection_set(ctx: Context, ss_name: str = "MCP_TEMP_SS") -> str:
     """清空指定选择集（不移除实体，只清空选择）。
 
@@ -3613,6 +4079,23 @@ def polyline_get_segment_type(ctx: Context, handle: str,
 @mcp.prompt()
 def cad_workflow_guide() -> str:
     """CAD MCP 工作流指南 — 教 AI 如何使用这套工具完成 CAD 任务。"""
+    return f"""{TOOL_SELECTION_INSTRUCTIONS.strip()}
+
+## Recommended workflow
+1. Open or create: create_new_drawing/open_drawing.
+2. Existing drawing: scan_all_entities, then get_entity_statistics or execute_query.
+3. Plan layers before drawing: create_layer and draw with color="bylayer".
+4. Pick the named tool for the intent: rectangle, polygon, block, hatch,
+   dimension, leader, array, fillet, chamfer, trim, offset, 3D solid, etc.
+5. Edit by handle with editing tools; do not delete and redraw just to move,
+   mirror, scale, offset, trim, or array.
+6. Dimension with add_*_dimension or add_qdim; never fake dimensions with text
+   and lines.
+7. Verify with scan_all_entities/zoom_extents and save/export.
+
+When unsure, call recommend_cad_tools(intent). For a full generated index, use
+get_tool_help() or resource cad://tools.
+"""
     return """你是 CAD MCP 专家。使用这套工具时请遵循以下工作流：
 
 ## 基础工作流

@@ -15,6 +15,7 @@ import win32com.client
 import pythoncom
 import math
 import logging
+import os
 from typing import Optional, List, Tuple, Dict, Any, Union
 from contextlib import contextmanager
 
@@ -162,11 +163,78 @@ class CADController:
         try:
             if format_type == "DWG":
                 self.doc.SaveAs(filepath)
+            elif format_type == "DXF":
+                self._export_with_selection_set(filepath, "DXF")
+            elif format_type == "PDF":
+                self._export_pdf(filepath)
             else:
-                self.doc.Export(filepath, format_type)
+                self._export_with_selection_set(filepath, format_type)
             return {"success": True, "message": f"已导出为 {format_type}: {filepath}"}
         except Exception as e:
             return {"success": False, "message": f"导出失败: {e}"}
+
+    def _export_pdf(self, filepath: str) -> None:
+        plotters = [
+            "DWG To PDF.pc3",
+            "AutoCAD PDF (General Documentation).pc3",
+            "AutoCAD PDF (High Quality Print).pc3",
+        ]
+        layout = getattr(self.doc, "ActiveLayout", None)
+        previous_config = None
+        has_previous_config = False
+        if layout is not None:
+            try:
+                previous_config = layout.ConfigName
+                has_previous_config = True
+            except Exception:
+                pass
+
+        last_error = None
+        try:
+            for plotter in plotters:
+                try:
+                    if layout is not None:
+                        try:
+                            layout.ConfigName = plotter
+                        except Exception:
+                            pass
+                    ok = self.doc.Plot.PlotToFile(filepath, plotter)
+                    if ok is False:
+                        raise RuntimeError(f"PlotToFile returned False for {plotter}")
+                    return
+                except Exception as e:
+                    last_error = e
+            raise RuntimeError(last_error or "no PDF plotter available")
+        finally:
+            if layout is not None and has_previous_config:
+                try:
+                    layout.ConfigName = previous_config
+                except Exception:
+                    pass
+
+    def _export_with_selection_set(self, filepath: str, format_type: str) -> None:
+        export_path = self._strip_export_extension(filepath, format_type)
+        ss_name = "MCP_EXPORT_EMPTY_SS"
+        selection_set = None
+        try:
+            try:
+                self.doc.SelectionSets.Item(ss_name).Delete()
+            except Exception:
+                pass
+            selection_set = self.doc.SelectionSets.Add(ss_name)
+            self.doc.Export(export_path, format_type, selection_set)
+        finally:
+            if selection_set is not None:
+                try:
+                    selection_set.Delete()
+                except Exception:
+                    pass
+
+    def _strip_export_extension(self, filepath: str, format_type: str) -> str:
+        root, ext = os.path.splitext(filepath)
+        if ext.lower() == f".{format_type.lower()}":
+            return root
+        return filepath
 
     @require_document
     def close_drawing(self, save: bool = False) -> Dict[str, Any]:
@@ -532,14 +600,17 @@ class CADController:
     @require_document
     def add_mleader(self, text: str, points: List[Tuple[float,float,float]]) -> Any:
         """Add a multileader."""
-        flat = []
-        for p in points:
-            flat.extend([float(p[0]), float(p[1]), float(p[2]) if len(p)>2 else 0.0])
-        pts_array = to_variant_array(flat)
-        mleader = self.doc.ModelSpace.AddMLeader(pts_array, 0)
-        mleader.ContentType = 2  # mtext content
-        mleader.TextString = text
-        return mleader
+        try:
+            flat = []
+            for p in points:
+                flat.extend([float(p[0]), float(p[1]), float(p[2]) if len(p)>2 else 0.0])
+            pts_array = to_variant_array(flat)
+            mleader = self.doc.ModelSpace.AddMLeader(pts_array, 0)
+            mleader.ContentType = 2  # MText content
+            mleader.TextString = text
+            return mleader
+        except Exception as e:
+            return {"success": False, "message": f"多重引线失败: {e}"}
 
     @require_document
     def add_table(self, insert_point: Tuple[float,float,float],
@@ -1282,19 +1353,36 @@ class CADController:
         if ent is None:
             return {"success": False, "message": f"未找到实体: {handle}"}
         try:
-            result = ent.ArrayRectangular(rows, cols, rows + 1 if rows > 1 else 1,
-                                          row_spacing, col_spacing)
-            new_handles = []
-            if hasattr(result, 'Count'):
-                for i in range(result.Count):
-                    new_handles.append(result.Item(i).Handle)
-            elif result:
-                new_handles.append(result.Handle)
+            if rows < 1 or cols < 1:
+                return {"success": False, "message": "行数和列数必须大于等于 1"}
+            result = ent.ArrayRectangular(rows, cols, 1,
+                                          row_spacing, col_spacing, 0.0)
+            new_handles = self._collect_object_handles(result)
             return {"success": True,
                     "message": f"已矩形阵列实体 {handle}: {rows}x{cols}",
                     "new_handles": new_handles}
         except Exception as e:
             return {"success": False, "message": f"阵列失败: {e}"}
+
+    def _collect_object_handles(self, result: Any) -> List[str]:
+        if result is None:
+            return []
+        objects = []
+        if isinstance(result, (list, tuple)):
+            objects = list(result)
+        else:
+            count = getattr(result, "Count", None)
+            if isinstance(count, int):
+                objects = [result.Item(i) for i in range(count)]
+            else:
+                objects = [result]
+
+        handles = []
+        for obj in objects:
+            handle = getattr(obj, "Handle", None)
+            if handle:
+                handles.append(handle)
+        return handles
 
     @require_document
     def array_polar(self, handle: str, count: int, angle_deg: float,
@@ -2176,6 +2264,182 @@ class CADController:
             return {"success": True, "message": f"已发送命令: {command}"}
         except Exception as e:
             return {"success": False, "message": f"发送命令失败: {e}"}
+
+    def _wait_quiescent(self, timeout: float = 5.0) -> bool:
+        """Block until AutoCAD is idle (no command in progress), or timeout."""
+        import time
+        deadline = time.time() + timeout
+        try:
+            state = self.acad.GetAcadState()
+        except Exception:
+            time.sleep(0.2)
+            return True
+        while time.time() < deadline:
+            try:
+                if state.IsQuiescent:
+                    return True
+            except Exception:
+                return True
+            time.sleep(0.05)
+        return False
+
+    @require_document
+    def run_lisp(self, lisp: str, wait: bool = True) -> Dict[str, Any]:
+        """Execute an AutoLISP expression via SendCommand and wait for idle.
+
+        Unlike send_command, this is meant for (command ...) sequences that
+        select entities by handle using (handent "..."). Waits for AutoCAD to
+        return to a quiescent state so callers can safely query results after.
+        """
+        import time
+        try:
+            self._wait_quiescent(timeout=5.0)
+            if not lisp.endswith("\n"):
+                lisp += "\n"
+            self.doc.SendCommand(lisp)
+            if wait:
+                # Give the command queue a beat, then wait for idle.
+                time.sleep(0.1)
+                self._wait_quiescent(timeout=10.0)
+            return {"success": True, "message": "已执行 LISP 表达式"}
+        except Exception as e:
+            return {"success": False, "message": f"执行LISP失败: {e}"}
+
+    @require_document
+    def fillet(self, handle1: str, handle2: str, radius: float) -> Dict[str, Any]:
+        """Fillet two entities by handle. Returns handle of the new arc if created."""
+        ms = self.doc.ModelSpace
+        try:
+            before = ms.Count
+        except Exception:
+            before = -1
+        lisp = (f'(setvar "FILLETRAD" {radius})'
+                f'(command "._FILLET" (handent "{handle1}") (handent "{handle2}"))')
+        r = self.run_lisp(lisp)
+        if not r["success"]:
+            return r
+        # Detect a newly created arc (the fillet arc), if any.
+        new_handle = None
+        try:
+            if before >= 0 and ms.Count > before:
+                ent = ms.Item(ms.Count - 1)
+                new_handle = ent.Handle
+        except Exception:
+            pass
+        return {"success": True, "message": f"已圆角 (R={radius})",
+                "new_handle": new_handle}
+
+    @require_document
+    def chamfer(self, handle1: str, handle2: str,
+                dist1: float, dist2: float) -> Dict[str, Any]:
+        """Chamfer two entities by handle using distance/distance method."""
+        lisp = (f'(setvar "CHAMMODE" 0)'
+                f'(setvar "CHAMFERA" {dist1})(setvar "CHAMFERB" {dist2})'
+                f'(command "._CHAMFER" (handent "{handle1}") (handent "{handle2}"))')
+        return self.run_lisp(lisp)
+
+    @require_document
+    def trim(self, trim_handles: List[str],
+             cutting_handles: List[str]) -> Dict[str, Any]:
+        """Trim entities using cutting edges, all selected by handle."""
+        cut = "".join(f'(ssadd (handent "{h}") ss)' for h in cutting_handles)
+        # Build a selection set of cutting edges, run TRIM, pick each target.
+        picks = "".join(f'(handent "{h}") ' for h in trim_handles)
+        lisp = (f'(setq ss (ssadd))'
+                f'{cut}'
+                f'(command "._TRIM" ss "" {picks}"")')
+        return self.run_lisp(lisp)
+
+    @require_document
+    def extend(self, extend_handles: List[str],
+               boundary_handles: List[str]) -> Dict[str, Any]:
+        """Extend entities to boundary edges, all selected by handle."""
+        bnd = "".join(f'(ssadd (handent "{h}") ss)' for h in boundary_handles)
+        picks = "".join(f'(handent "{h}") ' for h in extend_handles)
+        lisp = (f'(setq ss (ssadd))'
+                f'{bnd}'
+                f'(command "._EXTEND" ss "" {picks}"")')
+        return self.run_lisp(lisp)
+
+    @require_document
+    def break_at(self, handle: str, p1: List[float],
+                 p2: Optional[List[float]] = None) -> Dict[str, Any]:
+        """Break an entity at one point (split) or between two points (gap)."""
+        def pt(p):
+            z = p[2] if len(p) > 2 else 0.0
+            return f'(list {p[0]} {p[1]} {z})'
+        if p2 is None:
+            # Split in place: pick first point, then "@" for same point.
+            lisp = (f'(command "._BREAK" (handent "{handle}") "_F" {pt(p1)} "@")')
+        else:
+            lisp = (f'(command "._BREAK" (handent "{handle}") "_F" {pt(p1)} {pt(p2)})')
+        return self.run_lisp(lisp)
+
+    @require_document
+    def join(self, handles: List[str]) -> Dict[str, Any]:
+        """Join multiple collinear/contiguous entities into one."""
+        source = f'(handent "{handles[0]}")'
+        rest = "".join(f'(handent "{h}") ' for h in handles[1:])
+        lisp = f'(command "._JOIN" {source} {rest}"")'
+        return self.run_lisp(lisp)
+
+    @require_document
+    def lengthen(self, handle: str, mode: str, value: float,
+                 end: str = "both") -> Dict[str, Any]:
+        """Lengthen/shorten an entity. mode: delta|percent|total."""
+        mode_code = {"delta": "_DE", "percent": "_P", "total": "_T"}.get(mode, "_DE")
+        # LENGTHEN picks the object near an end to choose which side grows.
+        lisp = (f'(command "._LENGTHEN" {mode_code} {value} '
+                f'(handent "{handle}") "")')
+        return self.run_lisp(lisp)
+
+    @require_document
+    def divide(self, handle: str, segments: int, block_name: str = "") -> Dict[str, Any]:
+        """Divide an entity into a number of equal segments, placing points or blocks."""
+        if block_name:
+            lisp = f'(command "._DIVIDE" (handent "{handle}") "_B" "{block_name}" "_Y" {segments})'
+        else:
+            lisp = f'(command "._DIVIDE" (handent "{handle}") {segments})'
+        return self.run_lisp(lisp)
+
+    @require_document
+    def measure(self, handle: str, length: float, block_name: str = "") -> Dict[str, Any]:
+        """Measure an entity: place points or blocks at specified intervals."""
+        if block_name:
+            lisp = f'(command "._MEASURE" (handent "{handle}") "_B" "{block_name}" "_Y" {length})'
+        else:
+            lisp = f'(command "._MEASURE" (handent "{handle}") {length})'
+        return self.run_lisp(lisp)
+
+    @require_document
+    def align(self, handles: List[str], points: List[List[float]]) -> Dict[str, Any]:
+        """Align entities using pairs of source and destination points.
+        points should be structured as: [[src1, dest1], [src2, dest2], [src3, dest3] (optional)]
+        """
+        sel = "".join(f'(ssadd (handent "{h}") ss)' for h in handles)
+        lisp = f'(setq ss (ssadd)){sel}(command "._ALIGN" ss "" '
+        for pair in points:
+            if len(pair) == 2:
+                src, dst = pair
+                sz, dz = src[2] if len(src)>2 else 0, dst[2] if len(dst)>2 else 0
+                lisp += f"(list {src[0]} {src[1]} {sz}) (list {dst[0]} {dst[1]} {dz}) "
+        lisp += '"" "_Y")'
+        return self.run_lisp(lisp)
+
+    @require_document
+    def chamfer_poly(self, handle: str, dist1: float, dist2: float) -> Dict[str, Any]:
+        """Chamfer all vertices of a polyline."""
+        lisp = (f'(setvar "CHAMMODE" 0)'
+                f'(setvar "CHAMFERA" {dist1})(setvar "CHAMFERB" {dist2})'
+                f'(command "._CHAMFER" "_P" (handent "{handle}"))')
+        return self.run_lisp(lisp)
+
+    @require_document
+    def fillet_poly(self, handle: str, radius: float) -> Dict[str, Any]:
+        """Fillet all vertices of a polyline."""
+        lisp = (f'(setvar "FILLETRAD" {radius})'
+                f'(command "._FILLET" "_P" (handent "{handle}"))')
+        return self.run_lisp(lisp)
 
     # ── Undo / Redo ───────────────────────────────────────
 

@@ -30,11 +30,18 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000) -> str:
     for ent in entities:
         if "error" in ent:
             continue
-        geometry = {}
-        for key in ("start", "end", "center", "radius", "length", "text",
-                     "start_angle", "end_angle", "closed"):
-            if key in ent:
-                geometry[key] = ent[key]
+        metadata_keys = {
+            "handle", "name", "type", "layer", "color", "linetype", "error"
+        }
+        geometry = {
+            key: value for key, value in ent.items()
+            if key not in metadata_keys
+        }
+        bbox = geometry.pop("bbox", geometry.pop("bounds", None))
+        if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+            bbox = tuple(bbox[:4])
+        else:
+            bbox = None
         if db.upsert_entity(
             handle=ent.get("handle", ""),
             name=ent.get("name", ent.get("type", "Unknown")),
@@ -43,6 +50,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000) -> str:
             color=ent.get("color", 256),
             linetype=ent.get("linetype", "ByLayer"),
             geometry=geometry,
+            bbox=bbox,
         ):
             saved += 1
 
@@ -151,7 +159,7 @@ def highlight_query_results(sql_query: str, color: int = 1) -> str:
         color:     高亮颜色 (1-6)
     """
     try:
-        result = db.execute(sql_query)
+        result = db.execute(sql_query, read_only=True)
         rows = result.get("rows", [])
         if not rows:
             return "查询未返回任何结果"
