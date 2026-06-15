@@ -251,7 +251,14 @@ def add_viewport(center_x: float, center_y: float, width: float,
         ctrl.set_current_layer(layer)
     try:
         vp = ctrl.add_pviewport(center_x, center_y, width, height)
-        vp.ViewportOn = True
+        try:
+            vp.Display(True)
+        except Exception:
+            pass
+        try:
+            vp.ViewportOn = True
+        except Exception:
+            pass
         return format_success(f"已创建图纸空间视口", handle=vp.Handle,
                               size=f"{width}×{height}")
     except Exception as e:
@@ -264,7 +271,7 @@ def get_viewports() -> str:
     if not vps:
         return "无图纸空间视口"
     import json
-    return json.dumps(vps, indent=2, ensure_ascii=False)
+    return json.dumps(vps, indent=2, ensure_ascii=False, default=str)
 
 
 def set_viewport_properties(handle: str,
@@ -285,6 +292,8 @@ def set_viewport_properties(handle: str,
         "on": on,
     }.items() if v is not None}
     r = ctrl.set_pviewport_props(handle, **kwargs)
+    if not r.get("success", False):
+        return f"设置视口属性失败: {r.get('message', '未知错误')}"
     return f"✓ 已更新视口属性: {r.get('changed', {})}"
 
 

@@ -1258,12 +1258,28 @@ class TestActiveXCallShapes(unittest.TestCase):
         doc.ActiveLayout = MagicMock()
         controller = self._controller_with_doc(doc)
 
-        result = controller.export_drawing(r"C:\tmp\out.pdf", "PDF")
+        with patch("src.cad_controller.os.path.exists", return_value=True), \
+             patch("src.cad_controller.os.path.getsize", return_value=1):
+            result = controller.export_drawing(r"C:\tmp\out.pdf", "PDF")
 
         self.assertTrue(result["success"], result)
         doc.Plot.PlotToFile.assert_called_once_with(
             r"C:\tmp\out.pdf", "DWG To PDF.pc3"
         )
+        doc.Export.assert_not_called()
+
+    def test_export_dwf_uses_active_layout_plot_config_with_single_arg_plot(self):
+        doc = MagicMock()
+        doc.ActiveLayout = MagicMock()
+        doc.Plot.PlotToFile.return_value = True
+        controller = self._controller_with_doc(doc)
+
+        with patch("src.cad_controller.os.path.exists", return_value=True), \
+             patch("src.cad_controller.os.path.getsize", return_value=1):
+            result = controller.export_drawing(r"C:\tmp\out.dwf", "DWF")
+
+        self.assertTrue(result["success"], result)
+        doc.Plot.PlotToFile.assert_called_once_with(r"C:\tmp\out.dwf")
         doc.Export.assert_not_called()
 
     def test_export_dxf_supplies_required_selection_set(self):
@@ -1311,6 +1327,365 @@ class TestActiveXCallShapes(unittest.TestCase):
 # ══════════════════════════════════════════════════════════════════
 #  Test: Bug detection – known issues that need fixing
 # ══════════════════════════════════════════════════════════════════
+
+class TestViewportToolBugs(unittest.TestCase):
+    """Regression tests for paper-space viewport delivery-view helpers."""
+
+    def _controller_with_doc(self, doc):
+        from src.cad_controller import CADController
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.Documents.Count = 1
+        controller.acad.ActiveDocument = doc
+        controller.doc = doc
+        return controller
+
+    def test_get_pviewports_returns_delivery_geometry_and_tolerates_bad_properties(self):
+        class FakeLayout:
+            Name = "Layout1"
+
+        class FakeViewport:
+            ObjectName = "AcDbViewport"
+            Handle = "VP1"
+            Layer = "A-VPORT"
+            Center = (10, 20, 0)
+            Width = 100
+            Height = 50
+            Target = (1000, 2000, 0)
+            Direction = (0, 0, 1)
+            TwistAngle = 0.25
+            DisplayLocked = True
+            StandardScale = 0
+            StandardScale2 = 5
+            CustomScale = 0.02
+            ViewportOn = True
+            Visible = True
+            Clipped = False
+
+            @property
+            def ViewCenter(self):
+                raise Exception("ViewCenter is not available on AcadPViewport")
+
+        class BadEntity:
+            @property
+            def ObjectName(self):
+                raise Exception("COM property failure")
+
+        class FakePaperSpace:
+            Count = 2
+
+            def __init__(self):
+                self.items = [BadEntity(), FakeViewport()]
+
+            def Item(self, index):
+                return self.items[index]
+
+        doc = MagicMock()
+        doc.ActiveLayout = FakeLayout()
+        doc.PaperSpace = FakePaperSpace()
+        controller = self._controller_with_doc(doc)
+
+        result = controller.get_pviewports()
+
+        self.assertEqual(len(result), 1)
+        viewport = result[0]
+        self.assertEqual(viewport["handle"], "VP1")
+        self.assertEqual(viewport["layout"], "Layout1")
+        self.assertEqual(viewport["center"], [10.0, 20.0, 0.0])
+        self.assertEqual(viewport["paper_center"], [10.0, 20.0, 0.0])
+        self.assertEqual(viewport["width"], 100.0)
+        self.assertEqual(viewport["height"], 50.0)
+        self.assertEqual(
+            viewport["paper_bounds"],
+            {"min": [-40.0, -5.0, 0.0], "max": [60.0, 45.0, 0.0]},
+        )
+        self.assertEqual(viewport["target"], [1000.0, 2000.0, 0.0])
+        self.assertEqual(viewport["view_center"], [1000.0, 2000.0, 0.0])
+        self.assertEqual(viewport["direction"], [0.0, 0.0, 1.0])
+
+    def test_advanced_tools_add_viewport_displays_created_viewport(self):
+        viewport = MagicMock()
+        viewport.Handle = "VP1"
+
+        with patch.object(advanced_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.add_pviewport.return_value = viewport
+
+            result = advanced_tools.add_viewport(10, 20, 100, 50)
+
+        viewport.Display.assert_called_once_with(True)
+        self.assertTrue(viewport.ViewportOn)
+        self.assertIn("VP1", result)
+
+    def test_advanced_tools_set_viewport_properties_reports_controller_failure(self):
+        with patch.object(advanced_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.set_pviewport_props.return_value = {
+                "success": False,
+                "message": "Not a viewport",
+            }
+
+            result = advanced_tools.set_viewport_properties("BAD", display_locked=True)
+
+        self.assertIn("设置视口属性失败", result)
+        self.assertIn("Not a viewport", result)
+
+    def test_set_pviewport_props_uses_display_for_on_state(self):
+        doc = MagicMock()
+        viewport = MagicMock()
+        viewport.ObjectName = "AcDbViewport"
+        doc.HandleToObject.return_value = viewport
+        controller = self._controller_with_doc(doc)
+
+        result = controller.set_pviewport_props("VP1", on=True)
+
+        self.assertTrue(result["success"], result)
+        viewport.Display.assert_called_once_with(True)
+        self.assertEqual(result["changed"], {"on": True})
+
+    def test_set_pviewport_props_reports_failure_when_no_properties_changed(self):
+        class ReadOnlyViewport:
+            ObjectName = "AcDbViewport"
+
+            def Display(self, state):
+                raise Exception("Display failed")
+
+            def __setattr__(self, name, value):
+                if name.lower() == "viewporton":
+                    raise Exception("ViewportOn is read-only")
+                super().__setattr__(name, value)
+
+        doc = MagicMock()
+        doc.HandleToObject.return_value = ReadOnlyViewport()
+        controller = self._controller_with_doc(doc)
+
+        result = controller.set_pviewport_props("VP1", on=True)
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(result["changed"], {})
+
+
+class TestBlockToolBugs(unittest.TestCase):
+    """Regression tests for block and xref helper delivery behavior."""
+
+    def _controller_with_doc(self, doc):
+        from src.cad_controller import CADController
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.Documents.Count = 1
+        controller.acad.ActiveDocument = doc
+        controller.doc = doc
+        return controller
+
+    def test_get_xrefs_uses_dedicated_lightweight_block_scan(self):
+        class FakeBlock:
+            def __init__(self, name, is_xref, path=""):
+                self.Name = name
+                self.IsXRef = is_xref
+                self._path = path
+                self.slow_reads = []
+
+            @property
+            def Path(self):
+                self.slow_reads.append("Path")
+                if not self.IsXRef:
+                    raise Exception("Path should not be read for ordinary blocks")
+                return self._path
+
+            @property
+            def Count(self):
+                self.slow_reads.append("Count")
+                raise Exception("Count should not be read by get_xrefs")
+
+            @property
+            def Origin(self):
+                self.slow_reads.append("Origin")
+                raise Exception("Origin should not be read by get_xrefs")
+
+        class FakeBlocks:
+            def __init__(self, items):
+                self.items = items
+                self.Count = len(items)
+
+            def Item(self, index):
+                return self.items[index]
+
+        normal = FakeBlock("NORMAL", False)
+        xref = FakeBlock("XR_MAIN", True, r"C:\refs\main.dwg")
+        doc = MagicMock()
+        doc.Blocks = FakeBlocks([normal, xref])
+        controller = self._controller_with_doc(doc)
+
+        result = controller.get_xrefs()
+
+        self.assertEqual(result, [{"name": "XR_MAIN", "path": r"C:\refs\main.dwg"}])
+        self.assertEqual(normal.slow_reads, [])
+        self.assertEqual(xref.slow_reads, ["Path"])
+
+    def test_block_tools_get_xrefs_does_not_rescan_all_blocks(self):
+        with patch.object(block_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.has_document = True
+            mock_ctrl.get_xrefs.return_value = [
+                {"name": "XR_MAIN", "path": r"C:\refs\main.dwg"}
+            ]
+
+            result = block_tools.get_xrefs()
+
+        mock_ctrl.get_xrefs.assert_called_once_with()
+        mock_ctrl.get_all_blocks.assert_not_called()
+        self.assertIn("XR_MAIN", result)
+        self.assertIn("main.dwg", result)
+
+
+class TestLayerToolBugs(unittest.TestCase):
+    """Regression tests for large layer-table operations."""
+
+    def test_layer_tools_isolate_uses_controller_fast_path(self):
+        with patch.object(layer_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.isolate_layer.return_value = {
+                "success": True,
+                "message": "isolated",
+            }
+
+            result = layer_tools.isolate_layer("A-WALL")
+
+        self.assertEqual(result, "isolated")
+        mock_ctrl.isolate_layer.assert_called_once_with("A-WALL")
+        mock_ctrl.get_all_layers.assert_not_called()
+        mock_ctrl.set_layer_state.assert_not_called()
+
+    def test_layer_tools_unisolate_uses_controller_fast_path(self):
+        with patch.object(layer_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.unisolate_layers.return_value = {
+                "success": True,
+                "message": "unisolate",
+            }
+
+            result = layer_tools.unisolate_layers()
+
+        self.assertEqual(result, "unisolate")
+        mock_ctrl.unisolate_layers.assert_called_once_with()
+        mock_ctrl.get_all_layers.assert_not_called()
+        mock_ctrl.set_layer_state.assert_not_called()
+
+
+class TestTextToolBugs(unittest.TestCase):
+    """Regression tests for text search on large drawings."""
+
+    class _NoModelSpaceDoc:
+        @property
+        def ModelSpace(self):
+            raise AssertionError("text search should use filtered selection sets")
+
+    class _FakeSelectionSet:
+        def __init__(self, entities):
+            self.entities = entities
+            self.deleted = False
+            self.select_args = None
+
+        def Select(self, *args):
+            self.select_args = args
+
+        def Delete(self):
+            self.deleted = True
+
+        def __iter__(self):
+            return iter(self.entities)
+
+    class _FakeText:
+        ObjectName = "AcDbText"
+        Handle = "T1"
+        Layer = "TEXT"
+        Color = 256
+
+        def __init__(self, value):
+            self.TextString = value
+
+    def test_find_text_uses_filtered_selection_set(self):
+        entity = self._FakeText("needle here")
+        selection = self._FakeSelectionSet([entity])
+        with patch.object(text_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.has_document = True
+            mock_ctrl.acad.ActiveDocument = self._NoModelSpaceDoc()
+            mock_ctrl.create_selection_set.return_value = selection
+
+            result = text_tools.find_text("needle", highlight_color=3)
+
+        self.assertIn("T1", result)
+        self.assertEqual(entity.Color, 3)
+        self.assertTrue(selection.deleted)
+        self.assertEqual(selection.select_args[0], 5)
+        mock_ctrl.create_selection_set.assert_called_once()
+
+    def test_replace_text_uses_filtered_selection_set(self):
+        entity = self._FakeText("old value")
+        selection = self._FakeSelectionSet([entity])
+        with patch.object(text_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.has_document = True
+            mock_ctrl.acad.ActiveDocument = self._NoModelSpaceDoc()
+            mock_ctrl.create_selection_set.return_value = selection
+
+            result = text_tools.replace_text("old", "new")
+
+        self.assertIn("1", result)
+        self.assertEqual(entity.TextString, "new value")
+        self.assertTrue(selection.deleted)
+        self.assertEqual(selection.select_args[0], 5)
+
+
+class TestSelectionToolBugs(unittest.TestCase):
+    """Regression tests for selection helpers on large drawings."""
+
+    def _controller_with_doc(self, doc):
+        from src.cad_controller import CADController
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.Documents.Count = 1
+        controller.acad.ActiveDocument = doc
+        controller.doc = doc
+        return controller
+
+    def test_select_all_large_drawing_returns_handle_sample_without_global_selection(self):
+        class FakeEntity:
+            def __init__(self, handle):
+                self.Handle = handle
+
+        class FakeModelSpace:
+            Count = 5
+
+            def Item(self, index):
+                return FakeEntity(f"H{index}")
+
+        doc = MagicMock()
+        doc.ModelSpace = FakeModelSpace()
+        doc.SelectionSets.Add.side_effect = AssertionError(
+            "large select_all should not create a global selection set"
+        )
+        controller = self._controller_with_doc(doc)
+
+        result = controller.select_all(max_handles=2, max_com_selection=3)
+
+        self.assertTrue(result["success"], result)
+        self.assertFalse(result["selected"])
+        self.assertEqual(result["count"], 5)
+        self.assertEqual(result["handles"], ["H0", "H1"])
+        self.assertTrue(result["truncated"])
+        doc.SelectionSets.Add.assert_not_called()
+
+    def test_query_tool_select_all_reports_sampled_large_selection(self):
+        with patch.object(query_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.select_all.return_value = {
+                "success": True,
+                "count": 5000,
+                "handles": ["H1", "H2"],
+                "selected": False,
+                "truncated": True,
+            }
+
+            result = query_tools.select_all()
+
+        self.assertIn("H1", result)
+        self.assertIn("5000", result)
+        self.assertIn("truncated", result)
+
 
 class TestBugDetection(unittest.TestCase):
     """Tests that identify known bugs in the codebase."""

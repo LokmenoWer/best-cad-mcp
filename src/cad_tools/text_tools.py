@@ -1,6 +1,7 @@
 """CAD MCP Tools — Text, MText, leaders, tables, text styles."""
 from typing import Optional, List, Tuple, Any
 import win32com.client
+import pythoncom
 from src.cad_controller import get_controller
 from src.cad_database import get_database
 from src.cad_utils import format_success, com_get as _com_get, com_set as _com_set
@@ -46,6 +47,16 @@ def _extract_handle_or_error(result: Any, action: str) -> Tuple[Optional[str], O
     if not handle:
         return None, f"{action}失败: 未返回实体句柄"
     return str(handle), None
+
+
+def _select_text_entities(ss_name: str = "MCP_TEXT_SEARCH_SS"):
+    ss = ctrl.create_selection_set(ss_name)
+    filter_type = win32com.client.VARIANT(
+        pythoncom.VT_ARRAY | pythoncom.VT_I2, [0])
+    filter_data = win32com.client.VARIANT(
+        pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, ["TEXT,MTEXT,ATTDEF"])
+    ss.Select(5, None, None, filter_type, filter_data)
+    return ss
 
 
 def create_text_style(name: str, font: str = "Arial",
@@ -193,26 +204,30 @@ def find_text(pattern: str, highlight_color: int = 1) -> str:
             return "错误: 无打开的文档"
         ctrl.doc = ctrl.acad.ActiveDocument
         entities = []
-        ms = ctrl.doc.ModelSpace
-        for i in range(ms.Count - 1, -1, -1):
-            try:
-                ent = ms.Item(i)
-                obj_name = _com_get(ent, "ObjectName", "")
-                if obj_name not in {"AcDbText", "AcDbMText", "AcDbAttributeDefinition"}:
-                    continue
-                text = _com_get(ent, "TextString", None)
-                if text and pattern in text:
-                    entities.append({
-                        "handle": _com_get(ent, "Handle", ""),
-                        "text": text,
-                        "layer": _com_get(ent, "Layer", "0"),
-                    })
-                    if highlight_color:
-                        _com_set(ent, "Color", highlight_color)
-                    if len(entities) >= 20:
-                        break
-            except Exception:
-                pass
+        ss = None
+        try:
+            ss = _select_text_entities()
+            for ent in ss:
+                try:
+                    text = _com_get(ent, "TextString", None)
+                    if text and pattern in text:
+                        entities.append({
+                            "handle": _com_get(ent, "Handle", ""),
+                            "text": text,
+                            "layer": _com_get(ent, "Layer", "0"),
+                        })
+                        if highlight_color:
+                            _com_set(ent, "Color", highlight_color)
+                        if len(entities) >= 20:
+                            break
+                except Exception:
+                    pass
+        finally:
+            if ss is not None:
+                try:
+                    ss.Delete()
+                except Exception:
+                    pass
         if not entities:
             return f"未找到包含 '{pattern}' 的文字"
         lines = [f"找到 {len(entities)} 处 '{pattern}':"]
@@ -238,19 +253,23 @@ def replace_text(find: str, replace: str) -> str:
             return "错误: 无打开的文档"
         ctrl.doc = ctrl.acad.ActiveDocument
         count = 0
-        ms = ctrl.doc.ModelSpace
-        for i in range(ms.Count - 1, -1, -1):
-            try:
-                ent = ms.Item(i)
-                obj_name = _com_get(ent, "ObjectName", "")
-                if obj_name not in {"AcDbText", "AcDbMText", "AcDbAttributeDefinition"}:
-                    continue
-                text = _com_get(ent, "TextString", None)
-                if text and find in text:
-                    ent.TextString = text.replace(find, replace)
-                    count += 1
-            except Exception:
-                pass
+        ss = None
+        try:
+            ss = _select_text_entities()
+            for ent in ss:
+                try:
+                    text = _com_get(ent, "TextString", None)
+                    if text and find in text:
+                        ent.TextString = text.replace(find, replace)
+                        count += 1
+                except Exception:
+                    pass
+        finally:
+            if ss is not None:
+                try:
+                    ss.Delete()
+                except Exception:
+                    pass
         return format_success(f"已替换 {count} 处 '{find}' → '{replace}'")
     except Exception as e:
         return f"替换文字失败: {e}"
