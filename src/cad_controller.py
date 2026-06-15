@@ -16,8 +16,10 @@ import pythoncom
 import math
 import logging
 import os
+import time
 from typing import Optional, List, Tuple, Dict, Any, Union
 from contextlib import contextmanager
+from src.cad_utils import com_get, com_set
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +52,10 @@ def require_document(func):
         self._ensure_connected()
         if self.acad is None:
             return {"success": False,
-                    "message": "错误：无法连接到 AutoCAD。请确保 AutoCAD 已启动。"}
+                    "message": "Unable to connect to AutoCAD. Make sure AutoCAD is running."}
         if self.acad.Documents.Count == 0:
             return {"success": False,
-                    "message": "错误：没有打开的文档。请先创建或打开一个图纸。"}
+                    "message": "No drawing is open. Create or open a drawing first."}
         self.doc = self.acad.ActiveDocument
         return func(self, *args, **kwargs)
     return wrapper
@@ -84,22 +86,36 @@ class CADController:
 
     def connect(self, visible: bool = True) -> bool:
         """Connect to AutoCAD. Returns True on success."""
-        try:
-            self.acad = win32com.client.Dispatch("AutoCAD.Application")
-            if visible:
-                self.acad.Visible = True
-            if self.acad.Documents.Count > 0:
-                self.doc = self.acad.ActiveDocument
-            logger.info("已连接到 AutoCAD")
-            return True
-        except Exception as e:
-            logger.error(f"连接AutoCAD失败: {e}")
-            return False
+        deadline = time.time() + 6.0
+        last_error = None
+        while True:
+            try:
+                self.acad = win32com.client.GetActiveObject("AutoCAD.Application")
+                if visible:
+                    self.acad.Visible = True
+                if self.acad.Documents.Count > 0:
+                    self.doc = self.acad.ActiveDocument
+                logger.info("已连接到 AutoCAD")
+                return True
+            except Exception as e:
+                last_error = e
+                if time.time() >= deadline:
+                    break
+                time.sleep(0.5)
+        logger.error(f"连接AutoCAD失败: {last_error}")
+        return False
 
     def _ensure_connected(self):
         """Lazy-connect if not already connected."""
         if self.acad is None:
             self.connect()
+        if self.acad is not None:
+            try:
+                if self.acad.Documents.Count > 0:
+                    self.doc = self.acad.ActiveDocument
+            except Exception:
+                self.acad = None
+                self.doc = None
 
     @property
     def is_connected(self) -> bool:
@@ -122,14 +138,28 @@ class CADController:
 
     # ── File Operations ──────────────────────────────────────
 
-    @require_document
     def create_drawing(self, template: Optional[str] = None) -> Dict[str, Any]:
-        if template:
-            doc = self.acad.Documents.Add(template)
-        else:
-            doc = self.acad.Documents.Add()
-        self.doc = doc
-        return {"success": True, "message": "已创建新图纸", "name": doc.Name}
+        self._ensure_connected()
+        if self.acad is None:
+            return {"success": False,
+                    "message": "Unable to connect to AutoCAD. Please make sure AutoCAD is running."}
+        try:
+            if template:
+                doc = self.acad.Documents.Add(template)
+            else:
+                doc = self.acad.Documents.Add()
+            self.doc = doc
+            try:
+                name = doc.Name
+            except Exception:
+                try:
+                    self.doc = self.acad.ActiveDocument
+                    name = self.doc.Name
+                except Exception:
+                    name = ""
+            return {"success": True, "message": "Created new drawing", "name": name}
+        except Exception as e:
+            return {"success": False, "message": f"Create failed: {e}"}
 
     @require_document
     def open_drawing(self, filepath: str, password: Optional[str] = None) -> Dict[str, Any]:
@@ -161,12 +191,16 @@ class CADController:
         if format_type not in valid:
             return {"success": False, "message": f"不支持格式: {format_type}。支持: {valid}"}
         try:
+            if format_type == "BMP":
+                raise RuntimeError("BMP export through AutoCAD COM can block in this environment; use WMF instead.")
             if format_type == "DWG":
                 self.doc.SaveAs(filepath)
             elif format_type == "DXF":
                 self._export_with_selection_set(filepath, "DXF")
             elif format_type == "PDF":
                 self._export_pdf(filepath)
+            elif format_type == "DWF":
+                self._export_dwf(filepath)
             else:
                 self._export_with_selection_set(filepath, format_type)
             return {"success": True, "message": f"已导出为 {format_type}: {filepath}"}
@@ -212,6 +246,72 @@ class CADController:
                 except Exception:
                     pass
 
+    def _export_dwf(self, filepath: str) -> None:
+        plotters = [
+            "DWF6 ePlot.pc3",
+            "DWFx ePlot (XPS Compatible).pc3",
+        ]
+        root, ext = os.path.splitext(filepath)
+        if ext.lower() in {".dwf", ".dwfx"}:
+            candidates = [filepath]
+        else:
+            candidates = [filepath + ".dwf", filepath]
+
+        layout = getattr(self.doc, "ActiveLayout", None)
+        previous_config = None
+        has_previous_config = False
+        if layout is not None:
+            try:
+                previous_config = layout.ConfigName
+                has_previous_config = True
+            except Exception:
+                pass
+
+        old_vars = {}
+        for name, value in {"BACKGROUNDPLOT": 0, "FILEDIA": 0, "CMDDIA": 0}.items():
+            try:
+                old_vars[name] = self.doc.GetVariable(name)
+                self.doc.SetVariable(name, value)
+            except Exception:
+                pass
+
+        last_error = None
+        try:
+            for path in dict.fromkeys(candidates):
+                for plotter in plotters:
+                    try:
+                        if layout is not None:
+                            try:
+                                layout.ConfigName = plotter
+                                layout.RefreshPlotDeviceInfo()
+                            except Exception:
+                                pass
+                        try:
+                            if os.path.exists(path):
+                                os.remove(path)
+                        except Exception:
+                            pass
+                        ok = self.doc.Plot.PlotToFile(path, plotter)
+                        if ok is False:
+                            raise RuntimeError(f"PlotToFile returned False for {plotter}")
+                        if os.path.exists(path) and os.path.getsize(path) > 0:
+                            return
+                        raise RuntimeError(f"{plotter} did not create {path}")
+                    except Exception as e:
+                        last_error = e
+            raise RuntimeError(last_error or "no DWF plotter available")
+        finally:
+            for name, value in old_vars.items():
+                try:
+                    self.doc.SetVariable(name, value)
+                except Exception:
+                    pass
+            if layout is not None and has_previous_config:
+                try:
+                    layout.ConfigName = previous_config
+                except Exception:
+                    pass
+
     def _export_with_selection_set(self, filepath: str, format_type: str) -> None:
         export_path = self._strip_export_extension(filepath, format_type)
         ss_name = "MCP_EXPORT_EMPTY_SS"
@@ -222,6 +322,11 @@ class CADController:
             except Exception:
                 pass
             selection_set = self.doc.SelectionSets.Add(ss_name)
+            if format_type in {"WMF", "BMP"} and self.doc.ModelSpace.Count > 0:
+                item = self.doc.ModelSpace.Item(self.doc.ModelSpace.Count - 1)
+                selection_set.AddItems(win32com.client.VARIANT(
+                    pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, [item]
+                ))
             self.doc.Export(export_path, format_type, selection_set)
         finally:
             if selection_set is not None:
@@ -417,7 +522,8 @@ class CADController:
         if pline is None:
             return {"success": False, "message": f"未找到多段线: {handle}"}
         try:
-            pt = to_variant_point(x, y, 0)
+            pt = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8,
+                                         [float(x), float(y)])
             pline.AddVertex(index, pt)
             return {"success": True,
                     "message": f"已在位置 {index} 添加顶点 ({x},{y})",
@@ -450,7 +556,9 @@ class CADController:
         if pline is None:
             return {"success": False, "message": f"未找到多段线: {handle}"}
         try:
-            nv = pline.NumberOfVertices
+            coords = list(com_get(pline, "Coordinates", []))
+            step = 3 if com_get(pline, "ObjectName", "") == "AcDb3dPolyline" else 2
+            nv = len(coords) // step
             return {"success": True, "handle": handle, "vertices": nv}
         except Exception as e:
             return {"success": False, "message": f"获取顶点数失败: {e}"}
@@ -463,8 +571,16 @@ class CADController:
         if pline is None:
             return {"success": False, "message": f"未找到多段线: {handle}"}
         try:
-            pt = pline.GetPointAtParam(float(param))
-            return {"success": True, "point": [pt[0], pt[1], pt[2]]}
+            try:
+                pt = pline.GetPointAtParam(float(param))
+                return {"success": True, "point": [pt[0], pt[1], pt[2]]}
+            except Exception:
+                coords = list(com_get(pline, "Coordinates", []))
+                step = 3 if com_get(pline, "ObjectName", "") == "AcDb3dPolyline" else 2
+                index = max(0, min(int(float(param)), (len(coords) // step) - 1))
+                start = index * step
+                z = coords[start + 2] if step == 3 else 0.0
+                return {"success": True, "point": [coords[start], coords[start + 1], z]}
         except Exception as e:
             return {"success": False, "message": f"获取点失败: {e}"}
 
@@ -476,10 +592,18 @@ class CADController:
         if pline is None:
             return {"success": False, "message": f"未找到多段线: {handle}"}
         try:
-            seg_type = pline.GetSegmentType(int(index))
-            types = {0: "line", 1: "arc"}
-            return {"success": True, "handle": handle, "index": index,
-                    "type": types.get(seg_type, f"unknown({seg_type})")}
+            try:
+                seg_type = pline.GetSegmentType(int(index))
+                types = {0: "line", 1: "arc"}
+                seg_name = types.get(seg_type, f"unknown({seg_type})")
+            except Exception:
+                bulge = 0.0
+                try:
+                    bulge = float(pline.GetBulge(int(index)))
+                except Exception:
+                    pass
+                seg_name = "arc" if abs(bulge) > 1e-12 else "line"
+            return {"success": True, "handle": handle, "index": index, "type": seg_name}
         except Exception as e:
             return {"success": False, "message": f"获取段类型失败: {e}"}
 
@@ -606,6 +730,8 @@ class CADController:
                 flat.extend([float(p[0]), float(p[1]), float(p[2]) if len(p)>2 else 0.0])
             pts_array = to_variant_array(flat)
             mleader = self.doc.ModelSpace.AddMLeader(pts_array, 0)
+            if isinstance(mleader, (list, tuple)):
+                mleader = next((item for item in mleader if hasattr(item, "Handle")), mleader[0])
             mleader.ContentType = 2  # MText content
             mleader.TextString = text
             return mleader
@@ -1021,7 +1147,8 @@ class CADController:
                            face_list: List[int]) -> Any:
         """Add a polyface mesh."""
         verts = to_variant_array(vertices)
-        faces = to_variant_array([float(f) for f in face_list])
+        faces = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I2,
+                                        [int(f) for f in face_list])
         return self.doc.ModelSpace.AddPolyfaceMesh(verts, faces)
 
     # ── 3D Face / Additional Primitives ───────────────────
@@ -1095,9 +1222,30 @@ class CADController:
         if ent is None:
             return {"success": False, "message": f"未找到实体: {handle}"}
         try:
-            tc = win32com.client.Dispatch("AutoCAD.AcCmColor")
+            tc = None
+            candidates = []
+            try:
+                version = str(com_get(self.acad, "Version", ""))
+                major = int(float(version.split()[0]))
+                candidates.extend([
+                    f"AutoCAD.AcCmColor.{major}",
+                    f"AutoCAD.AcCmColor.{major - 1}",
+                ])
+            except Exception:
+                pass
+            candidates.extend([f"AutoCAD.AcCmColor.{n}" for n in range(30, 15, -1)])
+            candidates.append("AutoCAD.AcCmColor")
+            last_error = None
+            for prog_id in dict.fromkeys(candidates):
+                try:
+                    tc = self.acad.GetInterfaceObject(prog_id)
+                    break
+                except Exception as e:
+                    last_error = e
+            if tc is None:
+                raise last_error or RuntimeError("Unable to create AcCmColor object")
             tc.SetRGB(red, green, blue)
-            ent.TrueColor = tc
+            com_set(ent, "TrueColor", tc)
             return {"success": True,
                     "message": f"已设置真彩色 RGB({red},{green},{blue})",
                     "handle": handle}
@@ -1153,13 +1301,18 @@ class CADController:
         blocks = []
         for i in range(self.doc.Blocks.Count):
             blk = self.doc.Blocks.Item(i)
+            origin = com_get(blk, "Origin", [0, 0, 0])
+            try:
+                origin = [origin[0], origin[1], origin[2]]
+            except Exception:
+                origin = [0, 0, 0]
             blocks.append({
-                "name": blk.Name,
-                "count": blk.Count,
-                "is_layout": blk.IsLayout,
-                "is_xref": blk.IsXRef,
-                "origin": [blk.Origin[0], blk.Origin[1], blk.Origin[2]],
-                "path": blk.Path if hasattr(blk, 'Path') else "",
+                "name": com_get(blk, "Name", ""),
+                "count": com_get(blk, "Count", 0),
+                "is_layout": bool(com_get(blk, "IsLayout", False)),
+                "is_xref": bool(com_get(blk, "IsXRef", False)),
+                "origin": origin,
+                "path": com_get(blk, "Path", ""),
             })
         return blocks
 
@@ -1209,14 +1362,14 @@ class CADController:
             if hasattr(ent, 'GetAttributes'):
                 for attr in ent.GetAttributes():
                     attrs.append({
-                        "tag": attr.TagString,
-                        "value": attr.TextString,
-                        "prompt": attr.PromptString,
-                        "height": attr.Height,
-                        "rotation": attr.Rotation * 180.0 / math.pi,
-                        "invisible": attr.Invisible,
-                        "constant": attr.Constant,
-                        "style": attr.StyleName,
+                        "tag": com_get(attr, "TagString", ""),
+                        "value": com_get(attr, "TextString", ""),
+                        "prompt": com_get(attr, "PromptString", ""),
+                        "height": com_get(attr, "Height", 0),
+                        "rotation": com_get(attr, "Rotation", 0) * 180.0 / math.pi,
+                        "invisible": com_get(attr, "Invisible", False),
+                        "constant": com_get(attr, "Constant", False),
+                        "style": com_get(attr, "StyleName", ""),
                     })
             return {"success": True, "handle": handle, "attributes": attrs,
                     "count": len(attrs)}
@@ -1246,6 +1399,10 @@ class CADController:
 
     def _get_entity(self, handle: str) -> Optional[Any]:
         """Get a COM entity by handle."""
+        if self.doc is None:
+            self._ensure_connected()
+        if self.doc is None:
+            return None
         try:
             return self.doc.HandleToObject(handle)
         except Exception:
@@ -1334,12 +1491,7 @@ class CADController:
         try:
             offset_obj = ent.Offset(distance)
             if offset_obj:
-                new_handles = []
-                if hasattr(offset_obj, 'Count'):
-                    for i in range(offset_obj.Count):
-                        new_handles.append(offset_obj.Item(i).Handle)
-                else:
-                    new_handles = [offset_obj.Handle]
+                new_handles = self._collect_object_handles(offset_obj)
                 return {"success": True,
                         "message": f"已偏移实体 {handle}，距离: {distance}",
                         "new_handles": new_handles}
@@ -1447,9 +1599,7 @@ class CADController:
         if ent is None:
             return {"success": False, "message": f"未找到实体: {handle}"}
         try:
-            min_pt = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [0.0, 0.0, 0.0])
-            max_pt = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [0.0, 0.0, 0.0])
-            ent.GetBoundingBox(min_pt, max_pt)
+            min_pt, max_pt = ent.GetBoundingBox()
             return {"success": True,
                     "min": [min_pt[0], min_pt[1], min_pt[2]],
                     "max": [max_pt[0], max_pt[1], max_pt[2]],
@@ -1510,7 +1660,7 @@ class CADController:
         for key, value in kwargs.items():
             try:
                 if key == "color":
-                    ent.Color = int(value)
+                    com_set(ent, "Color", int(value))
                     changed[key] = int(value)
                 elif key == "layer":
                     ent.Layer = str(value)
@@ -1552,15 +1702,15 @@ class CADController:
             return {"success": False, "message": f"未找到实体: {handle}"}
         try:
             props = {
-                "handle": ent.Handle,
-                "object_name": ent.ObjectName,
-                "object_id": ent.ObjectID,
-                "layer": ent.Layer,
-                "color": ent.Color,
-                "linetype": ent.Linetype,
-                "linetypescale": ent.LinetypeScale,
-                "lineweight": ent.Lineweight,
-                "visible": ent.Visible,
+                "handle": com_get(ent, "Handle", ""),
+                "object_name": com_get(ent, "ObjectName", ""),
+                "object_id": com_get(ent, "ObjectID", None),
+                "layer": com_get(ent, "Layer", "0"),
+                "color": com_get(ent, "Color", 256),
+                "linetype": com_get(ent, "Linetype", "ByLayer"),
+                "linetypescale": com_get(ent, "LinetypeScale", None),
+                "lineweight": com_get(ent, "Lineweight", None),
+                "visible": com_get(ent, "Visible", None),
             }
             # Extended properties
             try:
@@ -1747,10 +1897,14 @@ class CADController:
         if ent is None:
             return {"success": False, "message": f"未找到实体: {handle}"}
         try:
-            xdata_type = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I2, [])
-            xdata_value = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, [])
-            ent.GetXData(app_name or None, xdata_type, xdata_value)
-            if not xdata_type or len(xdata_type) == 0:
+            result = ent.GetXData(app_name or None)
+            if result is None:
+                xdata_type, xdata_value = [], []
+            else:
+                xdata_type, xdata_value = result
+            xdata_type = list(xdata_type or [])
+            xdata_value = list(xdata_value or [])
+            if not xdata_type:
                 return {"success": True, "xdata": [], "count": 0,
                         "message": "无扩展数据"}
             pairs = []
@@ -1792,8 +1946,12 @@ class CADController:
             return None
         try:
             return ent.GetExtensionDictionary()
-        except Exception:
-            return None
+        except BaseException:
+            try:
+                ent.CreateExtensionDictionary()
+                return ent.GetExtensionDictionary()
+            except BaseException:
+                return None
 
     # ── UCS Management ─────────────────────────────────━━
 
@@ -1852,19 +2010,31 @@ class CADController:
 
     # ── Selection ──────────────────────────────────────────
 
+    def _retry_com_call(self, func, attempts: int = 5, delay: float = 0.25):
+        last_error = None
+        for attempt in range(attempts):
+            try:
+                return func()
+            except Exception as e:
+                last_error = e
+                if attempt == attempts - 1:
+                    break
+                time.sleep(delay)
+        raise last_error
+
     @require_document
     def create_selection_set(self, name: str) -> Any:
         try:
-            self.doc.SelectionSets.Item(name).Delete()
+            self._retry_com_call(lambda: self.doc.SelectionSets.Item(name).Delete())
         except Exception:
             pass
-        return self.doc.SelectionSets.Add(name)
+        return self._retry_com_call(lambda: self.doc.SelectionSets.Add(name))
 
     @require_document
     def select_by_window(self, pt1: List[float], pt2: List[float],
                          ss_name: str = "MCP_TEMP_SS") -> Dict[str, Any]:
         ss = self.create_selection_set(ss_name)
-        ss.Select(0, to_variant_point(*pt1), to_variant_point(*pt2))
+        self._retry_com_call(lambda: ss.Select(0, to_variant_point(*pt1), to_variant_point(*pt2)))
         handles = [ent.Handle for ent in ss]
         return {"success": True, "count": ss.Count, "handles": handles, "name": ss_name}
 
@@ -1872,22 +2042,39 @@ class CADController:
     def select_by_crossing(self, pt1: List[float], pt2: List[float],
                            ss_name: str = "MCP_TEMP_SS") -> Dict[str, Any]:
         ss = self.create_selection_set(ss_name)
-        ss.Select(1, to_variant_point(*pt1), to_variant_point(*pt2))
+        self._retry_com_call(lambda: ss.Select(1, to_variant_point(*pt1), to_variant_point(*pt2)))
         handles = [ent.Handle for ent in ss]
         return {"success": True, "count": ss.Count, "handles": handles, "name": ss_name}
 
     @require_document
     def select_all(self, ss_name: str = "MCP_TEMP_SS") -> Dict[str, Any]:
         ss = self.create_selection_set(ss_name)
-        for i in range(self.doc.ModelSpace.Count):
-            try:
-                ss.AddItems([self.doc.ModelSpace.Item(i)])
-            except Exception:
-                pass
+        self._retry_com_call(lambda: ss.Select(5))
         handles = [ent.Handle for ent in ss]
         return {"success": True, "count": ss.Count, "handles": handles, "name": ss_name}
 
     # ── Layer Management ───────────────────────────────────
+
+    def _set_layer_color(self, layer, color_idx: int) -> Tuple[bool, Optional[str]]:
+        """Set a layer ACI color with fallbacks for older AutoCAD COM bindings."""
+        color_idx = int(color_idx)
+        variants = [color_idx]
+        for vt in (getattr(pythoncom, "VT_I2", None), getattr(pythoncom, "VT_I4", None)):
+            if vt is not None:
+                try:
+                    variants.append(win32com.client.VARIANT(vt, color_idx))
+                except Exception:
+                    pass
+
+        last_error = None
+        for value in variants:
+            try:
+                layer.Color = value
+                return True, None
+            except Exception as e:
+                last_error = e
+
+        return False, str(last_error)
 
     @require_document
     def create_layer(self, name: str, color_idx: int = 7,
@@ -1895,17 +2082,23 @@ class CADController:
         try:
             try:
                 layer = self.doc.Layers.Item(name)
+                color_set = True
+                color_warning = None
                 if color_idx != 7:
-                    layer.Color = color_idx
-                return {"success": True, "message": f"图层 '{name}' 已存在", "existing": True}
+                    color_set, color_warning = self._set_layer_color(layer, color_idx)
+                return {"success": True, "message": f"图层 '{name}' 已存在",
+                        "existing": True, "color_set": color_set,
+                        "color_warning": color_warning}
             except Exception:
                 layer = self.doc.Layers.Add(name)
-                layer.Color = color_idx
+                color_set, color_warning = self._set_layer_color(layer, color_idx)
                 try:
                     layer.Linetype = linetype
                 except Exception:
                     pass
-                return {"success": True, "message": f"已创建图层 '{name}'", "existing": False}
+                return {"success": True, "message": f"已创建图层 '{name}'",
+                        "existing": False, "color_set": color_set,
+                        "color_warning": color_warning}
         except Exception as e:
             return {"success": False, "message": f"创建图层失败: {e}"}
 
@@ -1935,16 +2128,16 @@ class CADController:
         for i in range(self.doc.Layers.Count):
             layer = self.doc.Layers.Item(i)
             layers.append({
-                "name": layer.Name,
-                "color": layer.Color,
-                "linetype": layer.Linetype,
-                "lineweight": layer.Lineweight,
-                "is_frozen": layer.Freeze,
-                "is_locked": layer.Lock,
-                "is_on": layer.LayerOn,
-                "is_plottable": layer.Plottable,
-                "description": layer.Description if hasattr(layer, 'Description') else "",
-                "handle": layer.Handle,
+                "name": com_get(layer, "Name", ""),
+                "color": com_get(layer, "Color", 7),
+                "linetype": com_get(layer, "Linetype", "Continuous"),
+                "lineweight": com_get(layer, "Lineweight", None),
+                "is_frozen": com_get(layer, "Freeze", False),
+                "is_locked": com_get(layer, "Lock", False),
+                "is_on": com_get(layer, "LayerOn", True),
+                "is_plottable": com_get(layer, "Plottable", True),
+                "description": com_get(layer, "Description", ""),
+                "handle": com_get(layer, "Handle", ""),
             })
         return layers
 
@@ -1981,13 +2174,13 @@ class CADController:
         for i in range(self.doc.TextStyles.Count):
             s = self.doc.TextStyles.Item(i)
             styles.append({
-                "name": s.Name,
-                "font_file": s.FontFile,
-                "big_font_file": s.BigFontFile,
-                "height": s.Height,
-                "width": s.Width,
-                "oblique_angle": s.ObliqueAngle,
-                "is_vertical": s.IsVertical if hasattr(s, 'IsVertical') else False,
+                "name": com_get(s, "Name", ""),
+                "font_file": com_get(s, "FontFile", ""),
+                "big_font_file": com_get(s, "BigFontFile", ""),
+                "height": com_get(s, "Height", 0),
+                "width": com_get(s, "Width", 1),
+                "oblique_angle": com_get(s, "ObliqueAngle", 0),
+                "is_vertical": com_get(s, "IsVertical", False),
             })
         return styles
 
@@ -2023,7 +2216,8 @@ class CADController:
     def copy_dim_style(self, source_name: str, new_name: str) -> Dict[str, Any]:
         try:
             src = self.doc.DimStyles.Item(source_name)
-            new_style = src.Copy(new_name)
+            new_style = self.doc.DimStyles.Add(new_name)
+            new_style.CopyFrom(src)
             return {"success": True, "message": f"已复制标注样式: {source_name} → {new_name}"}
         except Exception as e:
             return {"success": False, "message": f"复制标注样式失败: {e}"}
@@ -2073,12 +2267,16 @@ class CADController:
     @require_document
     def pan(self, dx: float, dy: float) -> Dict[str, Any]:
         try:
-            # Get current view center, offset by (dx, dy), then re-center
-            current_view = self.doc.ActiveView
-            current_center = current_view.Center
+            # Get current view center, offset by (dx, dy), then ZoomCenter.
+            current_view = com_get(self.doc, "ActiveView", None)
+            if current_view is None:
+                current_view = com_get(self.doc, "ActiveViewport", None)
+            if current_view is None:
+                return {"success": False, "message": "No active view or viewport is available"}
+            current_center = com_get(current_view, "Center", [0, 0])
             new_x = float(current_center[0]) + float(dx)
             new_y = float(current_center[1]) + float(dy)
-            height = current_view.Height
+            height = com_get(current_view, "Height", 100)
             self.doc.Application.ZoomCenter(
                 to_variant_point(new_x, new_y, 0), height)
             return {"success": True, "message": f"已平移 ({dx}, {dy})"}
@@ -2088,13 +2286,17 @@ class CADController:
     @require_document
     def get_current_view(self) -> Dict[str, Any]:
         try:
-            view = self.doc.ActiveView
+            view = com_get(self.doc, "ActiveView", None)
+            if view is None:
+                view = com_get(self.doc, "ActiveViewport", None)
+            if view is None:
+                return {"error": "No active view or viewport is available"}
             return {
-                "center": list(view.Center),
-                "height": view.Height,
-                "width": view.Width,
-                "target": list(view.Target),
-                "direction": list(view.Direction),
+                "center": list(com_get(view, "Center", [])),
+                "height": com_get(view, "Height", None),
+                "width": com_get(view, "Width", None),
+                "target": list(com_get(view, "Target", [])),
+                "direction": list(com_get(view, "Direction", [])),
             }
         except Exception as e:
             return {"error": str(e)}
@@ -2136,8 +2338,8 @@ class CADController:
         ent = self._get_entity(handle)
         if ent is None:
             return {"success": False, "message": f"未找到实体: {handle}"}
-        original = ent.Color
-        ent.Color = color
+        original = com_get(ent, "Color", 256)
+        com_set(ent, "Color", int(color))
         # Update needs to be pushed to the display
         ent.Update()
         return {"success": True, "message": f"已高亮实体 {handle}",
@@ -2158,7 +2360,7 @@ class CADController:
         ent = self._get_entity(handle)
         if ent is None:
             return {"success": False, "message": f"未找到实体: {handle}"}
-        ent.Color = original_color
+        com_set(ent, "Color", int(original_color))
         ent.Update()
         return {"success": True, "message": f"已重置颜色"}
 
@@ -2173,35 +2375,44 @@ class CADController:
         for i in range(count):
             try:
                 ent = self.doc.ModelSpace.Item(i)
-                obj_name = ent.ObjectName
+                obj_name = com_get(ent, "ObjectName", "Unknown")
+                typed_ent = ent
+                try:
+                    typed_ent = win32com.client.Dispatch(ent)
+                except Exception:
+                    pass
                 type_stats[obj_name] = type_stats.get(obj_name, 0) + 1
                 info = {
                     "index": i,
-                    "handle": ent.Handle,
+                    "handle": com_get(ent, "Handle", ""),
                     "type": obj_name,
                     "name": obj_name.replace("AcDb", ""),
-                    "layer": ent.Layer,
-                    "color": ent.Color,
-                    "linetype": ent.Linetype,
+                    "layer": com_get(ent, "Layer", "0"),
+                    "color": com_get(ent, "Color", 256),
+                    "linetype": com_get(ent, "Linetype", "ByLayer"),
                 }
                 # Fast type-specific properties
                 if obj_name == "AcDbLine":
-                    info["start"] = [round(ent.StartPoint[0],4), round(ent.StartPoint[1],4), round(ent.StartPoint[2],4)]
-                    info["end"] = [round(ent.EndPoint[0],4), round(ent.EndPoint[1],4), round(ent.EndPoint[2],4)]
-                    info["length"] = round(ent.Length, 4)
+                    start = com_get(typed_ent, "StartPoint", [0, 0, 0])
+                    end = com_get(typed_ent, "EndPoint", [0, 0, 0])
+                    info["start"] = [round(start[0], 4), round(start[1], 4), round(start[2], 4)]
+                    info["end"] = [round(end[0], 4), round(end[1], 4), round(end[2], 4)]
+                    info["length"] = round(com_get(typed_ent, "Length", 0), 4)
                 elif obj_name == "AcDbCircle":
-                    info["center"] = [round(ent.Center[0],4), round(ent.Center[1],4), round(ent.Center[2],4)]
-                    info["radius"] = round(ent.Radius, 4)
+                    center = com_get(typed_ent, "Center", [0, 0, 0])
+                    info["center"] = [round(center[0],4), round(center[1],4), round(center[2],4)]
+                    info["radius"] = round(com_get(typed_ent, "Radius", 0), 4)
                 elif obj_name == "AcDbArc":
-                    info["center"] = [round(ent.Center[0],4), round(ent.Center[1],4), round(ent.Center[2],4)]
-                    info["radius"] = round(ent.Radius, 4)
-                    info["start_angle"] = round(ent.StartAngle, 4)
-                    info["end_angle"] = round(ent.EndAngle, 4)
+                    center = com_get(typed_ent, "Center", [0, 0, 0])
+                    info["center"] = [round(center[0],4), round(center[1],4), round(center[2],4)]
+                    info["radius"] = round(com_get(typed_ent, "Radius", 0), 4)
+                    info["start_angle"] = round(com_get(typed_ent, "StartAngle", 0), 4)
+                    info["end_angle"] = round(com_get(typed_ent, "EndAngle", 0), 4)
                 elif obj_name in ("AcDbText", "AcDbMText"):
-                    info["text"] = ent.TextString
+                    info["text"] = com_get(typed_ent, "TextString", "")
                 elif "Polyline" in obj_name:
-                    info["length"] = round(ent.Length, 4) if hasattr(ent, 'Length') else 0
-                    info["closed"] = ent.Closed if hasattr(ent, 'Closed') else False
+                    info["length"] = round(com_get(typed_ent, "Length", 0), 4)
+                    info["closed"] = bool(com_get(typed_ent, "Closed", False))
                 entities.append(info)
             except Exception as e:
                 entities.append({"index": i, "error": str(e)})
@@ -2213,7 +2424,9 @@ class CADController:
         """Scan entities whose handle we can find within a bounding box.
         Uses selection window for efficiency."""
         ss = self.create_selection_set("MCP_AREA_SCAN")
-        ss.Select(0, to_variant_point(xmin, ymin, 0), to_variant_point(xmax, ymax, 0))
+        self._retry_com_call(
+            lambda: ss.Select(0, to_variant_point(xmin, ymin, 0), to_variant_point(xmax, ymax, 0))
+        )
         entities = []
         for ent in ss:
             try:
@@ -2300,7 +2513,8 @@ class CADController:
             if wait:
                 # Give the command queue a beat, then wait for idle.
                 time.sleep(0.1)
-                self._wait_quiescent(timeout=10.0)
+                if not self._wait_quiescent(timeout=10.0):
+                    return {"success": False, "message": "AutoCAD command did not return to idle state"}
             return {"success": True, "message": "已执行 LISP 表达式"}
         except Exception as e:
             return {"success": False, "message": f"执行LISP失败: {e}"}
@@ -2508,7 +2722,20 @@ class CADController:
         """Restore a named view."""
         try:
             view = self.doc.Views.Item(name)
-            self.doc.SetView(view)
+            viewport = com_get(self.doc, "ActiveViewport", None)
+            if viewport is not None:
+                for prop in ("Center", "Height", "Width", "Target", "Direction"):
+                    value = com_get(view, prop, None)
+                    if value is not None:
+                        try:
+                            com_set(viewport, prop, value)
+                        except Exception:
+                            pass
+                self.doc.ActiveViewport = viewport
+            else:
+                self.doc.Application.ZoomCenter(
+                    to_variant_point(*list(com_get(view, "Center", [0, 0, 0]))[:2], 0),
+                    com_get(view, "Height", 100))
             return {"success": True, "message": f"已恢复视图 '{name}'"}
         except Exception as e:
             return {"success": False, "message": f"恢复视图失败: {e}"}
@@ -2720,6 +2947,11 @@ class CADController:
     def load_linetype(self, name: str, filename: str) -> Dict[str, Any]:
         """Load a linetype from a .lin file."""
         try:
+            try:
+                self.doc.Linetypes.Item(name)
+                return {"success": True, "message": f"线型已加载 '{name}'"}
+            except Exception:
+                pass
             self.doc.Linetypes.Load(name, filename)
             return {"success": True, "message": f"已加载线型 '{name}'"}
         except Exception as e:
@@ -2809,7 +3041,7 @@ class CADController:
         self._ensure_connected()
         try:
             obj, prop = self._get_pref_object(pref_path)
-            return getattr(obj, prop)
+            return com_get(obj, prop, None)
         except Exception as e:
             return f"获取设置失败: {e}"
 
@@ -2818,7 +3050,7 @@ class CADController:
         self._ensure_connected()
         try:
             obj, prop = self._get_pref_object(pref_path)
-            setattr(obj, prop, value)
+            com_set(obj, prop, value)
             return {"success": True, "message": f"已设置 {pref_path} = {value}"}
         except Exception as e:
             return {"success": False, "message": f"设置失败: {e}"}
@@ -2828,11 +3060,11 @@ class CADController:
         self._ensure_connected()
         d = self.acad.Preferences.Display
         return {
-            "cursor_size": d.CursorSize,
-            "display_layout_tabs": d.DisplayLayoutTabs,
-            "display_screen_menu": d.DisplayScreenMenu,
-            "display_scroll_bars": d.DisplayScrollBars,
-            "max_autocad_window": d.MaxAutoCADwindow,
+            "cursor_size": com_get(d, "CursorSize", None),
+            "display_layout_tabs": com_get(d, "DisplayLayoutTabs", None),
+            "display_screen_menu": com_get(d, "DisplayScreenMenu", None),
+            "display_scroll_bars": com_get(d, "DisplayScrollBars", None),
+            "max_autocad_window": com_get(d, "MaxAutoCADWindow", None),
         }
 
     def get_preferences_drafting(self) -> Dict[str, Any]:
@@ -2840,13 +3072,13 @@ class CADController:
         self._ensure_connected()
         d = self.acad.Preferences.Drafting
         return {
-            "auto_snap_marker": d.AutoSnapMarker,
-            "auto_snap_magnet": d.AutoSnapMagnet,
-            "auto_snap_tool_tip": d.AutoSnapToolTip,
-            "auto_snap_aperture_size": d.AutoSnapApertureSize,
-            "auto_snap_marker_size": d.AutoSnapMarkerSize,
-            "auto_track_tool_tip": d.AutoTrackToolTip,
-            "polar_tracking_vector": d.PolarTrackingVector,
+            "auto_snap_marker": com_get(d, "AutoSnapMarker", None),
+            "auto_snap_magnet": com_get(d, "AutoSnapMagnet", None),
+            "auto_snap_tool_tip": com_get(d, "AutoSnapToolTip", None),
+            "auto_snap_aperture_size": com_get(d, "AutoSnapApertureSize", None),
+            "auto_snap_marker_size": com_get(d, "AutoSnapMarkerSize", None),
+            "auto_track_tool_tip": com_get(d, "AutoTrackToolTip", None),
+            "polar_tracking_vector": com_get(d, "PolarTrackingVector", None),
         }
 
     def get_preferences_files(self) -> Dict[str, Any]:
@@ -2854,13 +3086,13 @@ class CADController:
         self._ensure_connected()
         f = self.acad.Preferences.Files
         return {
-            "support_path": f.SupportPath,
-            "auto_save_path": f.AutoSavePath,
-            "log_file_path": f.LogFilePath,
-            "temp_file_path": f.TempFilePath,
-            "menu_file": f.MenuFile,
-            "help_file_path": f.HelpFilePath,
-            "print_spool_dir": f.PrintSpoolDir,
+            "support_path": com_get(f, "SupportPath", None),
+            "auto_save_path": com_get(f, "AutoSavePath", None),
+            "log_file_path": com_get(f, "LogFilePath", None),
+            "temp_file_path": com_get(f, "TempFilePath", None),
+            "menu_file": com_get(f, "MenuFile", None),
+            "help_file_path": com_get(f, "HelpFilePath", None),
+            "print_spool_dir": com_get(f, "PrintSpoolDir", None),
         }
 
     def get_preferences_opensave(self) -> Dict[str, Any]:
@@ -2868,12 +3100,12 @@ class CADController:
         self._ensure_connected()
         o = self.acad.Preferences.OpenSave
         return {
-            "auto_save_interval": o.AutoSaveInterval,
-            "create_backup": o.CreateBackup,
-            "incremental_save_percent": o.IncrementalSavePercent,
-            "log_file_on": o.LogFileOn,
-            "save_preview_thumbnail": o.SavePreviewThumbnail,
-            "show_full_path_in_title": o.ShowFullPathInTitle,
+            "auto_save_interval": com_get(o, "AutoSaveInterval", None),
+            "create_backup": com_get(o, "CreateBackup", None),
+            "incremental_save_percent": com_get(o, "IncrementalSavePercent", None),
+            "log_file_on": com_get(o, "LogFileOn", None),
+            "save_preview_thumbnail": com_get(o, "SavePreviewThumbnail", None),
+            "show_full_path_in_title": com_get(o, "ShowFullPathInTitle", None),
         }
 
     def get_preferences_selection(self) -> Dict[str, Any]:
@@ -2881,15 +3113,15 @@ class CADController:
         self._ensure_connected()
         s = self.acad.Preferences.Selection
         return {
-            "pick_first": s.Pickfirst,
-            "pick_add": s.PickAdd,
-            "pick_auto": s.PickAuto,
-            "pick_drag": s.PickDrag,
-            "pick_box_size": s.PickBoxSize,
-            "display_grips": s.DisplayGrips,
-            "display_grips_within_blocks": s.DisplayGripsWithinBlocks,
-            "grip_size": s.GripSize,
-            "pick_group": s.PickGroup,
+            "pick_first": com_get(s, "PickFirst", None),
+            "pick_add": com_get(s, "PickAdd", None),
+            "pick_auto": com_get(s, "PickAuto", None),
+            "pick_drag": com_get(s, "PickDrag", None),
+            "pick_box_size": com_get(s, "PickBoxSize", None),
+            "display_grips": com_get(s, "DisplayGrips", None),
+            "display_grips_within_blocks": com_get(s, "DisplayGripsWithinBlocks", None),
+            "grip_size": com_get(s, "GripSize", None),
+            "pick_group": com_get(s, "PickGroup", None),
         }
 
     def get_preferences_system(self) -> Dict[str, Any]:
@@ -2996,7 +3228,7 @@ class CADController:
         ss = self.create_selection_set(ss_name)
         try:
             pts = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, points)
-            ss.SelectByPolygon(mode, pts)
+            self._retry_com_call(lambda: ss.SelectByPolygon(mode, pts))
             handles = [ent.Handle for ent in ss]
             return {"success": True, "count": ss.Count, "handles": handles}
         except Exception as e:
@@ -3008,7 +3240,7 @@ class CADController:
         """Select entities at a specific point."""
         ss = self.create_selection_set(ss_name)
         try:
-            ss.SelectAtPoint(to_variant_point(x, y, z))
+            self._retry_com_call(lambda: ss.SelectAtPoint(to_variant_point(x, y, z)))
             handles = [ent.Handle for ent in ss]
             return {"success": True, "count": ss.Count, "handles": handles}
         except Exception as e:
@@ -3042,6 +3274,8 @@ class CADController:
             ss.Clear()
             return {"success": True, "message": "已清空选择集"}
         except Exception as e:
+            if "未找到主键" in str(e) or "key not found" in str(e).lower():
+                return {"success": True, "message": f"选择集 {ss_name} 不存在或已为空"}
             return {"success": False, "message": f"清空失败: {e}"}
 
     # ── Application Methods ───────────────────────────────
@@ -3177,10 +3411,8 @@ class CADController:
         if ent is None:
             return {"success": False, "message": f"未找到实体: {handle}"}
         try:
-            flat = []
-            for row in matrix:
-                flat.extend(row)
-            mat = to_variant_array(flat)
+            mat = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8,
+                                          [[float(v) for v in row] for row in matrix])
             ent.TransformBy(mat)
             return {"success": True, "message": f"已变换实体 {handle}"}
         except Exception as e:

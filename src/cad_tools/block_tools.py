@@ -9,6 +9,11 @@ ctrl = get_controller()
 db = get_database()
 
 
+def _ensure_doc() -> bool:
+    ctrl._ensure_connected()
+    return ctrl.has_document
+
+
 def create_block(name: str, base_x: float, base_y: float, base_z: float,
                  entity_handles: List[str]) -> str:
     """用选定的实体创建图块定义。
@@ -18,6 +23,8 @@ def create_block(name: str, base_x: float, base_y: float, base_z: float,
         base_x,base_y,base_z: 图块基点坐标
         entity_handles:  要包含在图块中的实体句柄列表
     """
+    if not _ensure_doc():
+        return "错误: 未连接到打开的 AutoCAD 图形"
     entities = []
     not_found = []
     for h in entity_handles:
@@ -54,6 +61,8 @@ def insert_block(name: str, x: float, y: float,
     if layer:
         ctrl.create_layer(layer)
         ctrl.set_current_layer(layer)
+    if not _ensure_doc():
+        return "错误: 未连接到打开的 AutoCAD 图形"
     try:
         ref = ctrl.insert_block(name, x, y, z, x_scale, y_scale, z_scale, rotation)
         return format_success(f"已插入图块 '{name}'",
@@ -67,6 +76,8 @@ def insert_block(name: str, x: float, y: float,
 
 def get_all_blocks() -> str:
     """列出图纸中所有图块定义。"""
+    if not _ensure_doc():
+        return "错误: 未连接到打开的 AutoCAD 图形"
     blocks = ctrl.get_all_blocks()
     if not blocks:
         return "无图块定义"
@@ -86,6 +97,8 @@ def explode_block(handle: str) -> str:
     Args:
         handle: 图块引用句柄
     """
+    if not _ensure_doc():
+        return "错误: 未连接到打开的 AutoCAD 图形"
     r = ctrl.explode_entity(handle)
     if r["success"]:
         return format_success(f"已分解图块", entity_count=len(r.get("new_handles", [])))
@@ -106,6 +119,8 @@ def attach_xref(filepath: str, insert_x: float = 0, insert_y: float = 0,
         layer:    图层名称
     """
     try:
+        if not _ensure_doc():
+            return "错误: 未连接到打开的 AutoCAD 图形"
         if layer:
             ctrl.create_layer(layer)
             ctrl.set_current_layer(layer)
@@ -127,6 +142,8 @@ def attach_xref(filepath: str, insert_x: float = 0, insert_y: float = 0,
 def get_xrefs() -> str:
     """列出所有外部参照。"""
     try:
+        if not _ensure_doc():
+            return "错误: 未连接到打开的 AutoCAD 图形"
         blocks = ctrl.get_all_blocks()
         xrefs = [b for b in blocks if b["is_xref"]]
         if not xrefs:
@@ -146,6 +163,8 @@ def unload_xref(name: str) -> str:
         name: 外部参照名称
     """
     try:
+        if not _ensure_doc():
+            return "错误: 未连接到打开的 AutoCAD 图形"
         blk = ctrl.doc.Blocks.Item(name)
         blk.Unload()
         return format_success(f"已卸载外部参照 '{name}'")
@@ -160,6 +179,8 @@ def reload_xref(name: str) -> str:
         name: 外部参照名称
     """
     try:
+        if not _ensure_doc():
+            return "错误: 未连接到打开的 AutoCAD 图形"
         blk = ctrl.doc.Blocks.Item(name)
         blk.Reload()
         return format_success(f"已重新加载外部参照 '{name}'")

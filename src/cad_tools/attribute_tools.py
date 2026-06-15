@@ -3,7 +3,7 @@ from typing import Optional, List, Dict
 import json
 from src.cad_controller import get_controller
 from src.cad_database import get_database
-from src.cad_utils import format_success
+from src.cad_utils import format_success, com_get as _com_get
 
 ctrl = get_controller()
 db = get_database()
@@ -39,7 +39,7 @@ def insert_block_with_attributes(block_name: str, x: float, y: float,
         try: blk_ref.Layer = layer
         except: pass
     db.upsert_entity(blk_ref.Handle, f"BlockRef({block_name})", "AcDbBlockReference",
-                     layer=blk_ref.Layer, color=blk_ref.Color,
+                     layer=blk_ref.Layer, color=_com_get(blk_ref, "Color", 256),
                      geometry={"block_name": block_name,
                                "insertion_point": [x, y, z],
                                "attributes": attributes or []})

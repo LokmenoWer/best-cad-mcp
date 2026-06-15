@@ -40,6 +40,41 @@ def color_name(aci: int) -> str:
     return f"ACI_{aci}"
 
 
+# COM Helpers
+
+def com_get(obj: Any, name: str, default: Any = None) -> Any:
+    """Read an AutoCAD COM property across pywin32 case variants."""
+    candidates = [name]
+    lower = name[:1].lower() + name[1:]
+    upper = name[:1].upper() + name[1:]
+    for candidate in (lower, upper):
+        if candidate not in candidates:
+            candidates.append(candidate)
+    for candidate in candidates:
+        try:
+            return getattr(obj, candidate)
+        except Exception:
+            continue
+    return default
+
+
+def com_set(obj: Any, name: str, value: Any) -> bool:
+    """Set an AutoCAD COM property across pywin32 case variants."""
+    candidates = [name]
+    lower = name[:1].lower() + name[1:]
+    upper = name[:1].upper() + name[1:]
+    for candidate in (lower, upper):
+        if candidate not in candidates:
+            candidates.append(candidate)
+    for candidate in candidates:
+        try:
+            setattr(obj, candidate, value)
+            return True
+        except Exception:
+            continue
+    return False
+
+
 # ── Geometry Helpers ───────────────────────────────────────────
 
 def distance_2d(x1: float, y1: float, x2: float, y2: float) -> float:
@@ -110,13 +145,13 @@ def format_entity_list(entities: List[Dict], max_items: int = 50) -> str:
 
 def format_success(message: str, **kwargs) -> str:
     """Format a success result string."""
-    parts = [f"✓ {message}"]
+    parts = [f"OK: {message}"]
     for k, v in kwargs.items():
         parts.append(f"  {k}: {v}")
     return "\n".join(parts)
 
 def format_error(message: str) -> str:
-    return f"✗ 错误: {message}"
+    return f"ERROR: {message}"
 
 
 # ── Validation Helpers ─────────────────────────────────────────

@@ -19,9 +19,13 @@ def create_layer(name: str, color: int = 7,
     """
     r = ctrl.create_layer(name, color, linetype)
     if r["success"]:
+        color_note = ""
+        if r.get("color_set") is False:
+            color_note = f"，但颜色设置未完成: {r.get('color_warning')}"
         if r.get("existing"):
-            return f"图层 '{name}' 已存在，颜色已更新为 {color}"
-        return format_success(f"已创建图层 '{name}'", color=color, linetype=linetype)
+            return f"图层 '{name}' 已存在{color_note}"
+        return format_success(f"已创建图层 '{name}'{color_note}",
+                              color=color, linetype=linetype)
     return f"创建图层失败: {r['message']}"
 
 
