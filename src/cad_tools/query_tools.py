@@ -54,7 +54,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000) -> str:
         ):
             saved += 1
 
-    lines = [f"✓ 已扫描 {saved} 个实体并保存到数据库"]
+    lines = [f"OK: 已扫描 {saved} 个实体并保存到数据库"]
     lines.append(f"\n实体类型统计 ({len(type_stats)} 种):")
     for t, c in sorted(type_stats.items(), key=lambda x: -x[1])[:20]:
         lines.append(f"  {t}: {c}")

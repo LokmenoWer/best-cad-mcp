@@ -1,9 +1,11 @@
 """CAD MCP Tools — Database query, groups, styles, and utilities."""
 from typing import Optional, List
 import json
+import os
+import threading
 from src.cad_controller import get_controller
 from src.cad_database import get_database
-from src.cad_utils import format_success, resolve_color
+from src.cad_utils import format_success, resolve_color, com_get as _com_get, com_set as _com_set
 
 ctrl = get_controller()
 db = get_database()
@@ -137,7 +139,7 @@ def add_hatch(pattern_name: str = "ANSI31",
     hatch = ctrl.add_hatch(0, actual_pattern, associativity)
     if color != "bylayer":
         try:
-            hatch.Color = resolve_color(color)
+            _com_set(hatch, "Color", resolve_color(color))
         except Exception:
             pass
     return format_success(f"已创建填充对象 (图案:{actual_pattern})",
@@ -231,6 +233,26 @@ def clear_selection_set(ss_name: str = "MCP_TEMP_SS") -> str:
     """
     r = ctrl.selection_clear(ss_name)
     return r["message"]
+
+
+def _schedule_process_exit(delay_seconds: float, exit_code: int) -> None:
+    def delayed_exit():
+        import time
+        time.sleep(delay_seconds)
+        os._exit(exit_code)
+
+    thread = threading.Thread(target=delayed_exit, daemon=True)
+    thread.start()
+
+
+def restart_mcp(delay_seconds: float = 0.5, exit_code: int = 0) -> str:
+    """Request a soft MCP restart after this tool response is returned."""
+    delay = max(float(delay_seconds), 0.1)
+    _schedule_process_exit(delay, int(exit_code))
+    return (
+        f"MCP restart requested. This process will exit in {delay}s so the MCP "
+        "host can start a fresh process with the latest code."
+    )
 
 
 # ── Help / Documentation ───────────────────────────────────────

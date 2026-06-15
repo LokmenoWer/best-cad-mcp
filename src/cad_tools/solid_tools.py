@@ -2,7 +2,7 @@
 from typing import Optional, List, Tuple
 from src.cad_controller import get_controller
 from src.cad_database import get_database
-from src.cad_utils import format_success, resolve_color
+from src.cad_utils import format_success, resolve_color, com_get as _com_get, com_set as _com_set
 
 ctrl = get_controller()
 db = get_database()
@@ -30,10 +30,10 @@ def draw_box(center_x: float, center_y: float, center_z: float,
         ctrl.set_current_layer(layer)
     solid = ctrl.add_box(center_x, center_y, center_z, length, width, height)
     if color != "bylayer":
-        try: solid.Color = resolve_color(color)
+        try: _com_set(solid, "Color", resolve_color(color))
         except: pass
     db.upsert_entity(solid.Handle, "Box", "AcDb3dSolid",
-                     layer=solid.Layer, color=solid.Color,
+                     layer=solid.Layer, color=_com_get(solid, "Color", 256),
                      geometry={"center": [center_x, center_y, center_z],
                                "length": length, "width": width, "height": height})
     return format_success(f"已绘制长方体", handle=solid.Handle,
@@ -57,10 +57,10 @@ def draw_cone(center_x: float, center_y: float, center_z: float,
         ctrl.set_current_layer(layer)
     solid = ctrl.add_cone(center_x, center_y, center_z, base_radius, height)
     if color != "bylayer":
-        try: solid.Color = resolve_color(color)
+        try: _com_set(solid, "Color", resolve_color(color))
         except: pass
     db.upsert_entity(solid.Handle, "Cone", "AcDb3dSolid",
-                     layer=solid.Layer, color=solid.Color,
+                     layer=solid.Layer, color=_com_get(solid, "Color", 256),
                      geometry={"center": [center_x, center_y, center_z],
                                "base_radius": base_radius, "height": height})
     return format_success(f"已绘制圆锥体", handle=solid.Handle,
@@ -84,10 +84,10 @@ def draw_cylinder(center_x: float, center_y: float, center_z: float,
         ctrl.set_current_layer(layer)
     solid = ctrl.add_cylinder(center_x, center_y, center_z, radius, height)
     if color != "bylayer":
-        try: solid.Color = resolve_color(color)
+        try: _com_set(solid, "Color", resolve_color(color))
         except: pass
     db.upsert_entity(solid.Handle, "Cylinder", "AcDb3dSolid",
-                     layer=solid.Layer, color=solid.Color,
+                     layer=solid.Layer, color=_com_get(solid, "Color", 256),
                      geometry={"center": [center_x, center_y, center_z],
                                "radius": radius, "height": height})
     return format_success(f"已绘制圆柱体", handle=solid.Handle,
@@ -110,10 +110,10 @@ def draw_sphere(center_x: float, center_y: float, center_z: float,
         ctrl.set_current_layer(layer)
     solid = ctrl.add_sphere(center_x, center_y, center_z, radius)
     if color != "bylayer":
-        try: solid.Color = resolve_color(color)
+        try: _com_set(solid, "Color", resolve_color(color))
         except: pass
     db.upsert_entity(solid.Handle, "Sphere", "AcDb3dSolid",
-                     layer=solid.Layer, color=solid.Color,
+                     layer=solid.Layer, color=_com_get(solid, "Color", 256),
                      geometry={"center": [center_x, center_y, center_z],
                                "radius": radius})
     return format_success(f"已绘制球体", handle=solid.Handle, radius=radius)
@@ -136,10 +136,10 @@ def draw_torus(center_x: float, center_y: float, center_z: float,
         ctrl.set_current_layer(layer)
     solid = ctrl.add_torus(center_x, center_y, center_z, torus_radius, tube_radius)
     if color != "bylayer":
-        try: solid.Color = resolve_color(color)
+        try: _com_set(solid, "Color", resolve_color(color))
         except: pass
     db.upsert_entity(solid.Handle, "Torus", "AcDb3dSolid",
-                     layer=solid.Layer, color=solid.Color,
+                     layer=solid.Layer, color=_com_get(solid, "Color", 256),
                      geometry={"center": [center_x, center_y, center_z],
                                "torus_radius": torus_radius, "tube_radius": tube_radius})
     return format_success(f"已绘制圆环体", handle=solid.Handle,
@@ -164,10 +164,10 @@ def draw_wedge(center_x: float, center_y: float, center_z: float,
         ctrl.set_current_layer(layer)
     solid = ctrl.add_wedge(center_x, center_y, center_z, length, width, height)
     if color != "bylayer":
-        try: solid.Color = resolve_color(color)
+        try: _com_set(solid, "Color", resolve_color(color))
         except: pass
     db.upsert_entity(solid.Handle, "Wedge", "AcDb3dSolid",
-                     layer=solid.Layer, color=solid.Color,
+                     layer=solid.Layer, color=_com_get(solid, "Color", 256),
                      geometry={"center": [center_x, center_y, center_z],
                                "length": length, "width": width, "height": height})
     return format_success(f"已绘制楔形体", handle=solid.Handle,
@@ -193,10 +193,10 @@ def draw_elliptical_cone(center_x: float, center_y: float, center_z: float,
     solid = ctrl.add_elliptical_cone(center_x, center_y, center_z,
                                       major_radius, minor_radius, height)
     if color != "bylayer":
-        try: solid.Color = resolve_color(color)
+        try: _com_set(solid, "Color", resolve_color(color))
         except: pass
     db.upsert_entity(solid.Handle, "EllipticalCone", "AcDb3dSolid",
-                     layer=solid.Layer, color=solid.Color,
+                     layer=solid.Layer, color=_com_get(solid, "Color", 256),
                      geometry={"center": [center_x, center_y, center_z],
                                "major_radius": major_radius,
                                "minor_radius": minor_radius, "height": height})
@@ -223,10 +223,10 @@ def draw_elliptical_cylinder(center_x: float, center_y: float, center_z: float,
     solid = ctrl.add_elliptical_cylinder(center_x, center_y, center_z,
                                           major_radius, minor_radius, height)
     if color != "bylayer":
-        try: solid.Color = resolve_color(color)
+        try: _com_set(solid, "Color", resolve_color(color))
         except: pass
     db.upsert_entity(solid.Handle, "EllipticalCylinder", "AcDb3dSolid",
-                     layer=solid.Layer, color=solid.Color,
+                     layer=solid.Layer, color=_com_get(solid, "Color", 256),
                      geometry={"center": [center_x, center_y, center_z],
                                "major_radius": major_radius,
                                "minor_radius": minor_radius, "height": height})
@@ -257,7 +257,12 @@ def add_region(entity_handles: List[str],
     try:
         regions = ctrl.add_region(entity_handles)
         handles = []
-        if hasattr(regions, 'Count'):
+        if isinstance(regions, (list, tuple)):
+            for region in regions:
+                if layer:
+                    region.Layer = layer
+                handles.append(region.Handle)
+        elif hasattr(regions, 'Count'):
             for i in range(regions.Count):
                 regions.Item(i).Layer = layer or ctrl.doc.ActiveLayer.Name
                 handles.append(regions.Item(i).Handle)
@@ -456,7 +461,7 @@ def draw_3d_mesh(m_size: int, n_size: int, vertices: List[float],
         ctrl.set_current_layer(layer)
     mesh = ctrl.add_3d_mesh(m_size, n_size, vertices)
     if color != "bylayer":
-        try: mesh.Color = resolve_color(color)
+        try: _com_set(mesh, "Color", resolve_color(color))
         except: pass
     return format_success(f"已绘制3D网格 ({m_size}×{n_size})",
                           handle=mesh.Handle)
@@ -478,7 +483,7 @@ def draw_polyface_mesh(vertices: List[float], face_list: List[int],
         ctrl.set_current_layer(layer)
     mesh = ctrl.add_polyface_mesh(vertices, face_list)
     if color != "bylayer":
-        try: mesh.Color = resolve_color(color)
+        try: _com_set(mesh, "Color", resolve_color(color))
         except: pass
     return format_success(f"已绘制多面网格", handle=mesh.Handle)
 
@@ -506,7 +511,7 @@ def draw_3d_face(x1: float, y1: float, z1: float,
     p4 = (x4, y4, z4) if x4 is not None else None
     face = ctrl.add_3d_face((x1, y1, z1), (x2, y2, z2), (x3, y3, z3), p4)
     if color != "bylayer":
-        try: face.Color = resolve_color(color)
+        try: _com_set(face, "Color", resolve_color(color))
         except: pass
     return format_success(f"已绘制3D面", handle=face.Handle)
 

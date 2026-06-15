@@ -41,6 +41,8 @@ Or via Claude Desktop MCP config:
 import sys
 import os
 import logging
+import functools
+import inspect
 
 # Ensure the project root is on the path for src imports
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -225,6 +227,11 @@ TOOL_DESCRIPTIONS = {
         "and it returns the named tools to use, anti-patterns to avoid, and a "
         "safe workflow. Use this before composing primitives when unsure."
     ),
+    "restart_mcp": (
+        "Request a soft MCP restart after this tool response is returned. "
+        "Use this after updating the server code so the MCP host can launch a "
+        "fresh process with the latest version."
+    ),
 }
 
 # Create the MCP server
@@ -232,6 +239,131 @@ mcp = FastMCP(
     "AutoCAD-Comprehensive-Server",
     instructions=TOOL_SELECTION_INSTRUCTIONS,
 )
+
+
+def _humanize_tool_name(name: str) -> str:
+    return name.replace("_", " ")
+
+
+def _registration_category(name: str) -> str:
+    if "dimension" in name or name in {"add_qdim", "set_text_alignment",
+                                        "set_text_properties"}:
+        return "dimensioning"
+    if name.startswith(("draw_box", "draw_cone", "draw_cylinder", "draw_sphere",
+                        "draw_torus", "draw_wedge", "draw_elliptical",
+                        "draw_3d", "add_region", "extrude_", "revolve_",
+                        "solid_", "slice_solid", "section_solid")):
+        return "3D modeling"
+    if name.startswith("draw_") or name.startswith("polyline_"):
+        return "drawing"
+    if name.endswith("_entity") or name.endswith("_entities") or name in {
+        "copy_entity", "move_entity", "rotate_entity", "mirror_entity",
+        "scale_entity", "offset_entity", "array_rectangular", "array_polar",
+        "explode_entity", "fillet_entities", "chamfer_entities", "trim_entity",
+        "extend_entity", "break_entity", "join_entities", "stretch_entities",
+        "lengthen_entity", "rotate_3d", "mirror_3d", "transform_entity",
+    }:
+        return "editing"
+    if "layer" in name:
+        return "layer management"
+    if "text" in name or "leader" in name or "table" in name:
+        return "annotation"
+    if "block" in name or "xref" in name or "attribute" in name:
+        return "blocks, xrefs, and attributes"
+    if "hatch" in name:
+        return "hatch and fill"
+    if name.startswith(("scan_", "select_", "highlight_", "execute_",
+                        "get_entity", "get_all_tables", "get_table_schema")):
+        return "query and selection"
+    if name.startswith(("zoom_", "pan", "get_current_view", "get_layout",
+                        "set_active_layout", "create_layout", "view")):
+        return "view and layout"
+    if name.startswith(("open_", "save_", "close_", "create_new_drawing",
+                        "export_", "purge_", "audit_")):
+        return "document and export"
+    return "CAD utility"
+
+
+def _default_tool_description(name: str) -> str:
+    specific = {
+        "execute_query": (
+            "Run a read-only SQL query over scanned CAD metadata. Use after "
+            "scan_all_entities to filter, count, and analyze drawing entities."
+        ),
+        "execute_sql_query": (
+            "Alias for execute_query: run a read-only SQL query over scanned "
+            "CAD metadata."
+        ),
+        "get_all_tables": (
+            "List tables available in the CAD metadata database."
+        ),
+        "get_table_schema": (
+            "Show the column schema for a CAD metadata database table."
+        ),
+        "get_dimension_styles": (
+            "List dimension styles in the active AutoCAD document. Requires "
+            "AutoCAD to be running with an open drawing."
+        ),
+    }
+    if name in specific:
+        return specific[name]
+    category = _registration_category(name)
+    action = _humanize_tool_name(name)
+    return (
+        f"AutoCAD {category} tool: {action}. Use this named MCP tool for its "
+        "specific CAD operation and capture returned handles for later edits."
+    )
+
+
+def _wrap_tool_errors(fn):
+    if inspect.iscoroutinefunction(fn):
+        @functools.wraps(fn)
+        async def async_wrapper(*args, **kwargs):
+            try:
+                return await fn(*args, **kwargs)
+            except Exception as exc:
+                logger.exception("MCP tool %s failed", fn.__name__)
+                return f"ERROR: {fn.__name__} failed: {exc}"
+
+        async_wrapper.__signature__ = inspect.signature(fn)
+        return async_wrapper
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            logger.exception("MCP tool %s failed", fn.__name__)
+            return f"ERROR: {fn.__name__} failed: {exc}"
+
+    wrapper.__signature__ = inspect.signature(fn)
+    return wrapper
+
+
+_raw_mcp_tool = mcp.tool
+
+
+def _safe_mcp_tool(name=None, title=None, description=None, annotations=None,
+                   icons=None, meta=None, structured_output=None):
+    def decorator(fn):
+        tool_name = name or fn.__name__
+        tool_description = description or _default_tool_description(tool_name)
+        wrapped = _wrap_tool_errors(fn)
+        _raw_mcp_tool(
+            name=name,
+            title=title,
+            description=tool_description,
+            annotations=annotations,
+            icons=icons,
+            meta=meta,
+            structured_output=structured_output,
+        )(wrapped)
+        return wrapped
+
+    return decorator
+
+
+mcp.tool = _safe_mcp_tool
 
 # ── Import tool modules ─────────────────────────────────────────
 
@@ -2820,6 +2952,25 @@ def get_tool_help(ctx: Context, tool_name: Optional[str] = None) -> str:
     return _build_registered_tool_help(tool_name)
 
 
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["restart_mcp"],
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+def restart_mcp(ctx: Context, delay_seconds: float = 0.5,
+                exit_code: int = 0) -> str:
+    """Request a soft restart of this MCP server process.
+
+    The tool returns first, then exits the current stdio process after a short
+    delay. MCP hosts that supervise the process can then restart it from the
+    configured command, loading the latest code.
+
+    Args:
+        delay_seconds: Seconds to wait before exiting; clamped to 0.1..60.
+        exit_code: Exit code to use when terminating the process.
+    """
+    return utility_tools.restart_mcp(delay_seconds, exit_code)
+
+
 # ══════════════════════════════════════════════════════════════════
 #  3D SOLID TOOLS
 # ══════════════════════════════════════════════════════════════════
@@ -4078,7 +4229,7 @@ def polyline_get_segment_type(ctx: Context, handle: str,
 
 @mcp.prompt()
 def cad_workflow_guide() -> str:
-    """CAD MCP 工作流指南 — 教 AI 如何使用这套工具完成 CAD 任务。"""
+    """CAD MCP workflow guide for model-facing tool use."""
     return f"""{TOOL_SELECTION_INSTRUCTIONS.strip()}
 
 ## Recommended workflow
@@ -4096,83 +4247,46 @@ def cad_workflow_guide() -> str:
 When unsure, call recommend_cad_tools(intent). For a full generated index, use
 get_tool_help() or resource cad://tools.
 """
-    return """你是 CAD MCP 专家。使用这套工具时请遵循以下工作流：
-
-## 基础工作流
-
-1. **开始工作** — 使用 create_new_drawing 或 open_drawing 打开/创建图纸
-2. **了解图纸** — 使用 scan_all_entities 扫描图纸，用 get_entity_statistics 了解构成
-3. **设置图层** — 使用 create_layer 创建组织图层（如 WALL, DOOR, DIM, TEXT）
-4. **绘制内容** — 使用 draw_* 系列工具绘制实体
-5. **编辑优化** — 使用 move_entity, copy_entity, array_* 等修改内容
-6. **标注尺寸** — 使用 add_*_dimension 系列工具添加尺寸标注
-7. **添加注释** — 使用 draw_text, add_leader 添加文字和引线
-8. **保存导出** — 使用 save_drawing, export_pdf 保存和导出
-
-## 数据分析工作流
-
-1. scan_all_entities → 将图纸转为结构化数据
-2. execute_query → 用 SQL 分析数据（用 execute_sql_query 也可以）
-   - 按类型统计: SELECT type, COUNT(*) FROM cad_entities GROUP BY type
-   - 图层分析: SELECT layer, COUNT(*) FROM cad_entities GROUP BY layer
-   - 搜索文字: SELECT * FROM cad_entities WHERE json_extract(geometry, '$.text_string') LIKE '%关键词%'
-3. highlight_query_results → 在 CAD 中高亮查询结果
-4. get_entity_properties → 查看特定实体的详细信息
-
-## 坐标参考
-
-- 默认使用毫米单位（INSUNITS=4）
-- A3图纸: 420×297, A4图纸: 297×210
-- 原点(0,0)在左下角
-- X轴向右，Y轴向上
-
-## 注意事项
-
-- 所有实体都有唯一的 handle（句柄），保存它用于后续编辑
-- 图层必须存在才能使用，绘图工具会自动创建不存在的图层
-- 使用 zoom_extents 确保能看到所有内容
-- 重大修改后使用 save_drawing 保存
-- 不确定时使用 get_tool_help 查看可用工具
-"""
 
 
 @mcp.prompt()
 def cad_layer_planning() -> str:
-    """CAD 图层规划提示 — 帮助 AI 设计合理的图层结构。"""
-    return """## CAD 图层规划指南
+    """CAD layer planning guidance for model-facing drafting workflows."""
+    return """## CAD Layer Planning Guide
 
-在设计图层结构时，请遵循行业最佳实践：
+Use explicit layers before drawing. Prefer short, stable names that encode the
+discipline and object purpose.
 
-### 推荐图层命名规范
+### Recommended layer naming
 
-基于 AIA CAD 图层标准简化版：
+Simplified AIA-style prefixes:
 
-| 类别 | 图层前缀 | 示例 |
-|------|---------|------|
-| 建筑 | A- | A-WALL, A-DOOR, A-WINDOW |
-| 结构 | S- | S-COLUMN, S-BEAM, S-FOUND |
-| 电气 | E- | E-LIGHT, E-POWER, E-DATA |
-| 暖通 | M- | M-DUCT, M-PIPE |
-| 给排水 | P- | P-COLD, P-HOT, P-DRAIN |
-| 标注 | DIM-| DIM-PLAN, DIM-SECTION |
-| 文字 | TEXT-| TEXT-NOTE, TEXT-TITLE |
+| Discipline | Prefix | Examples |
+|------------|--------|----------|
+| Architecture | A- | A-WALL, A-DOOR, A-WINDOW |
+| Structure | S- | S-COLUMN, S-BEAM, S-FOUND |
+| Electrical | E- | E-LIGHT, E-POWER, E-DATA |
+| Mechanical/HVAC | M- | M-DUCT, M-PIPE |
+| Plumbing | P- | P-COLD, P-HOT, P-DRAIN |
+| Dimensions | DIM- | DIM-PLAN, DIM-SECTION |
+| Text/notes | TEXT- | TEXT-NOTE, TEXT-TITLE |
 
-### 图层颜色约定
+### Color conventions
 
-- 深色对象（红色1/洋红6）: 主要构筑物
-- 浅色对象（青色4/绿色3）: 辅助对象
-- 蓝色(5): 文字和标注
-- 灰色(252-254): 底图/参照
+- ACI 1 red / ACI 6 magenta: primary construction elements.
+- ACI 4 cyan / ACI 3 green: secondary or reference elements.
+- ACI 5 blue: dimensions and annotation.
+- ACI 252-254 gray: underlays and references.
 
-### AI 建图层示例
+### Typical setup
 
-开始绘图前，使用 create_layer 建立图层：
+Before drawing, create layers explicitly:
 ```
-create_layer("A-WALL", color=1)     # 红-墙体
-create_layer("A-DOOR", color=3)     # 绿-门
-create_layer("A-WINDOW", color=4)   # 青-窗
-create_layer("DIM-PLAN", color=5)   # 蓝-尺寸
-create_layer("TEXT-NOTE", color=7)  # 白-文字
+create_layer("A-WALL", color=1)      # wall layer
+create_layer("A-DOOR", color=3)      # door layer
+create_layer("A-WINDOW", color=4)    # window layer
+create_layer("DIM-PLAN", color=5)    # plan dimensions
+create_layer("TEXT-NOTE", color=7)   # notes
 ```
 """
 

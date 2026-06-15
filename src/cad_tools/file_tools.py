@@ -165,7 +165,7 @@ def create_snapshot(name: str = "") -> str:
         return f"创建快照失败: {info['error']}"
 
     # Scan current state
-    scan = ctrl.scan_model_space(5000)
+    scan = ctrl.scan_model_space(500)
 
     snapshot_id = db.create_snapshot(
         drawing_name=name or info.get("name", "unknown"),

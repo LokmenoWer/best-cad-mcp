@@ -3,7 +3,7 @@ offset, array, explode, and property manipulation."""
 from typing import List, Optional, Dict, Any
 from src.cad_controller import get_controller
 from src.cad_database import get_database
-from src.cad_utils import format_success
+from src.cad_utils import format_success, com_get as _com_get
 
 ctrl = get_controller()
 db = get_database()
@@ -325,9 +325,9 @@ def get_extension_dictionary(handle: str) -> str:
     d = ctrl.get_extension_dictionary(handle)
     if d:
         import json
-        info = {"name": d.Name if hasattr(d, 'Name') else "ExtensionDict",
-                "handle": d.Handle if hasattr(d, 'Handle') else "",
-                "count": d.Count if hasattr(d, 'Count') else 0}
+        info = {"name": _com_get(d, "Name", "ExtensionDict"),
+                "handle": _com_get(d, "Handle", ""),
+                "count": _com_get(d, "Count", 0)}
         return json.dumps(info, indent=2, ensure_ascii=False)
     return f"实体 {handle} 没有扩展字典"
 

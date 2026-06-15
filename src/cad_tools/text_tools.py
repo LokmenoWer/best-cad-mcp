@@ -1,8 +1,9 @@
 """CAD MCP Tools — Text, MText, leaders, tables, text styles."""
 from typing import Optional, List, Tuple, Any
+import win32com.client
 from src.cad_controller import get_controller
 from src.cad_database import get_database
-from src.cad_utils import format_success
+from src.cad_utils import format_success, com_get as _com_get, com_set as _com_set
 
 ctrl = get_controller()
 db = get_database()
@@ -168,6 +169,10 @@ def edit_table_cell(table_handle: str, row: int, col: int,
         text:         要设置的文字
     """
     try:
+        ctrl._ensure_connected()
+        if not ctrl.has_document:
+            return "??: ??????"
+        ctrl.doc = ctrl.acad.ActiveDocument
         ent = ctrl.doc.HandleToObject(table_handle)
         ent.SetCellValue(row, col, text)
         return format_success(f"已设置表格[{row},{col}] = '{text}'")
@@ -183,21 +188,29 @@ def find_text(pattern: str, highlight_color: int = 1) -> str:
         highlight_color: 高亮颜色 (1=红, 2=黄, 3=绿)
     """
     try:
+        ctrl._ensure_connected()
         if not ctrl.has_document:
             return "错误: 无打开的文档"
+        ctrl.doc = ctrl.acad.ActiveDocument
         entities = []
         ms = ctrl.doc.ModelSpace
-        for i in range(ms.Count):
+        for i in range(ms.Count - 1, -1, -1):
             try:
                 ent = ms.Item(i)
-                if hasattr(ent, "TextString") and pattern in ent.TextString:
+                obj_name = _com_get(ent, "ObjectName", "")
+                if obj_name not in {"AcDbText", "AcDbMText", "AcDbAttributeDefinition"}:
+                    continue
+                text = _com_get(ent, "TextString", None)
+                if text and pattern in text:
                     entities.append({
-                        "handle": ent.Handle,
-                        "text": ent.TextString,
-                        "layer": ent.Layer,
+                        "handle": _com_get(ent, "Handle", ""),
+                        "text": text,
+                        "layer": _com_get(ent, "Layer", "0"),
                     })
                     if highlight_color:
-                        ent.Color = highlight_color
+                        _com_set(ent, "Color", highlight_color)
+                    if len(entities) >= 20:
+                        break
             except Exception:
                 pass
         if not entities:
@@ -220,15 +233,21 @@ def replace_text(find: str, replace: str) -> str:
         replace: 替换为的文本
     """
     try:
+        ctrl._ensure_connected()
         if not ctrl.has_document:
             return "错误: 无打开的文档"
+        ctrl.doc = ctrl.acad.ActiveDocument
         count = 0
         ms = ctrl.doc.ModelSpace
-        for i in range(ms.Count):
+        for i in range(ms.Count - 1, -1, -1):
             try:
                 ent = ms.Item(i)
-                if hasattr(ent, "TextString") and find in ent.TextString:
-                    ent.TextString = ent.TextString.replace(find, replace)
+                obj_name = _com_get(ent, "ObjectName", "")
+                if obj_name not in {"AcDbText", "AcDbMText", "AcDbAttributeDefinition"}:
+                    continue
+                text = _com_get(ent, "TextString", None)
+                if text and find in text:
+                    ent.TextString = text.replace(find, replace)
                     count += 1
             except Exception:
                 pass

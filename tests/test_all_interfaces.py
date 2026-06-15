@@ -35,6 +35,7 @@ mock_pythoncom = types.ModuleType('pythoncom')
 mock_pythoncom.VT_ARRAY = 0x2000
 mock_pythoncom.VT_R8 = 5
 mock_pythoncom.VT_I2 = 2
+mock_pythoncom.VT_I4 = 3
 mock_pythoncom.VT_VARIANT = 12
 mock_pythoncom.VT_DISPATCH = 9
 
@@ -226,6 +227,7 @@ class TestModuleImports(unittest.TestCase):
             'delete_selection_set', 'erase_selection_entities',
             'clear_selection_set',
             'recommend_cad_tools', 'get_tool_help',
+            'restart_mcp',
             'get_entity_topology', 'get_topology_summary',
         ]
         for name in expected:
@@ -596,7 +598,7 @@ class TestMCPToolSchemas(unittest.TestCase):
         topology_schema = self._get_input_schema("get_entity_topology")
         summary_schema = self._get_input_schema("get_topology_summary")
 
-        self.assertIn("只读", execute_desc)
+        self.assertIn("read-only", execute_desc.lower())
         self.assertIn("handle", topology_schema["properties"])
         self.assertIn("limit", summary_schema["properties"])
 
@@ -620,6 +622,85 @@ class TestMCPToolSchemas(unittest.TestCase):
         ]:
             self.assertIn(name, tool_names)
             self.assertIn(name, help_text)
+
+    def test_restart_mcp_registered_and_schedules_delayed_exit(self):
+        schema = self._get_input_schema("restart_mcp")
+        self.assertIn("delay_seconds", schema["properties"])
+        self.assertIn("exit_code", schema["properties"])
+
+        with patch.object(utility_tools, "_schedule_process_exit") as schedule:
+            result = utility_tools.restart_mcp(delay_seconds=0, exit_code=0)
+
+        schedule.assert_called_once_with(0.1, 0)
+        self.assertIn("MCP restart requested", result)
+
+    def test_get_dimension_styles_formats_normal_style_list(self):
+        with patch.object(dimension_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.get_dim_styles.return_value = [
+                {"name": "Standard", "handle": "D1"},
+                {"name": "Annotative", "handle": "D2"},
+            ]
+
+            result = dimension_tools.get_dimension_styles()
+
+        mock_ctrl.get_dim_styles.assert_called_once_with()
+        self.assertIn("[0] Standard", result)
+        self.assertIn("[1] Annotative", result)
+
+    def test_get_dimension_styles_returns_controller_error_message(self):
+        with patch.object(dimension_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.get_dim_styles.return_value = {
+                "success": False,
+                "message": "No open document",
+            }
+
+            result = dimension_tools.get_dimension_styles()
+
+        mock_ctrl.get_dim_styles.assert_called_once_with()
+        self.assertEqual(result, "ERROR: Get dimension styles failed: No open document")
+
+    def test_tool_call_exceptions_return_error_text(self):
+        import asyncio
+        from src import server
+
+        async def call_tool():
+            with patch.object(server.dimension_tools, "get_dimension_styles",
+                              side_effect=RuntimeError("boom")):
+                return await server.mcp.call_tool("get_dimension_styles", {})
+
+        result = asyncio.run(call_tool())
+
+        self.assertIn("ERROR: get_dimension_styles failed: boom",
+                      result[1]["result"])
+
+    def test_model_facing_prompts_are_english(self):
+        import asyncio
+        import re
+        from src import server
+
+        layer_prompt = server.cad_layer_planning()
+        workflow_prompt = server.cad_workflow_guide()
+        cjk = re.compile(r"[\u4e00-\u9fff]")
+
+        self.assertIn("CAD Layer Planning Guide", layer_prompt)
+        self.assertIn("Recommended workflow", workflow_prompt)
+        self.assertIsNone(cjk.search(layer_prompt))
+        self.assertIsNone(cjk.search(workflow_prompt))
+
+        async def list_tool_descriptions():
+            return {
+                tool.name: tool.description or ""
+                for tool in await server.mcp.list_tools()
+            }
+
+        descriptions = asyncio.run(list_tool_descriptions())
+        self.assertIn("AutoCAD document and export tool",
+                      descriptions["create_new_drawing"])
+        cjk_descriptions = [
+            name for name, description in descriptions.items()
+            if cjk.search(description)
+        ]
+        self.assertEqual(cjk_descriptions, [])
 
     def test_recommend_cad_tools_routes_minsert_alias(self):
         result = utility_tools.recommend_cad_tools("MInsert block array")
@@ -716,14 +797,16 @@ class TestDatabase(unittest.TestCase):
     def setUp(self):
         import tempfile
         from src.cad_database import CADDatabase
-        self.tmpfile = os.path.join(tempfile.gettempdir(), 'test_cad_mcp.db')
+        fd, self.tmpfile = tempfile.mkstemp(prefix='test_cad_mcp_', suffix='.db')
+        os.close(fd)
         self.db = CADDatabase(self.tmpfile)
 
     def tearDown(self):
-        try:
-            os.remove(self.tmpfile)
-        except Exception:
-            pass
+        for path in (self.tmpfile, f"{self.tmpfile}-wal", f"{self.tmpfile}-shm"):
+            try:
+                os.remove(path)
+            except Exception:
+                pass
 
     def test_get_tables(self):
         tables = self.db.get_tables()
@@ -1059,8 +1142,11 @@ class TestToolWiring(unittest.TestCase):
         tools = self._parse_tool_body_calls()
         # Tools that don't have a direct module call (like help, prompts, main)
         exceptions = {
-            '_registered_tools', '_tool_category', '_first_description_line',
-            '_build_registered_tool_help', 'cad_tool_selection_resource',
+            '_humanize_tool_name', '_registration_category',
+            '_default_tool_description', '_wrap_tool_errors',
+            '_safe_mcp_tool', '_registered_tools', '_tool_category',
+            '_first_description_line', '_build_registered_tool_help',
+            'cad_tool_selection_resource',
             'cad_registered_tools_resource', 'cad_workflow_guide',
             'cad_layer_planning', 'main',
         }
@@ -1103,6 +1189,52 @@ class TestActiveXCallShapes(unittest.TestCase):
         controller.acad.ActiveDocument = doc
         controller.doc = doc
         return controller
+
+    def test_create_drawing_allows_no_existing_document_and_falls_back_for_name(self):
+        from src.cad_controller import CADController
+
+        new_doc = MagicMock()
+        type(new_doc).Name = PropertyMock(side_effect=Exception("Add.Name"))
+        active_doc = MagicMock()
+        active_doc.Name = "Drawing1.dwg"
+
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.Documents.Count = 0
+        controller.acad.Documents.Add.return_value = new_doc
+        controller.acad.ActiveDocument = active_doc
+        controller.doc = None
+
+        result = controller.create_drawing()
+
+        self.assertTrue(result["success"], result)
+        controller.acad.Documents.Add.assert_called_once_with()
+        self.assertIs(controller.doc, active_doc)
+        self.assertEqual(result["name"], "Drawing1.dwg")
+
+    def test_create_layer_succeeds_when_color_property_is_incompatible(self):
+        class ColorIncompatibleLayer:
+            def __init__(self):
+                self.Linetype = None
+
+            def __setattr__(self, name, value):
+                if name == "Color":
+                    raise Exception("Color property incompatible")
+                super().__setattr__(name, value)
+
+        doc = MagicMock()
+        layer = ColorIncompatibleLayer()
+        doc.Layers.Item.side_effect = Exception("not found")
+        doc.Layers.Add.return_value = layer
+        controller = self._controller_with_doc(doc)
+
+        result = controller.create_layer("A-WALL", color_idx=1)
+
+        self.assertTrue(result["success"], result)
+        self.assertFalse(result["existing"])
+        self.assertFalse(result["color_set"])
+        self.assertIn("Color property incompatible", result["color_warning"])
+        doc.Layers.Add.assert_called_once_with("A-WALL")
 
     def test_array_rectangular_uses_six_activex_arguments(self):
         doc = MagicMock()

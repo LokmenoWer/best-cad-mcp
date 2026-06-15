@@ -1,11 +1,31 @@
 """CAD MCP Tools — Dimensioning: linear, aligned, angular, radial, diametric, ordinate."""
-from typing import Optional, List, Tuple
+from typing import Any, Optional, List, Tuple
 from src.cad_controller import get_controller
 from src.cad_database import get_database
-from src.cad_utils import format_success
+from src.cad_utils import format_success, format_error
 
 ctrl = get_controller()
 db = get_database()
+
+
+def _controller_error(result: Any, action: str) -> Optional[str]:
+    if isinstance(result, dict) and not result.get("success", True):
+        message = result.get("message") or result.get("error") or str(result)
+        return format_error(f"{action} failed: {message}")
+    return None
+
+
+def _extract_handle_or_error(result: Any, action: str) -> Tuple[Optional[str], Optional[str]]:
+    error = _controller_error(result, action)
+    if error:
+        return None, error
+    if isinstance(result, dict):
+        handle = result.get("handle") or result.get("new_handle")
+    else:
+        handle = getattr(result, "Handle", None)
+    if not handle:
+        return None, format_error(f"{action} failed: no entity handle was returned.")
+    return str(handle), None
 
 
 def add_linear_dimension(x1: float, y1: float, x2: float, y2: float,
@@ -26,9 +46,12 @@ def add_linear_dimension(x1: float, y1: float, x2: float, y2: float,
         ctrl.set_current_layer(layer)
     dim = ctrl.add_dimension_linear(
         (x1, y1, z1), (x2, y2, z2), (text_x, text_y, text_z))
+    handle, error = _extract_handle_or_error(dim, "Add linear dimension")
+    if error:
+        return error
     dist = ((x2-x1)**2 + (y2-y1)**2)**0.5
-    return format_success(f"已添加线性标注 ({dist:.2f} 单位)",
-                          handle=dim.Handle)
+    return format_success(f"Added linear dimension ({dist:.2f} units)",
+                          handle=handle)
 
 
 def add_rotated_dimension(x1: float, y1: float, x2: float, y2: float,
@@ -48,8 +71,11 @@ def add_rotated_dimension(x1: float, y1: float, x2: float, y2: float,
         ctrl.set_current_layer(layer)
     dim = ctrl.add_dimension_rotated(
         (x1, y1, 0), (x2, y2, 0), (text_x, text_y, 0), rotation)
-    return format_success(f"已添加旋转标注 ({rotation}°)",
-                          handle=dim.Handle)
+    handle, error = _extract_handle_or_error(dim, "Add rotated dimension")
+    if error:
+        return error
+    return format_success(f"Added rotated dimension ({rotation} degrees)",
+                          handle=handle)
 
 
 def add_angular_dimension(center_x: float, center_y: float,
@@ -70,7 +96,10 @@ def add_angular_dimension(center_x: float, center_y: float,
         ctrl.set_current_layer(layer)
     dim = ctrl.add_dimension_angular(
         (center_x, center_y, 0), (x1, y1, 0), (x2, y2, 0), (text_x, text_y, 0))
-    return format_success(f"已添加角度标注", handle=dim.Handle)
+    handle, error = _extract_handle_or_error(dim, "Add angular dimension")
+    if error:
+        return error
+    return format_success("Added angular dimension", handle=handle)
 
 
 def add_radial_dimension(center_x: float, center_y: float,
@@ -90,9 +119,12 @@ def add_radial_dimension(center_x: float, center_y: float,
         ctrl.set_current_layer(layer)
     dim = ctrl.add_dimension_radial(
         (center_x, center_y, 0), (chord_x, chord_y, 0), leader_length)
+    handle, error = _extract_handle_or_error(dim, "Add radial dimension")
+    if error:
+        return error
     import math
     r = math.sqrt((chord_x-center_x)**2 + (chord_y-center_y)**2)
-    return format_success(f"已添加半径标注 (R{r:.2f})", handle=dim.Handle)
+    return format_success(f"Added radial dimension (R{r:.2f})", handle=handle)
 
 
 def add_diametric_dimension(chord1_x: float, chord1_y: float,
@@ -112,9 +144,12 @@ def add_diametric_dimension(chord1_x: float, chord1_y: float,
         ctrl.set_current_layer(layer)
     dim = ctrl.add_dimension_diametric(
         (chord1_x, chord1_y, 0), (chord2_x, chord2_y, 0), leader_length)
+    handle, error = _extract_handle_or_error(dim, "Add diametric dimension")
+    if error:
+        return error
     import math
     d = math.sqrt((chord2_x-chord1_x)**2 + (chord2_y-chord1_y)**2)
-    return format_success(f"已添加直径标注 (⌀{d:.2f})", handle=dim.Handle)
+    return format_success(f"Added diametric dimension (D{d:.2f})", handle=handle)
 
 
 def add_ordinate_dimension(x: float, y: float,
@@ -134,18 +169,28 @@ def add_ordinate_dimension(x: float, y: float,
         ctrl.set_current_layer(layer)
     dim = ctrl.add_dimension_ordinate(
         (x, y, 0), (leader_end_x, leader_end_y, 0), use_x_axis)
+    handle, error = _extract_handle_or_error(dim, "Add ordinate dimension")
+    if error:
+        return error
     axis = "X" if use_x_axis else "Y"
-    return format_success(f"已添加{axis}坐标标注", handle=dim.Handle)
+    return format_success(f"Added {axis} ordinate dimension", handle=handle)
 
 
 def get_dimension_styles() -> str:
-    """列出所有标注样式。"""
+    """List all dimension styles."""
     styles = ctrl.get_dim_styles()
+    error = _controller_error(styles, "Get dimension styles")
+    if error:
+        return error
     if not styles:
-        return "无标注样式"
-    lines = [f"共 {len(styles)} 个标注样式:"]
+        return "No dimension styles."
+    lines = [f"Dimension styles ({len(styles)}):"]
     for i, s in enumerate(styles):
-        lines.append(f"  [{i}] {s['name']}")
+        if isinstance(s, dict):
+            name = s.get("name", "<unnamed>")
+        else:
+            name = str(s)
+        lines.append(f"  [{i}] {name}")
     return "\n".join(lines)
 
 
@@ -264,15 +309,17 @@ def draw_wipeout(p1_x: float, p1_y: float, p2_x: float, p2_y: float,
     if layer:
         ctrl.create_layer(layer)
         ctrl.set_current_layer(layer)
-    if p3_x is None:
-        cmd = f"WIPEOUT P {p1_x},{p1_y} {p2_x},{p2_y} \n \n"
-    elif p4_x is None:
-        cmd = f"WIPEOUT P {p1_x},{p1_y} {p2_x},{p2_y} {p3_x},{p3_y} \n \n"
-    else:
-        cmd = f"WIPEOUT P {p1_x},{p1_y} {p2_x},{p2_y} {p3_x},{p3_y} {p4_x},{p4_y} \n \n"
-    r = ctrl.send_command(cmd)
+    if p3_x is None or p3_y is None:
+        return "错误: draw_wipeout 至少需要 3 个顶点；两个点不能定义有效遮罩区域"
+    points = [(p1_x, p1_y), (p2_x, p2_y), (p3_x, p3_y)]
+    if p4_x is not None and p4_y is not None:
+        points.append((p4_x, p4_y))
+    point_expr = " ".join(f"(list {x} {y} 0)" for x, y in points)
+    r = ctrl.run_lisp(f'(command "._WIPEOUT" {point_expr} "")')
+    if not r["success"]:
+        return f"区域覆盖失败: {r['message']}"
     return format_success(f"已创建区域覆盖",
-                          vertices=3 if p3_x is None else (4 if p4_x is None else 4))
+                          vertices=len(points))
 
 
 def add_arc_dimension(center_x: float, center_y: float,
