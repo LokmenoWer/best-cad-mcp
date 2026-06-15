@@ -1,6 +1,6 @@
 [project]
 name = "best-cad-mcp"
-version = "1.0.0"
+version = "1.0.1"
 description = "完整的 AutoCAD 2020+ MCP 服务器 — 提供 100+ 工具覆盖 CAD 全功能，包含 AI 可理解的 CAD 数据系统"
 readme = "README.md"
 requires-python = ">=3.11"

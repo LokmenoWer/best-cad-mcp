@@ -145,14 +145,10 @@ def isolate_layer(name: str) -> str:
         name: 要保留的图层名称
     """
     try:
-        layers = ctrl.get_all_layers()
-        isolated = 0
-        for l in layers:
-            if l["name"] != name and l["is_on"]:
-                ctrl.set_layer_state(l["name"], on=False)
-                isolated += 1
-        ctrl.set_current_layer(name)
-        return f"✓ 已隔离图层 '{name}'，关闭了 {isolated} 个其他图层"
+        r = ctrl.isolate_layer(name)
+        if r.get("success"):
+            return r["message"]
+        return f"隔离图层失败: {r.get('message', '')}"
     except Exception as e:
         return f"隔离图层失败: {e}"
 
@@ -160,13 +156,10 @@ def isolate_layer(name: str) -> str:
 def unisolate_layers() -> str:
     """取消图层隔离：打开所有图层。"""
     try:
-        layers = ctrl.get_all_layers()
-        turned_on = 0
-        for l in layers:
-            if not l["is_on"] and not l["is_frozen"]:
-                ctrl.set_layer_state(l["name"], on=True)
-                turned_on += 1
-        return f"✓ 已打开 {turned_on} 个图层"
+        r = ctrl.unisolate_layers()
+        if r.get("success"):
+            return r["message"]
+        return f"取消隔离失败: {r.get('message', '')}"
     except Exception as e:
         return f"取消隔离失败: {e}"
 

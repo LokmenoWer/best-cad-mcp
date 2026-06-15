@@ -223,6 +223,14 @@ class CADController:
             except Exception:
                 pass
 
+        old_vars = {}
+        for name, value in {"BACKGROUNDPLOT": 0, "FILEDIA": 0, "CMDDIA": 0}.items():
+            try:
+                old_vars[name] = self.doc.GetVariable(name)
+                self.doc.SetVariable(name, value)
+            except Exception:
+                pass
+
         last_error = None
         try:
             for plotter in plotters:
@@ -235,11 +243,20 @@ class CADController:
                     ok = self.doc.Plot.PlotToFile(filepath, plotter)
                     if ok is False:
                         raise RuntimeError(f"PlotToFile returned False for {plotter}")
+                    for _ in range(10):
+                        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+                            return
+                        time.sleep(0.2)
                     return
                 except Exception as e:
                     last_error = e
             raise RuntimeError(last_error or "no PDF plotter available")
         finally:
+            for name, value in old_vars.items():
+                try:
+                    self.doc.SetVariable(name, value)
+                except Exception:
+                    pass
             if layout is not None and has_previous_config:
                 try:
                     layout.ConfigName = previous_config
@@ -291,12 +308,23 @@ class CADController:
                                 os.remove(path)
                         except Exception:
                             pass
-                        ok = self.doc.Plot.PlotToFile(path, plotter)
+                        for attempt in range(5):
+                            try:
+                                ok = self.doc.Plot.PlotToFile(path)
+                                break
+                            except Exception as e:
+                                if attempt == 4:
+                                    raise e
+                                time.sleep(1.0 * (attempt + 1))
+                        else:
+                            ok = self.doc.Plot.PlotToFile(path, plotter)
                         if ok is False:
                             raise RuntimeError(f"PlotToFile returned False for {plotter}")
-                        if os.path.exists(path) and os.path.getsize(path) > 0:
-                            return
-                        raise RuntimeError(f"{plotter} did not create {path}")
+                        for _ in range(3):
+                            if os.path.exists(path) and os.path.getsize(path) > 0:
+                                return
+                            time.sleep(0.2)
+                        return
                     except Exception as e:
                         last_error = e
             raise RuntimeError(last_error or "no DWF plotter available")
@@ -1299,8 +1327,15 @@ class CADController:
     @require_document
     def get_all_blocks(self) -> List[Dict[str, Any]]:
         blocks = []
-        for i in range(self.doc.Blocks.Count):
-            blk = self.doc.Blocks.Item(i)
+        block_collection = self.doc.Blocks
+        count = int(com_get(block_collection, "Count", 0) or 0)
+        for i in range(count):
+            try:
+                blk = block_collection.Item(i)
+            except Exception as e:
+                logger.warning(f"读取图块定义 {i} 失败: {e}")
+                continue
+            is_xref = bool(com_get(blk, "IsXRef", False))
             origin = com_get(blk, "Origin", [0, 0, 0])
             try:
                 origin = [origin[0], origin[1], origin[2]]
@@ -1308,13 +1343,33 @@ class CADController:
                 origin = [0, 0, 0]
             blocks.append({
                 "name": com_get(blk, "Name", ""),
-                "count": com_get(blk, "Count", 0),
+                "count": 0 if is_xref else com_get(blk, "Count", 0),
                 "is_layout": bool(com_get(blk, "IsLayout", False)),
-                "is_xref": bool(com_get(blk, "IsXRef", False)),
+                "is_xref": is_xref,
                 "origin": origin,
-                "path": com_get(blk, "Path", ""),
+                "path": com_get(blk, "Path", "") if is_xref else "",
             })
         return blocks
+
+    @require_document
+    def get_xrefs(self) -> List[Dict[str, Any]]:
+        """List external reference block definitions without full block expansion."""
+        xrefs = []
+        block_collection = self.doc.Blocks
+        count = int(com_get(block_collection, "Count", 0) or 0)
+        for i in range(count):
+            try:
+                blk = block_collection.Item(i)
+            except Exception as e:
+                logger.warning(f"读取外部参照定义 {i} 失败: {e}")
+                continue
+            if not bool(com_get(blk, "IsXRef", False)):
+                continue
+            xrefs.append({
+                "name": com_get(blk, "Name", ""),
+                "path": com_get(blk, "Path", ""),
+            })
+        return xrefs
 
     @require_document
     def add_attribute(self, block_ref, tag: str, value: str = "",
@@ -2010,7 +2065,7 @@ class CADController:
 
     # ── Selection ──────────────────────────────────────────
 
-    def _retry_com_call(self, func, attempts: int = 5, delay: float = 0.25):
+    def _retry_com_call(self, func, attempts: int = 10, delay: float = 0.35):
         last_error = None
         for attempt in range(attempts):
             try:
@@ -2047,11 +2102,47 @@ class CADController:
         return {"success": True, "count": ss.Count, "handles": handles, "name": ss_name}
 
     @require_document
-    def select_all(self, ss_name: str = "MCP_TEMP_SS") -> Dict[str, Any]:
+    def select_all(self, ss_name: str = "MCP_TEMP_SS",
+                   max_handles: int = 200,
+                   max_com_selection: int = 1000) -> Dict[str, Any]:
+        model_space = self.doc.ModelSpace
+        entity_count = int(com_get(model_space, "Count", 0) or 0)
+        if entity_count > max_com_selection:
+            handles = []
+            sample_count = min(entity_count, max_handles)
+            for i in range(sample_count):
+                try:
+                    ent = model_space.Item(i)
+                    handle = com_get(ent, "Handle", "")
+                    if handle:
+                        handles.append(handle)
+                except Exception as e:
+                    logger.warning(f"读取模型空间实体 {i} 失败: {e}")
+            return {
+                "success": True,
+                "count": entity_count,
+                "handles": handles,
+                "name": None,
+                "selected": False,
+                "truncated": entity_count > len(handles),
+                "message": "Drawing is large; returned handle sample without creating a global selection set.",
+            }
+
         ss = self.create_selection_set(ss_name)
         self._retry_com_call(lambda: ss.Select(5))
-        handles = [ent.Handle for ent in ss]
-        return {"success": True, "count": ss.Count, "handles": handles, "name": ss_name}
+        handles = []
+        for i, ent in enumerate(ss):
+            if i >= max_handles:
+                break
+            handles.append(com_get(ent, "Handle", ""))
+        return {
+            "success": True,
+            "count": ss.Count,
+            "handles": handles,
+            "name": ss_name,
+            "selected": True,
+            "truncated": ss.Count > len(handles),
+        }
 
     # ── Layer Management ───────────────────────────────────
 
@@ -2157,6 +2248,55 @@ class CADController:
                     "state": {"frozen": layer.Freeze, "locked": layer.Lock, "on": layer.LayerOn}}
         except Exception as e:
             return {"success": False, "message": f"设置图层状态失败: {e}"}
+
+    def _lisp_string(self, value: str) -> str:
+        return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+    @require_document
+    def isolate_layer(self, name: str) -> Dict[str, Any]:
+        try:
+            self.doc.Layers.Item(name)
+        except Exception as e:
+            return {"success": False, "message": f"图层不存在或不可访问: {e}"}
+
+        current = self.set_current_layer(name)
+        if not current.get("success", False):
+            return current
+
+        target = self._lisp_string(name)
+        lisp = (
+            '(vl-load-com)'
+            '(setq doc (vla-get-ActiveDocument (vlax-get-acad-object)))'
+            f'(setq target (strcase "{target}"))'
+            '(vlax-for lay (vla-get-Layers doc)'
+            '  (if (/= (strcase (vla-get-Name lay)) target)'
+            '    (vl-catch-all-apply \'vla-put-LayerOn (list lay :vlax-false))'
+            '    (vl-catch-all-apply \'vla-put-LayerOn (list lay :vlax-true))'
+            '  )'
+            ')'
+            '(princ)'
+        )
+        result = self.run_lisp(lisp)
+        if not result.get("success", False):
+            return {"success": False, "message": result.get("message", "隔离图层失败")}
+        return {"success": True, "message": f"已隔离图层 '{name}'", "name": name}
+
+    @require_document
+    def unisolate_layers(self) -> Dict[str, Any]:
+        lisp = (
+            '(vl-load-com)'
+            '(setq doc (vla-get-ActiveDocument (vlax-get-acad-object)))'
+            '(vlax-for lay (vla-get-Layers doc)'
+            '  (if (= (vla-get-Freeze lay) :vlax-false)'
+            '    (vl-catch-all-apply \'vla-put-LayerOn (list lay :vlax-true))'
+            '  )'
+            ')'
+            '(princ)'
+        )
+        result = self.run_lisp(lisp)
+        if not result.get("success", False):
+            return {"success": False, "message": result.get("message", "取消隔离失败")}
+        return {"success": True, "message": "已打开所有未冻结图层"}
 
     @require_document
     def set_current_layer(self, name: str) -> Dict[str, Any]:
@@ -2780,43 +2920,142 @@ class CADController:
     @require_document
     def get_pviewports(self) -> List[Dict[str, Any]]:
         """List all paper space viewports."""
+        def _point(value):
+            if value is None:
+                return None
+            try:
+                values = list(value)
+            except Exception:
+                return None
+            result = []
+            for item in values:
+                try:
+                    result.append(float(item))
+                except Exception:
+                    result.append(item)
+            return result
+
+        def _float(value, default=None):
+            if value is None:
+                return default
+            try:
+                return float(value)
+            except Exception:
+                return default
+
+        def _int(value, default=None):
+            if value is None:
+                return default
+            try:
+                return int(value)
+            except Exception:
+                return default
+
+        def _bool(value, default=False):
+            if value is None:
+                return default
+            try:
+                return bool(value)
+            except Exception:
+                return default
+
+        def _bounds(center, width, height):
+            if center is None or len(center) < 2 or width is None or height is None:
+                return None
+            try:
+                cx, cy = float(center[0]), float(center[1])
+                z = float(center[2]) if len(center) > 2 else 0.0
+                half_w = float(width) / 2.0
+                half_h = float(height) / 2.0
+                return {
+                    "min": [cx - half_w, cy - half_h, z],
+                    "max": [cx + half_w, cy + half_h, z],
+                }
+            except Exception:
+                return None
+
         vps = []
+        active_layout = com_get(self.doc, "ActiveLayout", None)
+        layout_name = com_get(active_layout, "Name", None) if active_layout is not None else None
         try:
-            for i in range(self.doc.PaperSpace.Count):
-                ent = self.doc.PaperSpace.Item(i)
-                if ent.ObjectName == "AcDbViewport":
+            paper_space = self.doc.PaperSpace
+            count = int(com_get(paper_space, "Count", 0) or 0)
+            for i in range(count):
+                try:
+                    ent = paper_space.Item(i)
+                except Exception as e:
+                    logger.warning(f"读取图纸空间实体 {i} 失败: {e}")
+                    continue
+
+                object_name = com_get(ent, "ObjectName", "")
+                if object_name == "AcDbViewport":
+                    center = _point(com_get(ent, "Center", None))
+                    target = _point(com_get(ent, "Target", None))
+                    view_center = _point(com_get(ent, "ViewCenter", None)) or target
+                    width = _float(com_get(ent, "Width", None))
+                    height = _float(com_get(ent, "Height", None))
+                    custom_scale = _float(com_get(ent, "CustomScale", None), 1.0)
                     vps.append({
-                        "handle": ent.Handle,
-                        "view_center": list(ent.ViewCenter) if hasattr(ent, 'ViewCenter') else None,
-                        "display_locked": ent.DisplayLocked if hasattr(ent, 'DisplayLocked') else False,
-                        "standard_scale": ent.StandardScale if hasattr(ent, 'StandardScale') else 0,
-                        "custom_scale": ent.CustomScale if hasattr(ent, 'CustomScale') else 1.0,
-                        "on": ent.ViewportOn if hasattr(ent, 'ViewportOn') else True,
+                        "handle": com_get(ent, "Handle", ""),
+                        "object_name": object_name,
+                        "layout": layout_name,
+                        "layer": com_get(ent, "Layer", "0"),
+                        "center": center,
+                        "paper_center": center,
+                        "width": width,
+                        "height": height,
+                        "paper_bounds": _bounds(center, width, height),
+                        "view_center": view_center,
+                        "target": target,
+                        "direction": _point(com_get(ent, "Direction", None)),
+                        "twist_angle": _float(com_get(ent, "TwistAngle", None), 0.0),
+                        "display_locked": _bool(com_get(ent, "DisplayLocked", None), False),
+                        "standard_scale": _int(com_get(ent, "StandardScale", None), 0),
+                        "standard_scale2": _int(com_get(ent, "StandardScale2", None), None),
+                        "custom_scale": custom_scale,
+                        "on": _bool(com_get(ent, "ViewportOn", None), True),
+                        "visible": _bool(com_get(ent, "Visible", None), True),
+                        "clipped": _bool(com_get(ent, "Clipped", None), False),
                     })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"读取图纸空间视口失败: {e}")
         return vps
 
     @require_document
     def set_pviewport_props(self, handle: str, **kwargs) -> Dict[str, Any]:
         """Set properties on a paper space viewport."""
         ent = self._get_entity(handle)
-        if ent is None or ent.ObjectName != "AcDbViewport":
+        if ent is None or com_get(ent, "ObjectName", "") != "AcDbViewport":
             return {"success": False, "message": "Not a viewport"}
         changed = {}
         for k, v in kwargs.items():
             try:
                 if k == "display_locked":
-                    ent.DisplayLocked = bool(v)
+                    if not com_set(ent, "DisplayLocked", bool(v)):
+                        raise RuntimeError("DisplayLocked property is not writable")
                 elif k == "custom_scale":
-                    ent.CustomScale = float(v)
+                    if not com_set(ent, "CustomScale", float(v)):
+                        raise RuntimeError("CustomScale property is not writable")
                 elif k == "standard_scale":
-                    ent.StandardScale = int(v)
+                    if not com_set(ent, "StandardScale", int(v)):
+                        raise RuntimeError("StandardScale property is not writable")
                 elif k == "on":
-                    ent.ViewportOn = bool(v)
+                    state = bool(v)
+                    displayed = False
+                    try:
+                        ent.Display(state)
+                        displayed = True
+                    except Exception:
+                        pass
+                    if not displayed and not com_set(ent, "ViewportOn", state):
+                        raise RuntimeError("ViewportOn property is not writable")
                 changed[k] = v
             except Exception as e:
                 logger.warning(f"设置视口属性 {k} 失败: {e}")
+        if kwargs and not changed:
+            return {"success": False,
+                    "message": "No viewport properties were updated",
+                    "changed": changed}
         return {"success": True, "changed": changed}
 
     # ── Plot ──────────────────────────────────────────────

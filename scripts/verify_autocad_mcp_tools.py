@@ -379,6 +379,17 @@ def setup_context() -> dict[str, Any]:
             hyperlink_line_handle = _handle(hyperlink_line)
         except Exception:
             pass
+        viewport_handle = ""
+        try:
+            viewport = doc.PaperSpace.AddPViewport(
+                _variant_point(base_x + 40, 40, 0), 50, 30)
+            try:
+                viewport.Display(True)
+            except Exception:
+                pass
+            viewport_handle = _handle(viewport)
+        except Exception:
+            pass
 
         for obj in [
             line1, line2, trim_target, trim_cutter, extend_target, extend_boundary,
@@ -390,6 +401,7 @@ def setup_context() -> dict[str, Any]:
                 pass
 
         return {
+            "stamp": stamp,
             "document": getattr(doc, "Name", ""),
             "layer": layer_name,
             "empty_layer": empty_layer_name,
@@ -424,6 +436,7 @@ def setup_context() -> dict[str, Any]:
             "view_name": view_name,
             "ucs_name": ucs_name,
             "hyperlink_line": hyperlink_line_handle,
+            "viewport": viewport_handle,
             "handles": [_handle(line1), _handle(line2), _handle(circle), _handle(poly)],
             "tmp": tempfile.gettempdir(),
             "image": str(image_path),
@@ -441,6 +454,22 @@ async def _list_tools() -> list[Any]:
 
 def list_tool_names() -> list[str]:
     return [tool.name for tool in asyncio.run(_list_tools())]
+
+
+def _write_results(output: Path, results: list[dict[str, Any]]) -> None:
+    payload = json.dumps({"results": results},
+                         ensure_ascii=False, indent=2, default=str)
+    tmp = output.with_name(f"{output.name}.{os.getpid()}.tmp")
+    last_error: OSError | None = None
+    for attempt in range(6):
+        try:
+            tmp.write_text(payload, encoding="utf-8")
+            tmp.replace(output)
+            return
+        except OSError as exc:
+            last_error = exc
+            time.sleep(0.2 * (attempt + 1))
+    raise last_error or OSError(f"Could not write {output}")
 
 
 def _schema_sample(schema: dict[str, Any], ctx: dict[str, Any], name: str = "") -> Any:
@@ -585,7 +614,7 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
     if name in {"export_dxf"}:
         args.update({"filepath": str(Path(ctx["tmp"]) / "mcp_verify.dxf")})
     if name in {"export_dwf"}:
-        args.update({"filepath": str(Path(ctx["tmp"]) / "mcp_verify.dwf")})
+        args.update({"filepath": str(Path(ctx["tmp"]) / f"mcp_verify_{ctx.get('stamp', int(time.time()))}.dwf")})
     if name in {"export_image"}:
         args.update({"filepath": str(Path(ctx["tmp"]) / "mcp_verify.wmf")})
     if name in {"set_current_text_style"}:
@@ -616,7 +645,7 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
         args.update({"old_name": ctx.get("empty_layer", ctx.get("layer", "0")),
                      "new_name": f"{ctx.get('empty_layer', 'MCP_VERIFY_EMPTY')}_RENAMED"})
     if name in {"freeze_layer", "thaw_layer", "lock_layer", "unlock_layer",
-                "turn_off_layer", "turn_on_layer"}:
+                "turn_off_layer", "turn_on_layer", "isolate_layer"}:
         args.update({"name": ctx.get("empty_layer", ctx.get("layer", "0"))})
     if name in {"set_current_layer"}:
         args.update({"name": ctx.get("layer", "0")})
@@ -629,6 +658,9 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
                      "x2": ctx["base_x"] + 12, "y2": 7})
     if name in {"set_active_layout"}:
         args.update({"name": "Model"})
+    if name in {"set_viewport_properties"}:
+        args.update({"handle": ctx.get("viewport", ""),
+                     "display_locked": True, "custom_scale": 1.0, "on": True})
     if name in {"restore_named_view", "delete_named_view"}:
         args.update({"name": ctx.get("view_name", "")})
     if name in {"create_ucs"}:
@@ -817,6 +849,8 @@ def run_child(tool_name: str, args_path: Path) -> None:
 
 def run_driver(output: Path, limit: int | None, timeout: int,
                include_risky: bool = False, only: list[str] | None = None) -> int:
+    output = output.resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
     tools = asyncio.run(_list_tools())
     if only:
         wanted = set(only)
@@ -850,9 +884,7 @@ def run_driver(output: Path, limit: int | None, timeout: int,
                 "reason": reason,
             }
             results.append(result)
-            output.write_text(json.dumps({"results": results},
-                                         ensure_ascii=False, indent=2, default=str),
-                              encoding="utf-8")
+            _write_results(output, results)
             print(f"[{index:03d}/{len(tools):03d}] {tool.name}: {status}")
             continue
         ready, ready_detail = probe_existing_autocad()
@@ -864,25 +896,30 @@ def run_driver(output: Path, limit: int | None, timeout: int,
                 "detail": ready_detail,
             }
             results.append(result)
-            output.write_text(json.dumps({"results": results},
-                                         ensure_ascii=False, indent=2, default=str),
-                              encoding="utf-8")
+            _write_results(output, results)
             print(f"[{index:03d}/{len(tools):03d}] {tool.name}: paused_autocad_busy")
             return 2
-        try:
-            ctx = setup_context()
-        except Exception as exc:
+        setup_error = None
+        for setup_attempt in range(4):
+            try:
+                ctx = setup_context()
+                setup_error = None
+                break
+            except Exception as exc:
+                setup_error = exc
+                time.sleep(0.75 * (setup_attempt + 1))
+        else:
+            ctx = {}
+        if setup_error is not None:
             result = {
                 "tool": tool.name,
                 "status": "paused_setup_failed",
                 "reason": "Could not create helper geometry in the existing AutoCAD instance; verification paused.",
-                "error_type": type(exc).__name__,
-                "error": str(exc),
+                "error_type": type(setup_error).__name__,
+                "error": str(setup_error),
             }
             results.append(result)
-            output.write_text(json.dumps({"results": results},
-                                         ensure_ascii=False, indent=2, default=str),
-                              encoding="utf-8")
+            _write_results(output, results)
             print(f"[{index:03d}/{len(tools):03d}] {tool.name}: paused_setup_failed")
             return 2
         args = args_for_tool(tool, ctx)
@@ -909,9 +946,7 @@ def run_driver(output: Path, limit: int | None, timeout: int,
         result["wall_elapsed"] = round(time.time() - started, 3)
         result["context"] = ctx
         results.append(result)
-        output.write_text(json.dumps({"results": results},
-                                     ensure_ascii=False, indent=2, default=str),
-                          encoding="utf-8")
+        _write_results(output, results)
         print(f"[{index:03d}/{len(tools):03d}] {tool.name}: {result['status']}")
         if result["status"] == "timeout":
             return 2

@@ -108,7 +108,16 @@ def select_by_crossing(x1: float, y1: float, x2: float, y2: float) -> str:
 def select_all() -> str:
     """选择当前图纸中的所有实体。"""
     r = ctrl.select_all()
-    return format_success(f"已选择全部 {r['count']} 个实体")
+    handles = r.get("handles", [])[:20]
+    if not r.get("selected", True):
+        return format_success(
+            f"全图实体较多，已返回 {len(handles)} 个句柄样本（共 {r['count']} 个实体，未创建全局选择集）",
+            handles=handles,
+            truncated=r.get("truncated", False),
+        )
+    return format_success(f"已选择全部 {r['count']} 个实体",
+                          handles=handles,
+                          truncated=r.get("truncated", False))
 
 
 def highlight_entity(handle: str, color: int = 1) -> str:

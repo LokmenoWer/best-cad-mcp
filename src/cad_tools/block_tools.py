@@ -144,13 +144,13 @@ def get_xrefs() -> str:
     try:
         if not _ensure_doc():
             return "错误: 未连接到打开的 AutoCAD 图形"
-        blocks = ctrl.get_all_blocks()
-        xrefs = [b for b in blocks if b["is_xref"]]
+        xrefs = ctrl.get_xrefs()
         if not xrefs:
             return "无外部参照"
         lines = [f"共 {len(xrefs)} 个外部参照:"]
         for i, xr in enumerate(xrefs):
-            lines.append(f"  [{i}] {xr['name']:<20s} 路径:{xr['path']}")
+            path = xr.get("path") or "路径不可用"
+            lines.append(f"  [{i}] {xr.get('name', ''):<20s} 路径:{path}")
         return "\n".join(lines)
     except Exception as e:
         return f"获取外部参照列表失败: {e}"
