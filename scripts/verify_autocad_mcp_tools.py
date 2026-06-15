@@ -610,13 +610,13 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
                      "insert_x": ctx["base_x"] + 140, "insert_y": 0,
                      "insert_z": 0, "scale": 1.0, "rotation": 0.0})
     if name in {"export_pdf"}:
-        args.update({"filepath": str(Path(ctx["tmp"]) / "mcp_verify.pdf")})
+        args.update({"filepath": str(Path(ctx["tmp"]) / f"mcp_verify_{ctx.get('stamp', int(time.time()))}.pdf")})
     if name in {"export_dxf"}:
-        args.update({"filepath": str(Path(ctx["tmp"]) / "mcp_verify.dxf")})
+        args.update({"filepath": str(Path(ctx["tmp"]) / f"mcp_verify_{ctx.get('stamp', int(time.time()))}.dxf")})
     if name in {"export_dwf"}:
         args.update({"filepath": str(Path(ctx["tmp"]) / f"mcp_verify_{ctx.get('stamp', int(time.time()))}.dwf")})
     if name in {"export_image"}:
-        args.update({"filepath": str(Path(ctx["tmp"]) / "mcp_verify.wmf")})
+        args.update({"filepath": str(Path(ctx["tmp"]) / f"mcp_verify_{ctx.get('stamp', int(time.time()))}.wmf")})
     if name in {"set_current_text_style"}:
         args.update({"name": "Standard"})
     if name in {"edit_table_cell"}:
