@@ -240,6 +240,11 @@ class CADController:
                             layout.ConfigName = plotter
                         except Exception:
                             pass
+                    try:
+                        if os.path.exists(filepath):
+                            os.remove(filepath)
+                    except Exception:
+                        pass
                     ok = self.doc.Plot.PlotToFile(filepath, plotter)
                     if ok is False:
                         raise RuntimeError(f"PlotToFile returned False for {plotter}")
