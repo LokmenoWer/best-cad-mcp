@@ -2350,6 +2350,37 @@ class CADController:
             candidates.append(f"{clean}.shx")
         return list(dict.fromkeys(candidates))
 
+    @staticmethod
+    def _com_name_candidates(name: str) -> List[str]:
+        candidates = [name]
+        lower = name[:1].lower() + name[1:]
+        upper = name[:1].upper() + name[1:]
+        for candidate in (lower, upper):
+            if candidate not in candidates:
+                candidates.append(candidate)
+        return candidates
+
+    @classmethod
+    def _set_com_property(cls, obj, name: str, value: Any) -> bool:
+        if com_set(obj, name, value):
+            return True
+
+        oleobj = getattr(obj, "_oleobj_", None)
+        if oleobj is None:
+            return False
+
+        dispatch_put = getattr(pythoncom, "DISPATCH_PROPERTYPUT", 4)
+        for candidate in cls._com_name_candidates(name):
+            try:
+                dispid = oleobj.GetIDsOfNames(candidate)
+                if isinstance(dispid, (list, tuple)):
+                    dispid = dispid[0]
+                oleobj.Invoke(dispid, 0, dispatch_put, 0, value)
+                return True
+            except Exception:
+                continue
+        return False
+
     def _get_text_style_font_defaults(self, style) -> Tuple[str, bool, bool, int, int]:
         for candidate in (style, getattr(self.doc, "ActiveTextStyle", None)):
             if candidate is None:
@@ -2372,11 +2403,9 @@ class CADController:
     def _set_text_style_font_file(self, style, font: str) -> str:
         last_error = None
         for candidate in self._font_file_candidates(font):
-            try:
-                style.FontFile = candidate
+            if self._set_com_property(style, "FontFile", candidate):
                 return candidate
-            except Exception as exc:
-                last_error = exc
+            last_error = f"unable to set FontFile to {candidate}"
         raise RuntimeError(last_error or "no font file candidate")
 
     def _apply_text_style_font(self, style, font: str) -> Tuple[str, str]:

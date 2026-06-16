@@ -1924,6 +1924,55 @@ class TestTextToolBugs(unittest.TestCase):
                 raise Exception(f"invalid font file {value}")
             self.font_file_values.append(value)
 
+        @property
+        def fontFile(self):
+            return self.FontFile
+
+        @fontFile.setter
+        def fontFile(self, value):
+            self.FontFile = value
+
+    class _FakeTextStyleOleObject:
+        def __init__(self):
+            self.invocations = []
+
+        def GetIDsOfNames(self, name):
+            if name in {"FontFile", "fontFile"}:
+                return 42
+            raise AttributeError(name)
+
+        def Invoke(self, dispid, lcid, flags, result_wanted, *args):
+            self.invocations.append((dispid, lcid, flags, result_wanted, args))
+
+    class _FakeGeneratedTextStyle:
+        __slots__ = (
+            "font_args", "setfont_error", "set_font_calls", "Height", "Width",
+            "_oleobj_",
+        )
+
+        def __init__(self, font_args=None, setfont_error=None):
+            self.font_args = font_args
+            self.setfont_error = setfont_error
+            self.set_font_calls = []
+            self.Height = None
+            self.Width = None
+            self._oleobj_ = TestTextToolBugs._FakeTextStyleOleObject()
+
+        def __setattr__(self, name, value):
+            if name in {"FontFile", "fontFile"}:
+                raise AttributeError(name)
+            object.__setattr__(self, name, value)
+
+        def GetFont(self):
+            return self.font_args
+
+        def SetFont(self, typeface, bold, italic, charset, pitch_and_family):
+            self.set_font_calls.append(
+                (typeface, bold, italic, charset, pitch_and_family)
+            )
+            if self.setfont_error:
+                raise self.setfont_error
+
     class _FakeTextStyles:
         Count = 0
 
@@ -2007,6 +2056,19 @@ class TestTextToolBugs(unittest.TestCase):
         self.assertTrue(result["success"], result)
         self.assertEqual(style.set_font_calls, [])
         self.assertEqual(style.font_file_values, ["romans.shx"])
+
+    def test_create_text_style_uses_late_bound_fontfile_when_wrapper_hides_property(self):
+        style = self._FakeGeneratedTextStyle()
+        controller, _ = self._controller_with_text_style(style)
+
+        result = controller.create_text_style("SHX_NOTE", "romans.shx")
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(style.set_font_calls, [])
+        self.assertEqual(
+            style._oleobj_.invocations,
+            [(42, 0, 4, 0, ("romans.shx",))],
+        )
 
     def test_create_text_style_falls_back_to_shx_fontfile(self):
         style = self._FakeTextStyle(
