@@ -25,6 +25,7 @@ autocad_data.db
 *.db-shm
 cad_mcp.log
 cad_visual_exports/
+AUTOCAD_COM_RESEARCH_REPORT.md
 autocad*_results.json
 autocad*_results_args/
 autocad_mcp_verify_results.json
