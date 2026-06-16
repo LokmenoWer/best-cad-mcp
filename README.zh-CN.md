@@ -1,57 +1,26 @@
 # best-cad-mcp
 
-面向真实 AutoCAD 工作流的 Windows MCP 服务。它不是只提供 `draw_line`、
-`draw_circle` 这类简单绘图接口，而是把扫描、查询、编辑、标注、块、图层、
-布局、导出、三维实体和模型私有上下文组织成一个可持续工作的 CAD Agent
-工具层。
+`best-cad-mcp` 是一个面向真实 AutoCAD 工作流的 Windows MCP 服务。它让
+agent 不只是调用几个绘图 primitive，而是可以扫描图纸、理解图纸、按 handle
+精确编辑、验证几何、把视觉发现映射回 AutoCAD 实体，并导出交付文件。
 
 [English README](README.md)
 
-## 项目优势
+## 核心能力
 
-- 提供 260+ 个专用 AutoCAD MCP 工具，覆盖绘图、编辑、尺寸标注、块、填充、
-  布局、打印导出、元数据、三维实体和辅助工作流。
-- 支持“先扫描，再按 handle 查询和编辑”的可靠流程。Agent 不需要猜测图元，
-  可以通过 AutoCAD 返回的真实 handle 操作对象。
-- 使用 workspace 架构的 SQLite 数据库存储 CAD 元数据，兼容多图纸、多轮对话
-  和多个线程。
-- SQL 查询默认按当前 workspace/drawing/thread 作用域过滤：
-  `execute_query("SELECT * FROM cad_entities")` 只返回当前上下文的数据，同时仍
-  暴露 AutoCAD 原始 handle。
-- 支持模型私有空间标注：Agent 可以在 SQLite 里记录零件、区域、点、边界框、
-  语义区域或类似 pointer 的引用，不会向 DWG 写入辅助图层、XData 或可见文字。
-- 生成派生拓扑表，包含点、线、曲线、面、实体和关系，便于 Agent 对几何结构
-  做 SQL 分析，而不是反复解析原始 COM 字段。
-- 提供 `export_view_image` 视觉核验工具，输出审阅图像但不修改 DWG。
-- 内置工具选择指导，鼓励优先使用 rectangle、array、dimension、block、hatch、
-  trim、fillet、solid 等高层 CAD 工具，而不是用低层 primitive 拼装复杂对象。
-
-## Workspace 数据库架构
-
-默认运行时数据库位置：
-
-```text
-<workspace>/.cad_mcp/workspace.db
-```
-
-数据库按四级作用域管理：
-
-- `workspace`：项目工作区，可被多个 Agent 会话共享。
-- `drawing`：每张 DWG 独立保存实体、图层、块、快照和查询数据；不同图纸中
-  相同 AutoCAD handle 不会冲突。
-- `conversation`：一次多轮对话的上下文。
-- `thread`：并发线程的上下文。多个线程可以共享同一个 workspace 数据库，
-  但模型私有标注和查询历史按 thread 隔离。
-
-数据库内部使用带作用域的物理键；MCP 工具和只读 SQL 视图对外仍返回原始
-AutoCAD handle/name，从而兼容旧工作流。
-
-相关工具：
-
-- `get_workspace_context`
-- `set_workspace_context`
-- `activate_workspace_drawing`
-- `list_workspace_drawings`
+- 260+ 个专用 AutoCAD 工具，覆盖绘图、编辑、图层、块、属性、填充、尺寸、
+  表格、布局、打印、三维实体、元数据和工作流指导。
+- handle 优先的可靠流程：先扫描图纸，再查询结构化元数据，最后编辑 AutoCAD
+  返回的真实 handle。
+- workspace 作用域 SQLite 元数据，支持多图纸、多轮对话和多线程 agent 会话。
+- CAD Understanding Layer，提供 CAD-IR、语义对象、约束、验证报告和资源端点。
+- VLM grounding：把导出的视图像素区域或 overlay ID 映射回可能的 AutoCAD
+  handle。
+- CADPlan 安全流程：校验、静态 dry-run、显式执行开关，适合多步骤绘图和修复。
+- 模型私有空间标注存储在 SQLite 中，不写入隐藏 DWG 图层、辅助文字、XData
+  或块。
+- 内置工具选择建议，引导 agent 使用 rectangle、array、dimension、hatch、
+  block 等高层 CAD 工具，而不是用低层 primitive 拼复杂对象。
 
 ## 环境要求
 
@@ -59,7 +28,7 @@ AutoCAD handle/name，从而兼容旧工作流。
 - 推荐 AutoCAD 2020+
 - Python 3.11+
 - MCP 兼容客户端
-- AutoCAD 需要可通过 Windows COM 自动化访问
+- AutoCAD 可通过 Windows COM 自动化访问
 
 安装依赖：
 
@@ -77,7 +46,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-直接运行：
+从源码运行：
 
 ```powershell
 python src\server.py
@@ -92,7 +61,7 @@ cad-mcp
 
 ## MCP 客户端配置
 
-安装后推荐使用 console script：
+执行 `pip install -e .` 后：
 
 ```json
 {
@@ -104,7 +73,7 @@ cad-mcp
 }
 ```
 
-也可以从源码运行：
+从源码运行：
 
 ```json
 {
@@ -117,30 +86,65 @@ cad-mcp
 }
 ```
 
-建议从目标 workspace 目录启动 MCP 客户端。也可以通过环境变量显式设置：
-`CAD_MCP_WORKSPACE_ROOT`、`CAD_MCP_WORKSPACE_ID`、
-`CAD_MCP_CONVERSATION_ID`、`CAD_MCP_THREAD_ID` 以及 drawing 相关变量。
+建议从目标 workspace 目录启动 MCP 客户端，这样运行时元数据会落在对应工作区。
+也可以在启动前设置 `CAD_MCP_WORKSPACE_ROOT`、`CAD_MCP_WORKSPACE_ID`、
+`CAD_MCP_CONVERSATION_ID`、`CAD_MCP_THREAD_ID` 以及图纸相关环境变量。
 
-## 推荐工作流
+## Workspace 数据库
 
-1. 用 `open_drawing` 或 `create_new_drawing` 打开/创建图纸。
-2. 对现有图纸运行 `scan_all_entities`。默认扫描适合大图：
-   `detail_level="minimal"`，同时保留 `topology_detail="summary"` 拓扑摘要。
-3. 使用 `get_entity_statistics`、`execute_query`、`get_entity_topology` 或
-   `get_topology_summary` 理解图纸内容。
-   需要端点、边界、primitive/relation 等细粒度拓扑时，使用
-   `scan_all_entities(topology_detail="full")`。
-4. 捕获 handle 后用专用工具编辑，例如 `move_entity`、`array_rectangular`、
-   `fillet_polyline`、`add_qdim`、`insert_block`、`add_hatch`、`solid_boolean`。
-5. 需要模型记忆时，用 `add_spatial_annotation` 保存私有空间标注。
-6. 需要视觉确认时，用 `export_view_image` 输出审阅图。
-7. 最后保存或导出 DWG/PDF/DXF/DWF。
+默认运行时数据库位置：
+
+```text
+<workspace>/.cad_mcp/workspace.db
+```
+
+数据库按以下作用域隔离数据：
+
+- `workspace`：共享项目目录。
+- `drawing`：每张 DWG 独立保存实体、图层、块、拓扑、视图和查询数据；不同图纸
+  中相同 handle 不会冲突。
+- `conversation`：一次多轮客户端会话。
+- `thread`：并行 agent 线程，隔离私有标注和查询历史。
+
+内部 SQLite 物理键会带作用域；MCP 工具和只读 SQL 视图对外仍返回原生 AutoCAD
+handle 和名称。
+
+常用上下文工具：
+
+- `get_workspace_context`
+- `set_workspace_context`
+- `activate_workspace_drawing`
+- `list_workspace_drawings`
+
+## Agent 推荐流程
+
+处理现有 DWG：
+
+1. 用户提供路径时调用 `open_drawing`。
+2. `scan_all_entities(clear_db=True, detail_level="minimal", topology_detail="summary")`。
+3. `build_drawing_ir`。
+4. `summarize_drawing`。
+5. 根据领域调用 `detect_semantic_objects(domain="mechanical")` 或其他 domain。
+6. `extract_drawing_constraints`。
+7. `validate_geometry`。
+8. 需要视觉确认时调用 `export_view_image_with_mapping(include_overlay=True)`。
+9. 精确编辑前先对目标 `explain_entity(handle)`。
+10. 按 handle 直接编辑，或通过已校验和 dry-run 的 CADPlan 编辑。
+11. 重新扫描、验证、视觉确认，然后保存或导出。
+
+生成新图纸：
+
+1. `create_new_drawing`。
+2. 按需创建图层、文字样式、标注样式和布局上下文。
+3. 用高层操作构造 CADPlan。
+4. `validate_cad_plan`，再 `dry_run_cad_plan`。
+5. 只有明确允许修改时调用 `execute_cad_plan(..., allow_modify=True)`。
+6. `scan_all_entities`、`validate_geometry`，并导出审阅图。
+7. 保存或导出最终 DWG/PDF/DXF/DWF。
 
 ## CAD 理解层
 
-本项目新增了一个增量式 CAD Understanding Layer，位于现有 AutoCAD COM
-控制器、扫描工具、SQLite 元数据、拓扑表、私有空间标注和视觉导出流程之上。
-新理解工具统一返回结构化 `ToolResult`：
+理解工具统一返回结构化 `ToolResult`：
 
 ```json
 {
@@ -153,111 +157,143 @@ cad-mcp
 }
 ```
 
-理解、查询、分析、验证、视觉 grounding 和 dry-run 工具不会修改 DWG。
-语义对象、约束、验证报告、视图快照和 VLM 映射信息只写入 SQLite，并继续使用
-workspace/drawing/conversation/thread 作用域。
+理解、查询、语义检测、约束提取、验证、视觉映射和 dry-run 工具不会修改 DWG。
+语义对象、约束、验证报告、视图快照和 VLM 映射信息会写入 workspace SQLite
+数据库。
 
-## CAD-IR Schema
+关键工具：
 
-`build_drawing_ir` 会生成稳定 JSON 中间表示，包含 drawing metadata、native
-AutoCAD handles、entities、layers、blocks、topology primitives/relations、
-semantic objects、constraints、validation report 和 mapped views。IR 对 agent
-暴露原生 handle，不暴露内部 scoped SQLite key。
+- `build_drawing_ir`：生成 JSON CAD 中间表示，包含原生 handles、实体、图层、
+  块、拓扑、语义对象、约束、验证和视图。
+- `summarize_drawing`：总结图纸意图、实体构成、图层、块、警告和下一步工具。
+- `find_entities_by_description`：按类型、图层、文字、块内容、标注、bbox 位置
+  或简单几何词查找 handle。
+- `explain_entity`：解释单个 handle，包括附近实体、拓扑、尺寸、标注和语义猜测。
+- `detect_semantic_objects`：把规则检测到的语义对象写入 SQLite。
+- `get_semantic_graph` / `find_semantic_objects`：查看语义对象 ID、handle、证据、
+  confidence 和关系。
+- `extract_drawing_constraints`、`check_drawing_constraints`、
+  `get_drawing_constraints`：管理测量和推断约束。
+- `validate_geometry` / `get_validation_report`：返回带 severity、handles、
+  evidence、repair_hint 和 suggested_tools 的问题报告。
+- `propose_repair_plan`：只提出修复计划，不执行修改。
+- `list_cad_resources` / `get_cad_resource`：复用当前 CAD-IR、摘要、拓扑、
+  语义图、约束、验证报告和工具指南。
 
-## 语义图和约束
+## CADPlan
 
-`detect_semantic_objects` 目前是确定性的规则检测，可识别 closed profile、
-circle feature/hole、repeated circle pattern、hatch/section region、
-dimension annotation、text annotation、block instance，以及 mechanical、
-architecture、electrical 领域候选对象。
+CADPlan 是多步骤绘图或修复的安全路径，适合一次修改多个实体、需要可审阅计划
+或需要 dry-run 的任务。
 
-`extract_drawing_constraints` 会提取 radius、diameter、distance、parallel、
-perpendicular、concentric、coincident endpoint、closed profile、repeated
-pattern count 和扫描到的 dimension 约束。如果 dimension 与真实几何的绑定不确定，
-工具会返回 `status="unknown"`、较低 confidence 和 evidence，而不会假装满足。
+必须遵循的顺序：
 
-## 验证报告
+1. 构造 plan。
+2. `validate_cad_plan(plan)`。
+3. `dry_run_cad_plan(plan)`。
+4. 需要时获得明确修改许可。
+5. `execute_cad_plan(plan, allow_modify=True)`。
+6. 重新扫描、验证，并进行视觉确认。
 
-`validate_geometry` 返回包含 issue_id、severity、handles、evidence、repair_hint
-和 suggested_tools 的结构化报告。首版检查包括 zero-length lines、duplicate
-entities、tiny endpoint gaps、unclosed polylines、overlapping lines、missing
-dimension candidates、dimension mismatches、empty layer、out-of-extents
-geometry 和 empty/unresolved blocks。
+Plan 结构示例：
 
-`propose_repair_plan` 只提出计划，不执行修改。
+```json
+{
+  "plan_id": "mounting-plate",
+  "description": "Draw a plate with four mounting holes",
+  "units": "mm",
+  "risk_level": "low",
+  "requires_confirmation": true,
+  "steps": [
+    {
+      "step_id": "layer",
+      "op": "create_layer",
+      "args": {"name": "M-PART", "color": 1},
+      "writes": true
+    },
+    {
+      "step_id": "outline",
+      "op": "draw_rectangle",
+      "args": {"corner1": [0, 0, 0], "corner2": [120, 80, 0], "layer": "M-PART"},
+      "writes": true,
+      "depends_on": ["layer"]
+    }
+  ],
+  "constraints": [
+    {"type": "distance", "expected": 120.0}
+  ]
+}
+```
 
-## VLM 视觉 Grounding 流程
+当前 CADPlan 可执行操作：
 
-`export_view_image_with_mapping` 在现有 `export_view_image` 基础上生成 sidecar
-JSON，包含 image path、overlay image path、view 参数、world_to_pixel、
-pixel_to_world、visible handles 和 entity screen bounding boxes。VLM 返回像素
-bbox 后，调用 `ground_vlm_region(snapshot_id, bbox)` 可按 overlap/distance
-排序映射到可能的 AutoCAD handles。
+```text
+draw_line, draw_circle, draw_rectangle, draw_polyline, draw_polygon,
+draw_text, draw_mtext, move_entity, rotate_entity, copy_entity,
+delete_entity, delete_entities, scale_entity, mirror_entity, offset_entity,
+array_rectangular, array_polar, set_entity_properties, create_layer,
+set_current_layer, add_linear_dimension, add_radial_dimension,
+add_diametric_dimension, add_hatch, hatch_add_boundary, create_block,
+insert_block
+```
 
-首版 view mapping 最适合 top/plan view；旋转、UCS、twist 和 3D view 会返回
-近似结果和 warnings。
+如果操作是合法 CAD 行为但尚未绑定到 CADPlan executor，例如 `draw_donut`、
+`draw_box`、`solid_boolean`、`trim_entity`、`extend_entity`、`fillet_entities`、
+`chamfer_entities`、`add_table`、`edit_table_cell`、`add_mleader`、布局工具或打印
+工具，请直接调用对应 MCP 工具。
 
-## 安全 Plan / Dry-run / Execute
+`send_command`、SQL mutation、purge 和 audit 默认不能通过 CADPlan 校验。
 
-`validate_cad_plan` 校验 CADPlan，未知 op 会失败，`send_command` 默认禁止。
-`dry_run_cad_plan` 不调用 AutoCAD，不修改 DWG。`execute_cad_plan` 只有在
-`allow_modify=True` 时才会执行，并且只通过已知安全 MCP 工具实现。
+## 视觉 Grounding
 
-## 推荐 Agent Workflow
+`export_view_image_with_mapping(include_overlay=True)` 会生成：
 
-现有 DWG：
+- 干净的视图导出图；
+- 可选的带数字 ID overlay 图；
+- sidecar JSON，记录像素、视图参数、可见 handles 和实体屏幕 bbox。
 
-1. `open_drawing`
-2. `scan_all_entities`
-3. `build_drawing_ir`
-4. `summarize_drawing`
-5. `detect_semantic_objects`
-6. `extract_drawing_constraints`
-7. `validate_geometry`
-8. `export_view_image_with_mapping`
-9. 使用 VLM 时调用 `ground_vlm_region`
-10. `propose_repair_plan`
-11. `dry_run_cad_plan`
-12. 只有明确允许修改时调用 `execute_cad_plan`
+当 VLM 返回像素 bbox 时，调用 `ground_vlm_region(snapshot_id, bbox)` 可以按
+重叠度和距离排序候选 handle。编辑前应再对最佳候选调用 `explain_entity`。
 
-生成新图：
+首版映射最适合 top/plan view；twist、UCS 和 3D view 会返回 warnings，应按近似
+结果处理。
 
-1. `create_new_drawing`
-2. 创建 `CADPlan`
-3. `validate_cad_plan`
-4. `dry_run_cad_plan`
-5. `execute_cad_plan(..., allow_modify=True)`
-6. `scan_all_entities`
-7. `validate_geometry`
-8. `export_view_image_with_mapping`
-9. save/export
+## 工具选择建议
 
-机械图审查示例：
+有专用高层工具时优先使用专用工具：
 
-1. `build_drawing_ir(rescan=True)`
-2. `summarize_drawing(level="deep")`
-3. `detect_semantic_objects(domain="mechanical")`
-4. `extract_drawing_constraints`
-5. `validate_geometry`
-6. `export_view_image_with_mapping(include_overlay=True)`
-7. VLM 返回错误孔位 bbox 或 overlay ID
-8. `ground_vlm_region`
-9. `explain_entity`
-10. `propose_repair_plan`
-11. `dry_run_cad_plan`
-12. `execute_cad_plan(..., allow_modify=True)`
-13. `validate_geometry`
+- 矩形、多边形、圆环、样条、多线、阵列、块、填充、尺寸、引线、表格、圆角、
+  倒角、修剪、偏移和三维实体都应使用对应工具。
+- `draw_line`、`draw_circle`、`draw_polyline` 只用于简单几何或没有更合适工具的
+  场景。
+- `send_command` 只作为最后手段，并且需要用户明确接受风险。
+- 使用 `create_text_style` 创建文字样式。它会通过 AutoCAD `SetFont` 支持
+  TrueType 字体名，并通过 `FontFile` 支持 SHX/TTF/OTF/TTC 字体文件。
 
-## 限制
+## 装配图工作流
 
-- 语义检测首版是规则系统，不包含 embedding search。
-- view mapping 首版最适合 plan/top view。
-- dimension binding 可能不确定，请结合 confidence、evidence 和 status 使用。
-- 理解层基于扫描元数据；外部编辑或 plan execution 后应重新 `scan_all_entities`。
+面向 agent 的装配图流程位于 `.agents/skills/draw-assembly-diagrams`。该 skill
+覆盖：
+
+- 装配图内容要求；
+- BOM 和件号规则；
+- CADPlan 生成与修复；
+- VLM grounding；
+- handle 精确编辑；
+- 最终验证和导出清单。
+
+机械装配图中建议：
+
+- 板件和矩形零件用 `draw_rectangle`；
+- 规则形体用 `draw_polygon`；
+- 垫圈、密封圈、环形件用 `draw_donut`；
+- 重复零件使用块和阵列；
+- 尺寸必须用真实 dimension 实体；
+- BOM 使用 `add_table` 和 `edit_table_cell`；
+- 指引线/气泡优先用 `add_mleader` 或一致的气泡块。
 
 ## 运行时文件
 
-服务可能在 workspace 下生成：
+服务可能生成：
 
 - `.cad_mcp/workspace.db`
 - `.cad_mcp/workspace.db-wal`
@@ -265,11 +301,11 @@ bbox 后，调用 `ground_vlm_region(snapshot_id, bbox)` 可按 overlap/distance
 - `cad_mcp.log`
 - `cad_visual_exports/`
 
-这些都是运行时产物，不应提交到 Git。
+这些是运行时产物，不应提交到 Git。
 
 ## 开发和测试
 
-运行测试：
+运行单元测试：
 
 ```powershell
 python -m pytest

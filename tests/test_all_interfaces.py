@@ -1891,6 +1891,64 @@ class TestTextToolBugs(unittest.TestCase):
         def __init__(self, value):
             self.TextString = value
 
+    class _FakeTextStyle:
+        def __init__(self, font_args=None, setfont_error=None,
+                     fontfile_failures=None):
+            self.font_args = font_args
+            self.setfont_error = setfont_error
+            self.fontfile_failures = set(fontfile_failures or [])
+            self.set_font_calls = []
+            self.font_file_values = []
+            self.Height = None
+            self.Width = None
+
+        def GetFont(self):
+            if isinstance(self.font_args, Exception):
+                raise self.font_args
+            return self.font_args
+
+        def SetFont(self, typeface, bold, italic, charset, pitch_and_family):
+            self.set_font_calls.append(
+                (typeface, bold, italic, charset, pitch_and_family)
+            )
+            if self.setfont_error:
+                raise self.setfont_error
+
+        @property
+        def FontFile(self):
+            return self.font_file_values[-1] if self.font_file_values else ""
+
+        @FontFile.setter
+        def FontFile(self, value):
+            if value in self.fontfile_failures:
+                raise Exception(f"invalid font file {value}")
+            self.font_file_values.append(value)
+
+    class _FakeTextStyles:
+        Count = 0
+
+        def __init__(self, style):
+            self.style = style
+            self.added_names = []
+
+        def Add(self, name):
+            self.added_names.append(name)
+            return self.style
+
+    def _controller_with_text_style(self, style, active_style=None):
+        from src.cad_controller import CADController
+        doc = MagicMock()
+        doc.TextStyles = self._FakeTextStyles(style)
+        doc.ActiveTextStyle = active_style or self._FakeTextStyle(
+            font_args=("Arial", False, False, 0, 34)
+        )
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.Documents.Count = 1
+        controller.acad.ActiveDocument = doc
+        controller.doc = doc
+        return controller, doc
+
     def test_find_text_uses_filtered_selection_set(self):
         entity = self._FakeText("needle here")
         selection = self._FakeSelectionSet([entity])
@@ -1921,6 +1979,47 @@ class TestTextToolBugs(unittest.TestCase):
         self.assertEqual(entity.TextString, "new value")
         self.assertTrue(selection.deleted)
         self.assertEqual(selection.select_args[0], 5)
+
+    def test_create_text_style_reuses_valid_pitch_and_family(self):
+        style = self._FakeTextStyle(font_args=Exception("new style has no font"))
+        active_style = self._FakeTextStyle(
+            font_args=("Arial", False, False, 0, 32)
+        )
+        controller, doc = self._controller_with_text_style(style, active_style)
+
+        result = controller.create_text_style("AI_NOTE", "SimSun", 2.5, 0.85)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(doc.TextStyles.added_names, ["AI_NOTE"])
+        self.assertEqual(
+            style.set_font_calls,
+            [("SimSun", False, False, 0, 32)],
+        )
+        self.assertEqual(style.Height, 2.5)
+        self.assertEqual(style.Width, 0.85)
+
+    def test_create_text_style_uses_fontfile_for_font_files(self):
+        style = self._FakeTextStyle()
+        controller, _ = self._controller_with_text_style(style)
+
+        result = controller.create_text_style("SHX_NOTE", "romans.shx")
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(style.set_font_calls, [])
+        self.assertEqual(style.font_file_values, ["romans.shx"])
+
+    def test_create_text_style_falls_back_to_shx_fontfile(self):
+        style = self._FakeTextStyle(
+            setfont_error=Exception("AutoCAD input invalid"),
+            fontfile_failures={"romans"},
+        )
+        controller, _ = self._controller_with_text_style(style)
+
+        result = controller.create_text_style("ROMANS_NOTE", "romans")
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(style.set_font_calls[0][0], "romans")
+        self.assertEqual(style.font_file_values, ["romans.shx"])
 
 
 class TestSelectionToolBugs(unittest.TestCase):

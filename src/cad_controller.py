@@ -2333,15 +2333,93 @@ class CADController:
             })
         return styles
 
+    @staticmethod
+    def _looks_like_font_file(font: str) -> bool:
+        clean = str(font or "").strip().strip('"')
+        _, ext = os.path.splitext(clean)
+        return ext.lower() in {".shx", ".ttf", ".ttc", ".otf", ".fon"}
+
+    @staticmethod
+    def _font_file_candidates(font: str) -> List[str]:
+        clean = str(font or "").strip().strip('"')
+        if not clean:
+            return []
+        candidates = [clean]
+        _, ext = os.path.splitext(clean)
+        if not ext and "\\" not in clean and "/" not in clean:
+            candidates.append(f"{clean}.shx")
+        return list(dict.fromkeys(candidates))
+
+    def _get_text_style_font_defaults(self, style) -> Tuple[str, bool, bool, int, int]:
+        for candidate in (style, getattr(self.doc, "ActiveTextStyle", None)):
+            if candidate is None:
+                continue
+            try:
+                font_args = candidate.GetFont()
+            except Exception:
+                continue
+            if isinstance(font_args, (list, tuple)) and len(font_args) >= 5:
+                typeface, bold, italic, charset, pitch_and_family = font_args[:5]
+                return (
+                    str(typeface or "Arial"),
+                    bool(bold),
+                    bool(italic),
+                    int(charset or 0),
+                    int(pitch_and_family or 34),
+                )
+        return ("Arial", False, False, 0, 34)
+
+    def _set_text_style_font_file(self, style, font: str) -> str:
+        last_error = None
+        for candidate in self._font_file_candidates(font):
+            try:
+                style.FontFile = candidate
+                return candidate
+            except Exception as exc:
+                last_error = exc
+        raise RuntimeError(last_error or "no font file candidate")
+
+    def _apply_text_style_font(self, style, font: str) -> Tuple[str, str]:
+        clean = str(font or "").strip()
+        if not clean:
+            return ("unchanged", "")
+        if self._looks_like_font_file(clean):
+            return ("FontFile", self._set_text_style_font_file(style, clean))
+
+        _, bold, italic, charset, pitch_and_family = self._get_text_style_font_defaults(style)
+        try:
+            style.SetFont(clean, bold, italic, charset, pitch_and_family)
+            return ("SetFont", clean)
+        except Exception as setfont_error:
+            try:
+                font_file = self._set_text_style_font_file(style, clean)
+                return ("FontFile", font_file)
+            except Exception as fontfile_error:
+                raise RuntimeError(
+                    f"SetFont failed: {setfont_error}; FontFile fallback failed: {fontfile_error}"
+                ) from setfont_error
+
     @require_document
     def create_text_style(self, name: str, font: str = "Arial",
                           height: float = 0.0, width: float = 1.0) -> Dict[str, Any]:
         try:
+            name = str(name or "").strip()
+            if not name:
+                return {"success": False, "message": "创建文字样式失败: 样式名称不能为空"}
+            height = float(height)
+            width = float(width)
+            if height < 0:
+                return {"success": False, "message": "创建文字样式失败: height 不能为负数"}
+            if width <= 0:
+                return {"success": False, "message": "创建文字样式失败: width 必须大于 0"}
             style = self.doc.TextStyles.Add(name)
-            style.SetFont(font, False, False, 0, 0)
+            font_method, font_value = self._apply_text_style_font(style, font)
             style.Height = height
             style.Width = width
-            return {"success": True, "message": f"已创建文字样式 '{name}'"}
+            message = f"已创建文字样式 '{name}'"
+            if font_method != "unchanged":
+                message += f" ({font_method}: {font_value})"
+            return {"success": True, "message": message}
         except Exception as e:
             return {"success": False, "message": f"创建文字样式失败: {e}"}
 
