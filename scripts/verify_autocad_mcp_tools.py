@@ -146,6 +146,17 @@ SKIP_TOOL_REASONS = {
     ),
 }
 DEFAULT_RISKY_TOOLS = set(SKIP_TOOL_REASONS)
+VIEW_SNAPSHOT_TOOLS = {
+    "get_visible_entities_in_view",
+    "map_pixel_to_world",
+    "map_world_to_pixel",
+    "ground_vlm_region",
+}
+CAD_PLAN_TOOLS = {"validate_cad_plan", "dry_run_cad_plan", "execute_cad_plan"}
+ERROR_TEXT_RE = re.compile(
+    r"(^ERROR:|\u5931\u8d25|\u9519\u8bef|failed|exception|unable to connect|no drawing)",
+    re.I,
+)
 
 
 def _variant_point(x: float, y: float, z: float = 0.0):
@@ -192,6 +203,181 @@ def probe_existing_autocad(wait_seconds: float = 6.0,
 
 def _handle(obj: Any) -> str:
     return str(getattr(obj, "Handle", ""))
+
+
+def _extract_payload(result: Any) -> Any:
+    if isinstance(result, tuple) and len(result) > 1 and isinstance(result[1], dict):
+        return result[1].get("result")
+    return str(result)
+
+
+def _payload_message(payload: Any) -> str:
+    if isinstance(payload, dict):
+        return str(payload.get("message") or payload.get("error") or "")
+    return str(payload)
+
+
+def _status_for_payload(tool_name: str, payload: Any) -> str:
+    if isinstance(payload, dict):
+        if payload.get("ok") is False:
+            return "semantic_error"
+        message = _payload_message(payload)
+        if ERROR_TEXT_RE.search(message):
+            return "error"
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        if tool_name == "export_view_image_with_mapping":
+            snapshot = data.get("snapshot") if isinstance(data, dict) else {}
+            image_path = str(snapshot.get("image_path") or "") if isinstance(snapshot, dict) else ""
+            context_path = str(snapshot.get("context_json_path") or "") if isinstance(snapshot, dict) else ""
+            export_message = str(snapshot.get("export_message") or "") if isinstance(snapshot, dict) else ""
+            if (
+                not isinstance(snapshot, dict)
+                or not snapshot.get("snapshot_id")
+                or not context_path
+                or not Path(context_path).exists()
+                or not image_path
+                or not Path(image_path).exists()
+                or ERROR_TEXT_RE.search(export_message)
+            ):
+                return "semantic_error"
+        if tool_name == "get_visible_entities_in_view":
+            if not data.get("visible_handles"):
+                return "semantic_error"
+        if tool_name == "map_pixel_to_world":
+            if not data.get("world"):
+                return "semantic_error"
+        if tool_name == "map_world_to_pixel":
+            if not data.get("pixel"):
+                return "semantic_error"
+        if tool_name == "ground_vlm_region":
+            if not data.get("candidates"):
+                return "semantic_error"
+        if tool_name == "validate_cad_plan":
+            plan_data = data if isinstance(data, dict) else {}
+            if not plan_data.get("valid"):
+                return "semantic_error"
+        if tool_name == "dry_run_cad_plan":
+            if not data.get("steps"):
+                return "semantic_error"
+        if tool_name == "execute_cad_plan":
+            if not data.get("results"):
+                return "semantic_error"
+        return "ok"
+    if isinstance(payload, str) and ERROR_TEXT_RE.search(payload):
+        return "error"
+    return "ok"
+
+
+def _call_parent_tool(tool_name: str, args: dict[str, Any]) -> Any:
+    pythoncom.CoInitialize()
+    try:
+        from src import server
+
+        _sync_db_active_drawing_for_process()
+        return _extract_payload(asyncio.run(server.mcp.call_tool(tool_name, args)))
+    finally:
+        pythoncom.CoUninitialize()
+
+
+def _sync_db_active_drawing_for_process() -> None:
+    try:
+        from src.cad_controller import get_controller
+        from src.cad_database import get_database
+
+        ctrl = get_controller()
+        db = get_database()
+        info = ctrl.get_document_info()
+        if isinstance(info, dict) and "error" not in info:
+            db.activate_drawing(
+                name=info.get("name", "active"),
+                path=info.get("full_name") or info.get("path", ""),
+            )
+    except Exception:
+        pass
+
+
+def _prime_view_for_mapping(ctx: dict[str, Any]) -> None:
+    if ctx.get("view_mapping_primed"):
+        return
+    bx = float(ctx.get("base_x", 1000))
+    _call_parent_tool("set_active_layout", {"name": "Model"})
+    pythoncom.CoInitialize()
+    try:
+        acad = win32com.client.GetActiveObject("AutoCAD.Application")
+        doc = acad.ActiveDocument
+        viewport = doc.ActiveViewport
+        viewport.Center = win32com.client.VARIANT(
+            pythoncom.VT_ARRAY | pythoncom.VT_R8,
+            [bx + 60.0, 55.0],
+        )
+        viewport.Height = 150.0
+        doc.ActiveViewport = viewport
+        try:
+            doc.Regen(1)
+        except Exception:
+            pass
+    finally:
+        pythoncom.CoUninitialize()
+    _call_parent_tool("scan_all_entities", {"clear_db": True, "max_entities": 10000})
+    ctx["view_mapping_primed"] = True
+
+
+def _prepare_view_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
+    if ctx.get("view_snapshot_id"):
+        return ctx
+    _prime_view_for_mapping(ctx)
+    path = Path(ctx["tmp"]) / f"mcp_verify_view_{ctx.get('stamp', int(time.time()))}.wmf"
+    payload = _call_parent_tool("export_view_image_with_mapping", {
+        "filepath": str(path),
+        "include_overlay": True,
+        "include_entity_bboxes": True,
+    })
+    if not isinstance(payload, dict) or payload.get("ok") is False:
+        ctx["view_snapshot_id"] = "MCP_VERIFY_MISSING_SNAPSHOT"
+        return ctx
+    snapshot = ((payload.get("data") or {}).get("snapshot") or {})
+    ctx["view_snapshot_id"] = str(snapshot.get("snapshot_id") or "MCP_VERIFY_MISSING_SNAPSHOT")
+    image = snapshot.get("image") or {}
+    ctx["view_pixel"] = [
+        float(image.get("width") or 1600) / 2.0,
+        float(image.get("height") or 1000) / 2.0,
+    ]
+    bboxes = snapshot.get("entity_screen_bboxes") or {}
+    if bboxes:
+        first_bbox = [float(value) for value in next(iter(bboxes.values()))]
+        ctx["view_query_bbox"] = first_bbox
+        ctx["view_pixel"] = [
+            (first_bbox[0] + first_bbox[2]) / 2.0,
+            (first_bbox[1] + first_bbox[3]) / 2.0,
+        ]
+    else:
+        cx, cy = ctx["view_pixel"]
+        ctx["view_query_bbox"] = [cx - 25.0, cy - 25.0, cx + 25.0, cy + 25.0]
+    return ctx
+
+
+def _cad_plan(ctx: dict[str, Any]) -> dict[str, Any]:
+    bx = float(ctx.get("base_x", 1000))
+    return {
+        "plan_id": f"mcp_verify_plan_{ctx.get('stamp', int(time.time()))}",
+        "description": "Smoke verifier safe edit plan in an isolated verification drawing.",
+        "units": "drawing_units",
+        "risk_level": "low",
+        "requires_confirmation": False,
+        "steps": [
+            {
+                "step_id": "draw_line_1",
+                "op": "draw_line",
+                "args": {
+                    "start_x": bx,
+                    "start_y": 260.0,
+                    "end_x": bx + 12.0,
+                    "end_y": 260.0,
+                },
+                "writes": True,
+            }
+        ],
+    }
 
 
 def setup_context() -> dict[str, Any]:
@@ -617,6 +803,13 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
         args.update({"filepath": str(Path(ctx["tmp"]) / f"mcp_verify_{ctx.get('stamp', int(time.time()))}.dwf")})
     if name in {"export_image", "export_view_image"}:
         args.update({"filepath": str(Path(ctx["tmp"]) / f"mcp_verify_{ctx.get('stamp', int(time.time()))}.wmf")})
+    if name in {"export_view_image_with_mapping"}:
+        _prime_view_for_mapping(ctx)
+        args.update({
+            "filepath": str(Path(ctx["tmp"]) / f"mcp_verify_view_{ctx.get('stamp', int(time.time()))}.wmf"),
+            "include_overlay": True,
+            "include_entity_bboxes": True,
+        })
     if name in {"set_current_text_style"}:
         args.update({"name": "Standard"})
     if name in {"edit_table_cell"}:
@@ -687,6 +880,26 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
         args.update({"table_name": "cad_entities"})
     if name in {"get_entity_topology", "get_entity_properties", "get_bounding_box"}:
         args.update({"handle": ctx.get("line", "")})
+    if name in {"explain_entity"}:
+        _call_parent_tool("scan_all_entities", {"clear_db": True, "max_entities": 10000})
+        args.update({"handle": ctx.get("line", "")})
+    if name in {"get_cad_resource"}:
+        _call_parent_tool("scan_all_entities", {"clear_db": True, "max_entities": 10000})
+        args.update({"uri": "cad://drawing/current/ir"})
+    if name in VIEW_SNAPSHOT_TOOLS:
+        _prepare_view_snapshot(ctx)
+        args.update({"snapshot_id": ctx.get("view_snapshot_id", "")})
+    if name in {"map_pixel_to_world"}:
+        px, py = ctx.get("view_pixel", [800.0, 500.0])
+        args.update({"x": px, "y": py})
+    if name in {"map_world_to_pixel"}:
+        args.update({"x": float(ctx.get("base_x", 1000)), "y": 0.0, "z": 0.0})
+    if name in {"ground_vlm_region"}:
+        args.update({"bbox": ctx.get("view_query_bbox", [775.0, 475.0, 825.0, 525.0]), "top_k": 5})
+    if name in CAD_PLAN_TOOLS:
+        args.update({"plan": _cad_plan(ctx)})
+    if name in {"execute_cad_plan"}:
+        args.update({"allow_modify": True})
     if name in {"add_spatial_annotation"}:
         args.update({
             "label": "MCP_VERIFY_BASE_LINE",
@@ -827,19 +1040,12 @@ async def call_one(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     try:
         from src import server
 
+        _sync_db_active_drawing_for_process()
         start = time.time()
         result = await server.mcp.call_tool(tool_name, args)
         elapsed = round(time.time() - start, 3)
-        payload = result[1].get("result") if (
-            isinstance(result, tuple) and len(result) > 1 and isinstance(result[1], dict)
-        ) else str(result)
-        status = "ok"
-        if isinstance(payload, str) and re.search(
-            r"(^ERROR:|失败|错误|failed|exception|unable to connect|no drawing)",
-            payload,
-            re.I,
-        ):
-            status = "error"
+        payload = _extract_payload(result)
+        status = _status_for_payload(tool_name, payload)
         return {"tool": tool_name, "status": status, "elapsed": elapsed,
                 "args": args, "result": payload}
     except BaseException as exc:
