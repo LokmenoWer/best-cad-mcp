@@ -11,10 +11,22 @@ ctrl = get_controller()
 db = get_database()
 
 
+def _sync_db_drawing_from_info(info) -> None:
+    try:
+        if isinstance(info, dict) and "error" not in info:
+            db.activate_drawing(
+                name=info.get("name", "active"),
+                path=info.get("full_name") or info.get("path", ""),
+            )
+    except Exception:
+        pass
+
+
 def get_document_info() -> str:
     """获取当前文档的完整信息（名称、路径、统计、元数据等）。"""
     import json
     info = ctrl.get_document_info()
+    _sync_db_drawing_from_info(info)
     return json.dumps(info, indent=2, ensure_ascii=False, default=str)
 
 
@@ -203,6 +215,7 @@ def create_snapshot(name: str = "") -> str:
     info = ctrl.get_document_info()
     if "error" in info:
         return f"创建快照失败: {info['error']}"
+    _sync_db_drawing_from_info(info)
 
     # Scan current state
     scan = ctrl.scan_model_space(500)

@@ -20,6 +20,9 @@ import math
 import os
 import logging
 import uuid
+import hashlib
+import contextvars
+from dataclasses import dataclass, asdict
 from typing import Optional, List, Dict, Any, Tuple, Union
 from pathlib import Path
 from contextlib import contextmanager
@@ -29,8 +32,81 @@ logger = logging.getLogger(__name__)
 # 数据库存储在 Agent 的工作目录（MCP 客户端的 cwd），而非 MCP 程序目录
 # 这样每个 Agent 实例的数据库互相隔离
 # 使用函数而非模块级常量，确保每次获取时都是当前 cwd
+_KEY_SEPARATOR = "\x1f"
+
+
+@dataclass(frozen=True)
+class CADWorkspaceContext:
+    """Logical database scope for one MCP workspace/thread/drawing."""
+
+    workspace_id: str
+    workspace_root: str
+    conversation_id: str
+    thread_id: str
+    drawing_id: str
+    drawing_name: str = "active"
+    drawing_path: str = ""
+
+
+def _stable_id(prefix: str, value: str) -> str:
+    digest = hashlib.sha1(value.encode("utf-8", errors="ignore")).hexdigest()[:16]
+    return f"{prefix}_{digest}"
+
+
+def _env_first(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return default
+
+
+def _get_default_workspace_root() -> str:
+    configured = _env_first("CAD_MCP_WORKSPACE_ROOT", default=os.getcwd())
+    return str(Path(configured).resolve())
+
+
 def _get_default_db_path() -> str:
-    return str(Path(os.getcwd()) / "autocad_data.db")
+    workspace_root = Path(_get_default_workspace_root())
+    data_dir = workspace_root / ".cad_mcp"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "workspace.db")
+
+
+def _default_context() -> CADWorkspaceContext:
+    workspace_root = _get_default_workspace_root()
+    workspace_id = _env_first(
+        "CAD_MCP_WORKSPACE_ID",
+        "MCP_WORKSPACE_ID",
+        default=_stable_id("ws", workspace_root.lower()),
+    )
+    conversation_id = _env_first(
+        "CAD_MCP_CONVERSATION_ID",
+        "MCP_CONVERSATION_ID",
+        "CONVERSATION_ID",
+        default="default-conversation",
+    )
+    thread_id = _env_first(
+        "CAD_MCP_THREAD_ID",
+        "MCP_THREAD_ID",
+        "THREAD_ID",
+        default="default-thread",
+    )
+    drawing_name = _env_first("CAD_MCP_DRAWING_NAME", default="active")
+    drawing_path = _env_first("CAD_MCP_DRAWING_PATH", default="")
+    drawing_id = _env_first(
+        "CAD_MCP_DRAWING_ID",
+        default=_stable_id("dwg", (drawing_path or drawing_name).lower()),
+    )
+    return CADWorkspaceContext(
+        workspace_id=workspace_id,
+        workspace_root=workspace_root,
+        conversation_id=conversation_id,
+        thread_id=thread_id,
+        drawing_id=drawing_id,
+        drawing_name=drawing_name,
+        drawing_path=drawing_path,
+    )
 
 
 class CADDatabase:
@@ -38,14 +114,23 @@ class CADDatabase:
 
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or _get_default_db_path()
+        self._context_var: contextvars.ContextVar[CADWorkspaceContext] = (
+            contextvars.ContextVar("cad_workspace_context", default=_default_context())
+        )
         self._init_schema()
+        with self._conn() as conn:
+            self._migrate_workspace_schema(conn)
+            self._ensure_context_rows(conn)
 
     @contextmanager
     def _conn(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        self._register_context(conn)
         try:
             yield conn
             conn.commit()
@@ -55,9 +140,347 @@ class CADDatabase:
         finally:
             conn.close()
 
+    def _register_context(self, conn: sqlite3.Connection) -> None:
+        ctx = self.get_context()
+        conn.create_function("cad_current_workspace_id", 0, lambda: ctx.workspace_id)
+        conn.create_function("cad_current_drawing_id", 0, lambda: ctx.drawing_id)
+        conn.create_function("cad_current_conversation_id", 0, lambda: ctx.conversation_id)
+        conn.create_function("cad_current_thread_id", 0, lambda: ctx.thread_id)
+
+    def get_context(self) -> CADWorkspaceContext:
+        return self._context_var.get()
+
+    def get_context_dict(self) -> Dict[str, Any]:
+        data = asdict(self.get_context())
+        data["db_path"] = self.db_path
+        return data
+
+    def configure_context(self,
+                          workspace_root: Optional[str] = None,
+                          workspace_id: Optional[str] = None,
+                          conversation_id: Optional[str] = None,
+                          thread_id: Optional[str] = None,
+                          drawing_id: Optional[str] = None,
+                          drawing_name: Optional[str] = None,
+                          drawing_path: Optional[str] = None) -> Dict[str, Any]:
+        old = self.get_context()
+        new_root = str(Path(workspace_root).resolve()) if workspace_root else old.workspace_root
+        new_workspace_id = workspace_id or old.workspace_id
+        if workspace_root and not workspace_id:
+            new_workspace_id = _stable_id("ws", new_root.lower())
+        new_drawing_name = drawing_name if drawing_name is not None else old.drawing_name
+        new_drawing_path = drawing_path if drawing_path is not None else old.drawing_path
+        new_drawing_id = drawing_id or old.drawing_id
+        if (drawing_name is not None or drawing_path is not None) and drawing_id is None:
+            new_drawing_id = self._make_drawing_id(new_drawing_name, new_drawing_path)
+        ctx = CADWorkspaceContext(
+            workspace_id=new_workspace_id,
+            workspace_root=new_root,
+            conversation_id=conversation_id or old.conversation_id,
+            thread_id=thread_id or old.thread_id,
+            drawing_id=new_drawing_id,
+            drawing_name=new_drawing_name or "active",
+            drawing_path=new_drawing_path or "",
+        )
+        self._context_var.set(ctx)
+        with self._conn() as conn:
+            self._ensure_context_rows(conn, ctx)
+        return self.get_context_dict()
+
+    def activate_drawing(self, name: str = "active",
+                         path: str = "",
+                         drawing_id: Optional[str] = None) -> Dict[str, Any]:
+        return self.configure_context(
+            drawing_id=drawing_id,
+            drawing_name=name or "active",
+            drawing_path=path or "",
+        )
+
+    def list_workspace_drawings(self, limit: int = 100) -> List[Dict[str, Any]]:
+        ctx = self.get_context()
+        with self._conn() as conn:
+            rows = conn.execute('''
+                SELECT drawing_id, drawing_name, drawing_path, active,
+                       created_at, updated_at
+                FROM cad_drawings
+                WHERE workspace_id = ?
+                ORDER BY updated_at DESC, drawing_name
+                LIMIT ?
+            ''', (ctx.workspace_id, max(1, min(int(limit or 100), 1000)))).fetchall()
+            return [dict(row) for row in rows]
+
+    def _table_columns(self, conn: sqlite3.Connection, table: str) -> set:
+        rows = conn.execute(
+            f"PRAGMA table_info({self._quote_identifier(table)})"
+        ).fetchall()
+        return {row["name"] for row in rows}
+
+    def _ensure_column(self, conn: sqlite3.Connection, table: str,
+                       column: str, definition: str) -> None:
+        if column not in self._table_columns(conn, table):
+            try:
+                conn.execute(
+                    f"ALTER TABLE {self._quote_identifier(table)} "
+                    f"ADD COLUMN {self._quote_identifier(column)} {definition}"
+                )
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+
+    def _migrate_workspace_schema(self, conn: sqlite3.Connection) -> None:
+        ctx = self.get_context()
+        for column, definition in {
+            "workspace_id": "TEXT DEFAULT ''",
+            "drawing_id": "TEXT DEFAULT ''",
+            "native_handle": "TEXT DEFAULT ''",
+        }.items():
+            self._ensure_column(conn, "cad_entities", column, definition)
+
+        for table in ("cad_spatial_annotations", "text_patterns",
+                      "query_history", "drawing_snapshots"):
+            self._ensure_column(conn, table, "workspace_id", "TEXT DEFAULT ''")
+            self._ensure_column(conn, table, "drawing_id", "TEXT DEFAULT ''")
+            self._ensure_column(conn, table, "conversation_id", "TEXT DEFAULT ''")
+            self._ensure_column(conn, table, "thread_id", "TEXT DEFAULT ''")
+
+        self._ensure_column(conn, "cad_spatial_annotations",
+                            "native_annotation_id", "TEXT DEFAULT ''")
+        self._ensure_column(conn, "cad_spatial_annotations",
+                            "native_entity_handle", "TEXT DEFAULT ''")
+
+        for table in ("cad_layers", "cad_blocks"):
+            self._ensure_column(conn, table, "workspace_id", "TEXT DEFAULT ''")
+            self._ensure_column(conn, table, "drawing_id", "TEXT DEFAULT ''")
+            self._ensure_column(conn, table, "native_name", "TEXT DEFAULT ''")
+
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_entities_scope ON cad_entities(workspace_id, drawing_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_entities_native_handle ON cad_entities(workspace_id, drawing_id, native_handle)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_annotations_scope ON cad_spatial_annotations(workspace_id, drawing_id, conversation_id, thread_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_layers_scope ON cad_layers(workspace_id, drawing_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_blocks_scope ON cad_blocks(workspace_id, drawing_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_text_patterns_scope ON text_patterns(workspace_id, drawing_id, conversation_id, thread_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_query_history_scope ON query_history(workspace_id, drawing_id, conversation_id, thread_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_snapshots_scope ON drawing_snapshots(workspace_id, drawing_id, conversation_id, thread_id)')
+
+        self._adopt_legacy_rows(conn, ctx)
+
+    def _adopt_legacy_rows(self, conn: sqlite3.Connection,
+                           ctx: CADWorkspaceContext) -> None:
+        entity_rows = conn.execute('''
+            SELECT handle FROM cad_entities
+            WHERE workspace_id = '' OR drawing_id = '' OR native_handle = ''
+        ''').fetchall()
+        for row in entity_rows:
+            old_handle = row["handle"]
+            if _KEY_SEPARATOR in old_handle:
+                native_handle = old_handle.split(_KEY_SEPARATOR)[-1]
+                new_handle = old_handle
+            else:
+                native_handle = old_handle
+                new_handle = self._entity_key(native_handle, ctx)
+            if new_handle != old_handle:
+                conn.execute('''
+                    INSERT OR IGNORE INTO cad_entities
+                        (handle, name, type, layer, color, linetype,
+                         linetype_scale, lineweight, visible,
+                         bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y,
+                         properties, geometry, scanned_at,
+                         workspace_id, drawing_id, native_handle)
+                    SELECT ?, name, type, layer, color, linetype,
+                           linetype_scale, lineweight, visible,
+                           bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y,
+                           properties, geometry, scanned_at,
+                           ?, ?, ?
+                    FROM cad_entities WHERE handle = ?
+                ''', (
+                    new_handle, ctx.workspace_id, ctx.drawing_id,
+                    native_handle, old_handle,
+                ))
+                for table in (
+                    "cad_geometry_primitives",
+                    "cad_geometry_relations",
+                    "cad_topology_summary",
+                ):
+                    conn.execute(
+                        f"UPDATE {table} SET entity_handle = ? WHERE entity_handle = ?",
+                        (new_handle, old_handle),
+                    )
+                conn.execute("DELETE FROM cad_entities WHERE handle = ?", (old_handle,))
+            else:
+                conn.execute('''
+                    UPDATE cad_entities
+                    SET workspace_id = ?, drawing_id = ?, native_handle = ?
+                    WHERE handle = ?
+                ''', (ctx.workspace_id, ctx.drawing_id,
+                      native_handle, old_handle))
+
+        for table in ("cad_layers", "cad_blocks"):
+            for row in conn.execute(
+                f"SELECT name FROM {table} "
+                "WHERE workspace_id = '' OR drawing_id = '' OR native_name = ''"
+            ).fetchall():
+                old_name = row["name"]
+                native_name = (
+                    old_name.split(_KEY_SEPARATOR)[-1]
+                    if _KEY_SEPARATOR in old_name else old_name
+                )
+                conn.execute(
+                    f"UPDATE {table} SET name = ?, workspace_id = ?, "
+                    "drawing_id = ?, native_name = ? WHERE name = ?",
+                    (self._name_key(native_name, ctx), ctx.workspace_id,
+                     ctx.drawing_id, native_name, old_name),
+                )
+
+        for table in ("text_patterns", "query_history", "drawing_snapshots"):
+            conn.execute(
+                f"UPDATE {table} SET workspace_id = ?, drawing_id = ?, "
+                "conversation_id = ?, thread_id = ? "
+                "WHERE workspace_id = '' OR drawing_id = '' "
+                "OR conversation_id = '' OR thread_id = ''",
+                (ctx.workspace_id, ctx.drawing_id,
+                 ctx.conversation_id, ctx.thread_id),
+            )
+
+        annotation_rows = conn.execute('''
+            SELECT annotation_id, entity_handle FROM cad_spatial_annotations
+            WHERE workspace_id = '' OR drawing_id = '' OR conversation_id = ''
+               OR thread_id = '' OR native_annotation_id = ''
+               OR native_entity_handle = ''
+        ''').fetchall()
+        for row in annotation_rows:
+            old_id = row["annotation_id"]
+            native_id = (
+                old_id.split(_KEY_SEPARATOR)[-1]
+                if _KEY_SEPARATOR in old_id else old_id
+            )
+            native_entity = (
+                row["entity_handle"].split(_KEY_SEPARATOR)[-1]
+                if row["entity_handle"] else ""
+            )
+            scoped_entity = self._entity_key(native_entity, ctx) if native_entity else ""
+            conn.execute('''
+                UPDATE cad_spatial_annotations
+                SET annotation_id = ?, workspace_id = ?, drawing_id = ?,
+                    conversation_id = ?, thread_id = ?,
+                    native_annotation_id = ?, native_entity_handle = ?,
+                    entity_handle = ?
+                WHERE annotation_id = ?
+            ''', (
+                self._annotation_key(native_id, ctx),
+                ctx.workspace_id, ctx.drawing_id,
+                ctx.conversation_id, ctx.thread_id,
+                native_id, native_entity, scoped_entity, old_id,
+            ))
+
+    @staticmethod
+    def _make_drawing_id(name: str, path: str = "") -> str:
+        identity = (path or name or "active").lower()
+        return _stable_id("dwg", identity)
+
+    def _scope_key(self, *parts: str) -> str:
+        return _KEY_SEPARATOR.join(str(part or "") for part in parts)
+
+    def _entity_key(self, handle: str,
+                    ctx: Optional[CADWorkspaceContext] = None) -> str:
+        ctx = ctx or self.get_context()
+        return self._scope_key(ctx.workspace_id, ctx.drawing_id, handle)
+
+    def _annotation_key(self, annotation_id: str,
+                        ctx: Optional[CADWorkspaceContext] = None) -> str:
+        ctx = ctx or self.get_context()
+        return self._scope_key(
+            ctx.workspace_id, ctx.drawing_id,
+            ctx.conversation_id, ctx.thread_id, annotation_id,
+        )
+
+    def _name_key(self, name: str,
+                  ctx: Optional[CADWorkspaceContext] = None) -> str:
+        ctx = ctx or self.get_context()
+        return self._scope_key(ctx.workspace_id, ctx.drawing_id, name)
+
+    def _ensure_context_rows(self, conn: sqlite3.Connection,
+                             ctx: Optional[CADWorkspaceContext] = None) -> None:
+        ctx = ctx or self.get_context()
+        conn.execute('''
+            INSERT INTO cad_workspaces (workspace_id, workspace_root)
+            VALUES (?, ?)
+            ON CONFLICT(workspace_id) DO UPDATE SET
+                workspace_root=excluded.workspace_root,
+                updated_at=CURRENT_TIMESTAMP
+        ''', (ctx.workspace_id, ctx.workspace_root))
+        conn.execute('''
+            INSERT INTO cad_conversations
+                (workspace_id, conversation_id)
+            VALUES (?, ?)
+            ON CONFLICT(workspace_id, conversation_id) DO UPDATE SET
+                updated_at=CURRENT_TIMESTAMP
+        ''', (ctx.workspace_id, ctx.conversation_id))
+        conn.execute('''
+            INSERT INTO cad_threads
+                (workspace_id, conversation_id, thread_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(workspace_id, conversation_id, thread_id) DO UPDATE SET
+                updated_at=CURRENT_TIMESTAMP
+        ''', (ctx.workspace_id, ctx.conversation_id, ctx.thread_id))
+        conn.execute('''
+            INSERT INTO cad_drawings
+                (workspace_id, drawing_id, drawing_name, drawing_path, active)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(workspace_id, drawing_id) DO UPDATE SET
+                drawing_name=excluded.drawing_name,
+                drawing_path=excluded.drawing_path,
+                active=1,
+                updated_at=CURRENT_TIMESTAMP
+        ''', (ctx.workspace_id, ctx.drawing_id, ctx.drawing_name, ctx.drawing_path))
+
     def _init_schema(self):
         with self._conn() as conn:
             c = conn.cursor()
+
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS cad_workspaces (
+                    workspace_id TEXT PRIMARY KEY,
+                    workspace_root TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS cad_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    workspace_id TEXT NOT NULL,
+                    conversation_id TEXT NOT NULL,
+                    title TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(workspace_id, conversation_id)
+                )
+            ''')
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS cad_threads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    workspace_id TEXT NOT NULL,
+                    conversation_id TEXT NOT NULL,
+                    thread_id TEXT NOT NULL,
+                    title TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(workspace_id, conversation_id, thread_id)
+                )
+            ''')
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS cad_drawings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    workspace_id TEXT NOT NULL,
+                    drawing_id TEXT NOT NULL,
+                    drawing_name TEXT NOT NULL DEFAULT 'active',
+                    drawing_path TEXT DEFAULT '',
+                    active INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(workspace_id, drawing_id)
+                )
+            ''')
 
             # Core entity table
             c.execute('''
@@ -540,6 +963,57 @@ class CADDatabase:
         }
         return primitives, relations, summary
 
+    def _entity_scope_clause(self, alias: str = "") -> Tuple[str, Tuple[Any, ...]]:
+        ctx = self.get_context()
+        prefix = f"{alias}." if alias else ""
+        return (
+            f"{prefix}workspace_id = ? AND {prefix}drawing_id = ?",
+            (ctx.workspace_id, ctx.drawing_id),
+        )
+
+    def _thread_scope_clause(self, alias: str = "") -> Tuple[str, Tuple[Any, ...]]:
+        ctx = self.get_context()
+        prefix = f"{alias}." if alias else ""
+        return (
+            f"{prefix}workspace_id = ? AND {prefix}drawing_id = ? "
+            f"AND {prefix}conversation_id = ? AND {prefix}thread_id = ?",
+            (ctx.workspace_id, ctx.drawing_id, ctx.conversation_id, ctx.thread_id),
+        )
+
+    @staticmethod
+    def _decode_json(value: Any) -> Dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        try:
+            return json.loads(value or "{}")
+        except Exception:
+            return {}
+
+    def _public_entity_row(self, row: Union[sqlite3.Row, Dict[str, Any]]) -> Dict[str, Any]:
+        item = dict(row)
+        if item.get("native_handle"):
+            item["handle"] = item["native_handle"]
+        item["properties"] = self._decode_json(item.get("properties"))
+        item["geometry"] = self._decode_json(item.get("geometry"))
+        return item
+
+    def _public_annotation_row(self, row: Union[sqlite3.Row, Dict[str, Any]]) -> Dict[str, Any]:
+        item = dict(row)
+        if item.get("native_annotation_id"):
+            item["annotation_id"] = item["native_annotation_id"]
+        if item.get("native_entity_handle"):
+            item["entity_handle"] = item["native_entity_handle"]
+        item["hidden"] = bool(item.get("hidden", 1))
+        item["properties"] = self._decode_json(item.get("properties"))
+        return item
+
+    @staticmethod
+    def _public_name_row(row: Union[sqlite3.Row, Dict[str, Any]]) -> Dict[str, Any]:
+        item = dict(row)
+        if item.get("native_name"):
+            item["name"] = item["native_name"]
+        return item
+
     def _replace_entity_topology(self, conn: sqlite3.Connection, handle: str,
                                  entity_type: str,
                                  geometry: Dict[str, Any]):
@@ -595,17 +1069,23 @@ class CADDatabase:
                       geometry: Dict = None,
                       bbox: Optional[Tuple[float,float,float,float]] = None) -> bool:
         try:
+            if not handle:
+                return False
+            ctx = self.get_context()
+            scoped_handle = self._entity_key(handle, ctx)
             geometry = geometry or {}
             if bbox is None:
                 bbox = self._derive_bbox(entity_type, geometry)
             with self._conn() as conn:
+                self._ensure_context_rows(conn, ctx)
                 c = conn.cursor()
                 c.execute('''
                     INSERT INTO cad_entities
                         (handle, name, type, layer, color, linetype,
                          properties, geometry, bbox_min_x, bbox_min_y,
-                         bbox_max_x, bbox_max_y)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         bbox_max_x, bbox_max_y, workspace_id, drawing_id,
+                         native_handle)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(handle) DO UPDATE SET
                         name=excluded.name, type=excluded.type,
                         layer=excluded.layer, color=excluded.color,
@@ -615,15 +1095,19 @@ class CADDatabase:
                         bbox_min_x=excluded.bbox_min_x,
                         bbox_min_y=excluded.bbox_min_y,
                         bbox_max_x=excluded.bbox_max_x,
-                        bbox_max_y=excluded.bbox_max_y
+                        bbox_max_y=excluded.bbox_max_y,
+                        workspace_id=excluded.workspace_id,
+                        drawing_id=excluded.drawing_id,
+                        native_handle=excluded.native_handle
                 ''', (
-                    handle, name, entity_type, layer, color, linetype,
+                    scoped_handle, name, entity_type, layer, color, linetype,
                     json.dumps(properties or {}, ensure_ascii=False),
                     json.dumps(geometry or {}, ensure_ascii=False),
                     bbox[0] if bbox else None, bbox[1] if bbox else None,
                     bbox[2] if bbox else None, bbox[3] if bbox else None,
+                    ctx.workspace_id, ctx.drawing_id, handle,
                 ))
-                self._replace_entity_topology(conn, handle, entity_type, geometry or {})
+                self._replace_entity_topology(conn, scoped_handle, entity_type, geometry or {})
             return True
         except Exception as e:
             logger.error(f"插入实体 {handle} 失败: {e}")
@@ -648,33 +1132,42 @@ class CADDatabase:
         return count
 
     def get_entity(self, handle: str) -> Optional[Dict[str, Any]]:
+        scoped_handle = self._entity_key(handle)
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM cad_entities WHERE handle = ?", (handle,)
+                "SELECT * FROM cad_entities WHERE handle = ?", (scoped_handle,)
             ).fetchone()
             if row:
-                d = dict(row)
-                d['properties'] = json.loads(d.get('properties', '{}'))
-                d['geometry'] = json.loads(d.get('geometry', '{}'))
-                return d
+                return self._public_entity_row(row)
         return None
 
     def delete_entity(self, handle: str) -> bool:
+        scoped_handle = self._entity_key(handle)
         with self._conn() as conn:
-            conn.execute("DELETE FROM cad_geometry_relations WHERE entity_handle = ?", (handle,))
-            conn.execute("DELETE FROM cad_geometry_primitives WHERE entity_handle = ?", (handle,))
-            conn.execute("DELETE FROM cad_topology_summary WHERE entity_handle = ?", (handle,))
-            conn.execute("DELETE FROM cad_entities WHERE handle = ?", (handle,))
+            conn.execute("DELETE FROM cad_geometry_relations WHERE entity_handle = ?", (scoped_handle,))
+            conn.execute("DELETE FROM cad_geometry_primitives WHERE entity_handle = ?", (scoped_handle,))
+            conn.execute("DELETE FROM cad_topology_summary WHERE entity_handle = ?", (scoped_handle,))
+            conn.execute("DELETE FROM cad_entities WHERE handle = ?", (scoped_handle,))
         return True
 
     def clear_entities(self, clear_annotations: bool = False):
+        scope_sql, scope_params = self._entity_scope_clause()
         with self._conn() as conn:
-            conn.execute("DELETE FROM cad_geometry_relations")
-            conn.execute("DELETE FROM cad_geometry_primitives")
-            conn.execute("DELETE FROM cad_topology_summary")
-            conn.execute("DELETE FROM cad_entities")
+            handles = [
+                row["handle"]
+                for row in conn.execute(
+                    f"SELECT handle FROM cad_entities WHERE {scope_sql}",
+                    scope_params,
+                ).fetchall()
+            ]
+            for scoped_handle in handles:
+                conn.execute("DELETE FROM cad_geometry_relations WHERE entity_handle = ?", (scoped_handle,))
+                conn.execute("DELETE FROM cad_geometry_primitives WHERE entity_handle = ?", (scoped_handle,))
+                conn.execute("DELETE FROM cad_topology_summary WHERE entity_handle = ?", (scoped_handle,))
+            conn.execute(f"DELETE FROM cad_entities WHERE {scope_sql}", scope_params)
             if clear_annotations:
-                conn.execute("DELETE FROM cad_spatial_annotations")
+                thread_sql, thread_params = self._thread_scope_clause()
+                conn.execute(f"DELETE FROM cad_spatial_annotations WHERE {thread_sql}", thread_params)
 
     @staticmethod
     def _coerce_optional_point(value: Any) -> Optional[Tuple[float, float, float]]:
@@ -721,16 +1214,22 @@ class CADDatabase:
         p2 = self._coerce_optional_point(point2)
         bb = self._coerce_optional_bbox(bbox)
         ann_id = (annotation_id or f"ann_{uuid.uuid4().hex[:12]}").strip()
+        ctx = self.get_context()
+        scoped_ann_id = self._annotation_key(ann_id, ctx)
+        scoped_entity_handle = self._entity_key(entity_handle, ctx) if entity_handle else ""
         props = properties or {}
 
         with self._conn() as conn:
+            self._ensure_context_rows(conn, ctx)
             conn.execute('''
                 INSERT INTO cad_spatial_annotations
                     (annotation_id, target_kind, label, description,
                      entity_handle, primitive_key, x, y, z, x2, y2, z2,
                      bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y,
-                     confidence, source, hidden, properties)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                     confidence, source, hidden, properties,
+                     workspace_id, drawing_id, conversation_id, thread_id,
+                     native_annotation_id, native_entity_handle)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(annotation_id) DO UPDATE SET
                     target_kind=excluded.target_kind,
                     label=excluded.label,
@@ -751,16 +1250,24 @@ class CADDatabase:
                     source=excluded.source,
                     hidden=1,
                     properties=excluded.properties,
+                    workspace_id=excluded.workspace_id,
+                    drawing_id=excluded.drawing_id,
+                    conversation_id=excluded.conversation_id,
+                    thread_id=excluded.thread_id,
+                    native_annotation_id=excluded.native_annotation_id,
+                    native_entity_handle=excluded.native_entity_handle,
                     updated_at=CURRENT_TIMESTAMP
             ''', (
-                ann_id, clean_kind, clean_label, description or "",
-                entity_handle or "", primitive_key or "",
+                scoped_ann_id, clean_kind, clean_label, description or "",
+                scoped_entity_handle, primitive_key or "",
                 p1[0] if p1 else None, p1[1] if p1 else None, p1[2] if p1 else None,
                 p2[0] if p2 else None, p2[1] if p2 else None, p2[2] if p2 else None,
                 bb[0] if bb else None, bb[1] if bb else None,
                 bb[2] if bb else None, bb[3] if bb else None,
                 float(confidence), source or "model",
                 json.dumps(props, ensure_ascii=False),
+                ctx.workspace_id, ctx.drawing_id, ctx.conversation_id, ctx.thread_id,
+                ann_id, entity_handle or "",
             ))
         return self.get_spatial_annotation(ann_id) or {}
 
@@ -774,10 +1281,12 @@ class CADDatabase:
                                  entity_handle: Optional[str] = None,
                                  limit: int = 100) -> List[Dict[str, Any]]:
         conditions = []
-        params: List[Any] = []
+        thread_sql, thread_params = self._thread_scope_clause()
+        conditions.append(thread_sql)
+        params: List[Any] = list(thread_params)
         if annotation_id:
             conditions.append("annotation_id = ?")
-            params.append(annotation_id)
+            params.append(self._annotation_key(annotation_id))
         if label:
             conditions.append("label = ?")
             params.append(label)
@@ -786,7 +1295,7 @@ class CADDatabase:
             params.append(target_kind)
         if entity_handle:
             conditions.append("entity_handle = ?")
-            params.append(entity_handle)
+            params.append(self._entity_key(entity_handle))
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         safe_limit = max(1, min(int(limit or 100), 1000))
         with self._conn() as conn:
@@ -799,10 +1308,7 @@ class CADDatabase:
 
         results = []
         for row in rows:
-            item = dict(row)
-            item["hidden"] = bool(item.get("hidden", 1))
-            item["properties"] = json.loads(item.get("properties") or "{}")
-            results.append(item)
+            results.append(self._public_annotation_row(row))
         return results
 
     def delete_spatial_annotations(self, annotation_id: Optional[str] = None,
@@ -810,10 +1316,12 @@ class CADDatabase:
                                    target_kind: Optional[str] = None,
                                    entity_handle: Optional[str] = None) -> int:
         conditions = []
-        params: List[Any] = []
+        thread_sql, thread_params = self._thread_scope_clause()
+        conditions.append(thread_sql)
+        params: List[Any] = list(thread_params)
         if annotation_id:
             conditions.append("annotation_id = ?")
-            params.append(annotation_id)
+            params.append(self._annotation_key(annotation_id))
         if label:
             conditions.append("label = ?")
             params.append(label)
@@ -822,55 +1330,63 @@ class CADDatabase:
             params.append(target_kind)
         if entity_handle:
             conditions.append("entity_handle = ?")
-            params.append(entity_handle)
+            params.append(self._entity_key(entity_handle))
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         with self._conn() as conn:
             cursor = conn.execute(f"DELETE FROM cad_spatial_annotations {where}", params)
             return cursor.rowcount
 
     def get_entity_topology(self, handle: str) -> Dict[str, Any]:
+        scoped_handle = self._entity_key(handle)
         with self._conn() as conn:
             summary = conn.execute(
                 "SELECT * FROM cad_topology_summary WHERE entity_handle = ?",
-                (handle,),
+                (scoped_handle,),
             ).fetchone()
             primitives = conn.execute(
                 """SELECT * FROM cad_geometry_primitives
                    WHERE entity_handle = ?
                    ORDER BY primitive_type, sequence_index, primitive_key""",
-                (handle,),
+                (scoped_handle,),
             ).fetchall()
             relations = conn.execute(
                 """SELECT * FROM cad_geometry_relations
                    WHERE entity_handle = ?
                    ORDER BY sequence_index, relation_type""",
-                (handle,),
+                (scoped_handle,),
             ).fetchall()
 
         def decode(row):
             d = dict(row)
+            if d.get("entity_handle") == scoped_handle:
+                d["entity_handle"] = handle
             if "properties" in d:
                 d["properties"] = json.loads(d.get("properties") or "{}")
             return d
 
+        summary_row = dict(summary) if summary else None
+        if summary_row and summary_row.get("entity_handle") == scoped_handle:
+            summary_row["entity_handle"] = handle
         return {
-            "summary": dict(summary) if summary else None,
+            "summary": summary_row,
             "primitives": [decode(r) for r in primitives],
             "relations": [decode(r) for r in relations],
         }
 
     def get_topology_summary(self, limit: int = 100) -> List[Dict[str, Any]]:
+        scope_sql, scope_params = self._entity_scope_clause("e")
         with self._conn() as conn:
             rows = conn.execute('''
-                SELECT e.handle, e.name, e.type, e.layer,
+                SELECT e.native_handle AS handle, e.name, e.type, e.layer,
                        t.dimensionality, t.point_count, t.line_count,
                        t.curve_count, t.surface_count, t.solid_count,
                        t.is_closed, t.length, t.area, t.summary
                 FROM cad_topology_summary t
                 JOIN cad_entities e ON e.handle = t.entity_handle
+                WHERE {scope_sql}
                 ORDER BY t.dimensionality DESC, e.type, e.handle
                 LIMIT ?
-            ''', (limit,)).fetchall()
+            '''.format(scope_sql=scope_sql), (*scope_params, limit)).fetchall()
             return [dict(r) for r in rows]
 
     # ── Queries ─────────────────────────────────────────────────
@@ -884,8 +1400,9 @@ class CADDatabase:
                        limit: int = 1000,
                        offset: int = 0) -> List[Dict[str, Any]]:
         """Flexible entity query with spatial and property filters."""
-        conditions = []
-        params = []
+        scope_sql, scope_params = self._entity_scope_clause()
+        conditions = [scope_sql]
+        params = list(scope_params)
 
         if entity_type:
             conditions.append("type = ?")
@@ -914,7 +1431,7 @@ class CADDatabase:
 
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
-            return [dict(r) for r in rows]
+            return [self._public_entity_row(r) for r in rows]
 
     def query_near_point(self, x: float, y: float, radius: float,
                          entity_type: Optional[str] = None,
@@ -922,11 +1439,13 @@ class CADDatabase:
         """Find entities within radius of a point (simplified spatial)."""
         # Simple centroid-based approximation
         with self._conn() as conn:
+            ctx = self.get_context()
             type_filter = "AND type = ?" if entity_type else ""
             params = [
                 x, x, y, y,
                 x + radius, x - radius,
                 y + radius, y - radius,
+                ctx.workspace_id, ctx.drawing_id,
             ]
             if entity_type:
                 params.append(entity_type)
@@ -940,6 +1459,7 @@ class CADDatabase:
                 WHERE bbox_min_x IS NOT NULL
                   AND bbox_min_x <= ? AND bbox_max_x >= ?
                   AND bbox_min_y <= ? AND bbox_max_y >= ?
+                  AND workspace_id = ? AND drawing_id = ?
                   {type_filter}
                 ORDER BY dist_sq
                 LIMIT ?
@@ -947,7 +1467,7 @@ class CADDatabase:
             rows = conn.execute(query, params).fetchall()
             results = []
             for r in rows:
-                d = dict(r)
+                d = self._public_entity_row(r)
                 dist_sq = d.pop('dist_sq', 0)
                 if dist_sq <= radius * radius:
                     results.append(d)
@@ -955,8 +1475,9 @@ class CADDatabase:
 
     def count_entities(self, entity_type: Optional[str] = None,
                        layer: Optional[str] = None) -> int:
-        conditions = []
-        params = []
+        scope_sql, scope_params = self._entity_scope_clause()
+        conditions = [scope_sql]
+        params = list(scope_params)
         if entity_type:
             conditions.append("type = ?")
             params.append(entity_type)
@@ -969,31 +1490,39 @@ class CADDatabase:
             return row["cnt"] if row else 0
 
     def get_type_stats(self) -> Dict[str, int]:
+        scope_sql, scope_params = self._entity_scope_clause()
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT type, COUNT(*) as cnt FROM cad_entities GROUP BY type ORDER BY cnt DESC"
+                f"SELECT type, COUNT(*) as cnt FROM cad_entities WHERE {scope_sql} GROUP BY type ORDER BY cnt DESC",
+                scope_params,
             ).fetchall()
             return {r["type"]: r["cnt"] for r in rows}
 
     def get_layer_stats(self) -> Dict[str, int]:
+        scope_sql, scope_params = self._entity_scope_clause()
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT layer, COUNT(*) as cnt FROM cad_entities GROUP BY layer ORDER BY cnt DESC"
+                f"SELECT layer, COUNT(*) as cnt FROM cad_entities WHERE {scope_sql} GROUP BY layer ORDER BY cnt DESC",
+                scope_params,
             ).fetchall()
             return {r["layer"]: r["cnt"] for r in rows}
 
     # ── Layer CRUD ──────────────────────────────────────────────
 
     def save_layers(self, layers: List[Dict[str, Any]]):
+        ctx = self.get_context()
         with self._conn() as conn:
+            self._ensure_context_rows(conn, ctx)
             for layer in layers:
+                native_name = layer.get("name", "")
                 conn.execute('''
                     INSERT OR REPLACE INTO cad_layers
                         (name, color, linetype, lineweight, is_frozen,
-                         is_locked, is_on, is_plottable, description, handle)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         is_locked, is_on, is_plottable, description, handle,
+                         workspace_id, drawing_id, native_name)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
-                    layer.get("name", ""),
+                    self._name_key(native_name, ctx),
                     layer.get("color", 7),
                     layer.get("linetype", "Continuous"),
                     layer.get("lineweight", -1.0),
@@ -1003,24 +1532,36 @@ class CADDatabase:
                     int(layer.get("is_plottable", True)),
                     layer.get("description", ""),
                     layer.get("handle", ""),
+                    ctx.workspace_id,
+                    ctx.drawing_id,
+                    native_name,
                 ))
 
     def get_layers(self) -> List[Dict[str, Any]]:
+        scope_sql, scope_params = self._entity_scope_clause()
         with self._conn() as conn:
-            rows = conn.execute("SELECT * FROM cad_layers ORDER BY name").fetchall()
-            return [dict(r) for r in rows]
+            rows = conn.execute(
+                f"SELECT * FROM cad_layers WHERE {scope_sql} ORDER BY native_name, name",
+                scope_params,
+            ).fetchall()
+            return [self._public_name_row(r) for r in rows]
 
     # ── Block CRUD ──────────────────────────────────────────────
 
     def save_blocks(self, blocks: List[Dict[str, Any]]):
+        ctx = self.get_context()
         with self._conn() as conn:
+            self._ensure_context_rows(conn, ctx)
             for blk in blocks:
+                native_name = blk.get("name", "")
                 conn.execute('''
                     INSERT OR REPLACE INTO cad_blocks
-                        (name, entity_count, is_layout, is_xref, origin_x, origin_y, origin_z, path)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        (name, entity_count, is_layout, is_xref, origin_x,
+                         origin_y, origin_z, path, workspace_id, drawing_id,
+                         native_name)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
-                    blk.get("name", ""),
+                    self._name_key(native_name, ctx),
                     blk.get("count", 0),
                     int(blk.get("is_layout", False)),
                     int(blk.get("is_xref", False)),
@@ -1028,25 +1569,43 @@ class CADDatabase:
                     blk.get("origin", [0,0,0])[1] if isinstance(blk.get("origin"), list) else 0,
                     blk.get("origin", [0,0,0])[2] if isinstance(blk.get("origin"), list) else 0,
                     blk.get("path", ""),
+                    ctx.workspace_id,
+                    ctx.drawing_id,
+                    native_name,
                 ))
 
     def get_blocks(self) -> List[Dict[str, Any]]:
+        scope_sql, scope_params = self._entity_scope_clause()
         with self._conn() as conn:
-            rows = conn.execute("SELECT * FROM cad_blocks ORDER BY name").fetchall()
-            return [dict(r) for r in rows]
+            rows = conn.execute(
+                f"SELECT * FROM cad_blocks WHERE {scope_sql} ORDER BY native_name, name",
+                scope_params,
+            ).fetchall()
+            return [self._public_name_row(r) for r in rows]
 
     # ── Text Patterns ───────────────────────────────────────────
 
     def save_text_pattern(self, pattern: str, count: int, drawing: str = ""):
+        ctx = self.get_context()
         with self._conn() as conn:
+            self._ensure_context_rows(conn, ctx)
             conn.execute('''
-                INSERT OR REPLACE INTO text_patterns (pattern, count, drawing)
-                VALUES (?, ?, ?)
-            ''', (pattern, count, drawing))
+                INSERT INTO text_patterns
+                    (pattern, count, drawing, workspace_id, drawing_id,
+                     conversation_id, thread_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                pattern, count, drawing, ctx.workspace_id, ctx.drawing_id,
+                ctx.conversation_id, ctx.thread_id,
+            ))
 
     def get_text_patterns(self) -> List[Dict[str, Any]]:
+        thread_sql, thread_params = self._thread_scope_clause()
         with self._conn() as conn:
-            rows = conn.execute("SELECT * FROM text_patterns ORDER BY scanned_at DESC").fetchall()
+            rows = conn.execute(
+                f"SELECT * FROM text_patterns WHERE {thread_sql} ORDER BY scanned_at DESC",
+                thread_params,
+            ).fetchall()
             return [dict(r) for r in rows]
 
     # ── General SQL ─────────────────────────────────────────────
@@ -1096,6 +1655,94 @@ class CADDatabase:
     def _quote_identifier(identifier: str) -> str:
         return '"' + identifier.replace('"', '""') + '"'
 
+    def _install_scoped_read_views(self, conn: sqlite3.Connection) -> None:
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_entities AS
+            SELECT id, native_handle AS handle, name, type, layer, color,
+                   linetype, linetype_scale, lineweight, visible,
+                   bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y,
+                   properties, geometry, scanned_at,
+                   workspace_id, drawing_id, native_handle
+            FROM main.cad_entities
+            WHERE workspace_id = cad_current_workspace_id()
+              AND drawing_id = cad_current_drawing_id()
+        ''')
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_geometry_primitives AS
+            SELECT gp.id, e.native_handle AS entity_handle,
+                   gp.primitive_key, gp.primitive_type, gp.role,
+                   gp.sequence_index, gp.parent_key, gp.x, gp.y, gp.z,
+                   gp.x2, gp.y2, gp.z2, gp.radius, gp.length, gp.area,
+                   gp.is_closed, gp.source, gp.properties
+            FROM main.cad_geometry_primitives gp
+            JOIN main.cad_entities e ON e.handle = gp.entity_handle
+            WHERE e.workspace_id = cad_current_workspace_id()
+              AND e.drawing_id = cad_current_drawing_id()
+        ''')
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_geometry_relations AS
+            SELECT gr.id, e.native_handle AS entity_handle,
+                   gr.from_key, gr.to_key, gr.relation_type,
+                   gr.sequence_index, gr.properties
+            FROM main.cad_geometry_relations gr
+            JOIN main.cad_entities e ON e.handle = gr.entity_handle
+            WHERE e.workspace_id = cad_current_workspace_id()
+              AND e.drawing_id = cad_current_drawing_id()
+        ''')
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_topology_summary AS
+            SELECT e.native_handle AS entity_handle, t.dimensionality,
+                   t.point_count, t.line_count, t.curve_count,
+                   t.surface_count, t.solid_count, t.is_closed,
+                   t.length, t.area, t.summary, t.updated_at
+            FROM main.cad_topology_summary t
+            JOIN main.cad_entities e ON e.handle = t.entity_handle
+            WHERE e.workspace_id = cad_current_workspace_id()
+              AND e.drawing_id = cad_current_drawing_id()
+        ''')
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_spatial_annotations AS
+            SELECT id, native_annotation_id AS annotation_id, target_kind,
+                   label, description, native_entity_handle AS entity_handle,
+                   primitive_key, x, y, z, x2, y2, z2,
+                   bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y,
+                   confidence, source, hidden, properties,
+                   created_at, updated_at, workspace_id, drawing_id,
+                   conversation_id, thread_id
+            FROM main.cad_spatial_annotations
+            WHERE workspace_id = cad_current_workspace_id()
+              AND drawing_id = cad_current_drawing_id()
+              AND conversation_id = cad_current_conversation_id()
+              AND thread_id = cad_current_thread_id()
+        ''')
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_layers AS
+            SELECT id, native_name AS name, color, linetype, lineweight,
+                   is_frozen, is_locked, is_on, is_plottable,
+                   description, handle, workspace_id, drawing_id
+            FROM main.cad_layers
+            WHERE workspace_id = cad_current_workspace_id()
+              AND drawing_id = cad_current_drawing_id()
+        ''')
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_blocks AS
+            SELECT id, native_name AS name, entity_count, is_layout, is_xref,
+                   origin_x, origin_y, origin_z, path, workspace_id, drawing_id
+            FROM main.cad_blocks
+            WHERE workspace_id = cad_current_workspace_id()
+              AND drawing_id = cad_current_drawing_id()
+        ''')
+        for table in ("text_patterns", "query_history", "drawing_snapshots"):
+            conn.execute(f'''
+                CREATE TEMP VIEW IF NOT EXISTS {table} AS
+                SELECT *
+                FROM main.{table}
+                WHERE workspace_id = cad_current_workspace_id()
+                  AND drawing_id = cad_current_drawing_id()
+                  AND conversation_id = cad_current_conversation_id()
+                  AND thread_id = cad_current_thread_id()
+            ''')
+
     def execute(self, query: str, params: tuple = (),
                 read_only: bool = False) -> Dict[str, Any]:
         """Execute SQL and return rows for result-producing statements.
@@ -1107,6 +1754,9 @@ class CADDatabase:
             raise ValueError("Only read-only SELECT/WITH/PRAGMA/EXPLAIN SQL is allowed")
         with self._conn() as conn:
             c = conn.cursor()
+            scoped_read = self._is_read_only_sql(query)
+            if scoped_read:
+                self._install_scoped_read_views(conn)
             if read_only:
                 conn.set_authorizer(self._read_only_authorizer)
             try:
@@ -1119,17 +1769,31 @@ class CADDatabase:
                 columns = [desc[0] for desc in c.description] if c.description else []
                 rows = [dict(zip(columns, row)) for row in c.fetchall()]
                 if not read_only:
+                    ctx = self.get_context()
                     conn.execute(
-                        "INSERT INTO query_history (query, result_count) VALUES (?, ?)",
-                        (query[:500], len(rows)))
+                        """INSERT INTO main.query_history
+                           (query, result_count, workspace_id, drawing_id,
+                            conversation_id, thread_id)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (
+                            query[:500], len(rows), ctx.workspace_id,
+                            ctx.drawing_id, ctx.conversation_id, ctx.thread_id,
+                        ))
                 return {"columns": columns, "rows": rows, "count": len(rows)}
             else:
                 if read_only:
                     return {"columns": [], "rows": [], "count": 0}
                 affected = c.rowcount
+                ctx = self.get_context()
                 conn.execute(
-                    "INSERT INTO query_history (query, result_count) VALUES (?, ?)",
-                    (query[:500], affected))
+                    """INSERT INTO main.query_history
+                       (query, result_count, workspace_id, drawing_id,
+                        conversation_id, thread_id)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        query[:500], affected, ctx.workspace_id,
+                        ctx.drawing_id, ctx.conversation_id, ctx.thread_id,
+                    ))
                 return {"affected_rows": affected}
 
     def get_tables(self) -> List[str]:
@@ -1157,25 +1821,31 @@ class CADDatabase:
                         layer_count: int, block_count: int,
                         type_stats: Dict[str, int],
                         snapshot_data: Dict = None) -> int:
+        ctx = self.get_context()
         with self._conn() as conn:
+            self._ensure_context_rows(conn, ctx)
             c = conn.cursor()
             c.execute('''
                 INSERT INTO drawing_snapshots
                     (drawing_name, entity_count, layer_count, block_count,
-                     type_stats, snapshot_data)
-                VALUES (?, ?, ?, ?, ?, ?)
+                     type_stats, snapshot_data, workspace_id, drawing_id,
+                     conversation_id, thread_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 drawing_name, entity_count, layer_count, block_count,
                 json.dumps(type_stats, ensure_ascii=False),
                 json.dumps(snapshot_data or {}, ensure_ascii=False),
+                ctx.workspace_id, ctx.drawing_id,
+                ctx.conversation_id, ctx.thread_id,
             ))
             return c.lastrowid
 
     def get_recent_snapshots(self, limit: int = 5) -> List[Dict[str, Any]]:
+        thread_sql, thread_params = self._thread_scope_clause()
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM drawing_snapshots ORDER BY created_at DESC LIMIT ?",
-                (limit,)).fetchall()
+                f"SELECT * FROM drawing_snapshots WHERE {thread_sql} ORDER BY created_at DESC LIMIT ?",
+                (*thread_params, limit)).fetchall()
             return [dict(r) for r in rows]
 
 

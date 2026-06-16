@@ -74,6 +74,49 @@ def execute_sql_query(query: str) -> str:
     return execute_query(query)
 
 
+def get_workspace_context() -> str:
+    """Return the active workspace/conversation/thread/drawing database scope."""
+    return json.dumps(db.get_context_dict(), indent=2, ensure_ascii=False)
+
+
+def set_workspace_context(workspace_root: Optional[str] = None,
+                          workspace_id: Optional[str] = None,
+                          conversation_id: Optional[str] = None,
+                          thread_id: Optional[str] = None,
+                          drawing_id: Optional[str] = None,
+                          drawing_name: Optional[str] = None,
+                          drawing_path: Optional[str] = None) -> str:
+    """Set the database scope used by subsequent CAD metadata operations."""
+    context = db.configure_context(
+        workspace_root=workspace_root,
+        workspace_id=workspace_id,
+        conversation_id=conversation_id,
+        thread_id=thread_id,
+        drawing_id=drawing_id,
+        drawing_name=drawing_name,
+        drawing_path=drawing_path,
+    )
+    return json.dumps(context, indent=2, ensure_ascii=False)
+
+
+def activate_workspace_drawing(drawing_name: str = "active",
+                               drawing_path: str = "",
+                               drawing_id: Optional[str] = None) -> str:
+    """Switch the metadata scope to a drawing inside the current workspace."""
+    context = db.activate_drawing(
+        name=drawing_name,
+        path=drawing_path,
+        drawing_id=drawing_id,
+    )
+    return json.dumps(context, indent=2, ensure_ascii=False)
+
+
+def list_workspace_drawings(limit: int = 100) -> str:
+    """List drawings known to the current workspace metadata database."""
+    rows = db.list_workspace_drawings(limit)
+    return json.dumps(rows, indent=2, ensure_ascii=False, default=str)
+
+
 def get_entity_topology(handle: str) -> str:
     """Return derived point/line/surface topology for one entity."""
     topology = db.get_entity_topology(handle)
