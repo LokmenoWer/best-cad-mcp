@@ -81,6 +81,14 @@ with patch('src.cad_controller.CADController', autospec=True) as mock_ctrl_cls, 
     from src.cad_tools import polyline_tools
     from src.cad_tools import hatch_tools
     from src.cad_tools import attribute_tools
+    from src.cad_understanding import analysis as understanding_analysis
+    from src.cad_understanding import constraints as understanding_constraints
+    from src.cad_understanding import ir_builder as understanding_ir_builder
+    from src.cad_understanding import plan as understanding_plan
+    from src.cad_understanding import resources as understanding_resources
+    from src.cad_understanding import semantic_graph as understanding_semantic
+    from src.cad_understanding import validators as understanding_validators
+    from src.cad_understanding import view_grounding as understanding_view
 
     # Import shared modules
     from src import cad_utils
@@ -1311,7 +1319,17 @@ class TestToolWiring(unittest.TestCase):
     def _parse_tool_body_calls(self):
         """Find all tool functions and what module function they call."""
         import re
-        # Find pattern: def tool_name(...) -> str:\n    ...\n    return module.func(...)
+        known_modules = {
+            'drawing_tools', 'edit_tools', 'layer_tools', 'text_tools',
+            'dimension_tools', 'block_tools', 'view_tools', 'query_tools',
+            'file_tools', 'utility_tools', 'solid_tools', 'advanced_tools',
+            'polyline_tools', 'hatch_tools', 'attribute_tools',
+            'understanding_analysis', 'understanding_constraints',
+            'understanding_ir_builder', 'understanding_plan',
+            'understanding_resources', 'understanding_semantic',
+            'understanding_validators', 'understanding_view',
+        }
+        # Find pattern: def tool_name(...): ... module.func(...)
         # This is heuristic but effective for this codebase
         tools = {}
         current_tool = None
@@ -1323,10 +1341,10 @@ class TestToolWiring(unittest.TestCase):
                 tools[current_tool] = {'module': None, 'func': None}
             # Detect return statement with module call
             if current_tool:
-                m = re.match(r'\s+return\s+(\w+)_tools\.(\w+)\(', line)
-                if m:
+                m = re.search(r'(\w+)\.(\w+)\(', line)
+                if m and m.group(1) in known_modules and not tools[current_tool]['module']:
                     tools[current_tool] = {
-                        'module': f'{m.group(1)}_tools',
+                        'module': m.group(1),
                         'func': m.group(2)
                     }
         return tools
@@ -1349,6 +1367,14 @@ class TestToolWiring(unittest.TestCase):
             'polyline_tools': polyline_tools,
             'hatch_tools': hatch_tools,
             'attribute_tools': attribute_tools,
+            'understanding_analysis': understanding_analysis,
+            'understanding_constraints': understanding_constraints,
+            'understanding_ir_builder': understanding_ir_builder,
+            'understanding_plan': understanding_plan,
+            'understanding_resources': understanding_resources,
+            'understanding_semantic': understanding_semantic,
+            'understanding_validators': understanding_validators,
+            'understanding_view': understanding_view,
         }
 
         issues = []
@@ -1387,7 +1413,9 @@ class TestToolWiring(unittest.TestCase):
             '_first_description_line', '_build_registered_tool_help',
             'cad_tool_selection_resource',
             'cad_registered_tools_resource', 'cad_workflow_guide',
-            'cad_layer_planning', 'main',
+            'cad_layer_planning', 'understand_existing_drawing',
+            'precise_draw_from_spec', 'vlm_review_drawing',
+            'repair_drawing', 'main',
         }
 
         missing = []

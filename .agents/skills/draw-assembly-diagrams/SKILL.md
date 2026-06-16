@@ -1,130 +1,169 @@
 ---
 name: draw-assembly-diagrams
 description: >-
-  Draw standards-aware mechanical assembly drawings, assembly diagrams, exploded views,
-  sectioned assemblies, BOM/parts lists, balloons/item numbers, title blocks, assembly
-  dimensions, and technical notes in AutoCAD through best-cad-mcp. Use when Codex needs
-  to create, revise, inspect, verify, save, or export DWG/DXF/PDF/DWF/visual-review
-  assembly drawings, including Chinese zhuangpeitu, mingxilan, xuhao, BOM, balloons,
-  parts lists, model-private CAD annotations, visual verification, or exploded view
-  requests. Enforces verified best-cad-mcp safety rules: use the existing AutoCAD
-  session, prefer high-level MCP tools, avoid interactive/modal/destructive tools unless
-  explicitly approved, verify by handles and exported view images when useful, and keep
-  model-only spatial labels out of the drawing space.
+  Create, inspect, understand, validate, repair, and export standards-aware
+  mechanical assembly drawings through best-cad-mcp. Use for AutoCAD DWG/DXF/PDF
+  assembly deliverables, exploded or sectioned assemblies, BOM/parts lists,
+  balloons/item numbers, VLM visual review, semantic CAD understanding, CAD-IR,
+  constraints, validation reports, safe repair plans, and precise handle-based
+  edits. Requires using the existing best-cad-mcp AutoCAD MCP tools, scanned
+  SQLite metadata, CAD Understanding Layer, model-private annotations, and
+  explicit dry-run before modification.
 ---
 
 # Draw Assembly Diagrams
 
-Use this skill to create, revise, verify, and export assembly drawings through best-cad-mcp without disturbing the user's AutoCAD session. Work in small checked phases, keep handles, and prefer named MCP tools over raw commands.
+Use this skill to work on assembly drawings through best-cad-mcp as a CAD
+understanding workflow, not only as a drawing-tool workflow. Preserve the user's
+AutoCAD session, capture handles, ground visual observations, validate geometry,
+and edit only through explicit MCP tools.
 
-Read `references/assembly-drawing-requirements.md` before creating a new assembly drawing, BOM, item-numbering scheme, sectioned view, exploded view, or standards-compliance claim.
+Read `references/assembly-drawing-requirements.md` before creating or checking
+an assembly drawing, BOM, item-numbering scheme, sectioned view, exploded view,
+or standards-compliance claim.
 
-## Safety Rules
+## Hard Boundaries
 
-- Use the existing best-cad-mcp AutoCAD connection. Do not start a new AutoCAD process.
-- If AutoCAD is open only at the Start tab, `open_drawing` may open a DWG because it no longer requires an active document. If AutoCAD is unavailable or COM rejects `Documents.Open`, report that explicitly instead of pretending the drawing is open.
-- Do not bypass MCP with standalone Python COM drawing scripts. If a needed operation is missing or broken, fix the MCP tool and then call it through MCP.
-- Stop if AutoCAD becomes busy, rejects COM calls, or a tool times out. Confirm idle state before any retry.
-- Avoid tools that need screen picks, open command prompts, modal dialogs, or destructive global state unless the user explicitly requested that exact action.
-- Track handles for every meaningful entity, block, solid, dimension, hatch, table, balloon, viewport, and exported artifact.
-- Verify after each phase with `scan_all_entities`, `get_entity_statistics`, targeted `execute_query`, `get_entity_properties`, topology tools, and `export_view_image` when visual confirmation would help. Default scans should keep topology summaries; request full topology only when primitive/relation detail is needed.
+- Use the active best-cad-mcp AutoCAD connection. Do not launch a separate
+  AutoCAD process.
+- Do not bypass `src/cad_controller.py` or write standalone Python COM scripts.
+  If an operation needs COM, use or fix a best-cad-mcp tool.
+- Understanding tools, validation tools, grounding tools, resources, prompts,
+  and dry-runs must not modify the DWG.
+- Editing requires an explicit editing tool call or `execute_cad_plan` with
+  `allow_modify=True`.
+- Treat `send_command`, modal plotting, screen-pick tools, purge, erase,
+  password, close, and global undo/redo as unsafe unless the user specifically
+  requested that operation.
+- Keep model-only labels in SQLite with spatial annotations or semantic objects;
+  do not add helper labels, hidden layers, XData, blocks, or visible marks to
+  the DWG for agent memory.
 
-## Vision Verification
+## Existing Drawing Understanding Workflow
 
-Vision-capable models may inspect the current CAD state at any time:
+Use this sequence before editing an existing assembly drawing:
 
-1. Use `export_view_image(filepath=None, zoom_extents_first=False)` to export the current AutoCAD view as a model-facing review artifact. When no path is supplied, the MCP writes a timestamped WMF under `cad_visual_exports/`.
-2. Use `zoom_extents_first=True` only when the whole drawing should be framed before export. Otherwise preserve the user's current view.
-3. Treat the export as review output only. Do not create helper geometry, hidden layers, XData, blocks, or labels in the DWG just so the model can see or remember something.
-4. If a raster PNG/JPG is required, say that this MCP's reliable COM image path is WMF; use `export_pdf` plus external rendering where available.
-5. After visually inspecting an export, record important handles, regions, or assumptions in the response or with model-private spatial annotations.
+1. `open_drawing` only when the user provides a DWG to open.
+2. `scan_all_entities(clear_db=True, detail_level="minimal", topology_detail="summary")`.
+3. `build_drawing_ir`.
+4. `summarize_drawing(level="normal")`; use `level="deep"` when a full IR is
+   useful in the response.
+5. `detect_semantic_objects(domain="mechanical")`.
+6. `extract_drawing_constraints`.
+7. `validate_geometry`.
+8. `export_view_image_with_mapping(include_overlay=True)` when visual review,
+   VLM review, or grounding is useful.
+9. `explain_entity(handle)` before precise edits to any ambiguous handle.
 
-## Model-Private Spatial Annotations
+Use `scan_all_entities(topology_detail="full")` only when primitive/relation
+topology is needed for selected geometry. The default summary topology is the
+large-drawing-safe survey mode.
 
-Use the Pointer-CAD idea of explicit references to geometry, but keep the references in MCP metadata rather than the user's drawing.
+## CAD Understanding Tools
 
-- Use `add_spatial_annotation` to label an entity handle, derived primitive key, point, bbox, area, view, or group with a model-only label such as `base plate`, `bolt-hole pattern`, `target face`, or `section cut region`.
-- Use `list_spatial_annotations` to recover those labels after scans or long multi-step work.
-- Use `clear_spatial_annotations` only to remove model-private context. It does not erase DWG entities.
-- `scan_all_entities(clear_db=True)` preserves model-private annotations by default and derives lightweight topology summaries by default. Pass `clear_annotations=True` only when stale model memory should be discarded.
-- Do not use visible text, nonplot layers, XData, extension dictionaries, groups, or blocks for model memory unless the user explicitly wants persistent CAD metadata in the DWG.
+- `build_drawing_ir`: get a stable JSON CAD intermediate representation with
+  native handles, layers, blocks, topology, semantic objects, constraints,
+  validation, and view snapshots.
+- `summarize_drawing`: get agent-oriented drawing/domain/entity/layer/block
+  summaries and recommended next tools.
+- `find_entities_by_description`: lexical/rule-based search over type, layer,
+  block/text content, annotations, bbox position, and simple geometric terms.
+- `explain_entity`: inspect one handle, related topology, nearby entities,
+  annotations, dimensions, and semantic guess.
+- `analyze_drawing_intent`: infer mechanical, architecture, electrical,
+  structural, or generic domain from evidence.
+- `detect_semantic_objects`: write rule-based semantic objects to SQLite only.
+- `get_semantic_graph` / `find_semantic_objects`: recover semantic object IDs,
+  handles, evidence, confidence, and relations.
+- `extract_drawing_constraints`, `check_drawing_constraints`,
+  `get_drawing_constraints`: manage radius, diameter, distance, parallel,
+  perpendicular, concentric, coincident endpoint, closed profile, repeated
+  pattern, and dimension constraints. Unknown dimension binding must remain
+  `status="unknown"`.
+- `validate_geometry` / `get_validation_report`: produce structured issue
+  reports with severity, handles, evidence, repair hints, and suggested tools.
+- `propose_repair_plan`: create a non-executing repair plan from issue IDs.
+- `list_cad_resources` / `get_cad_resource`: retrieve current summary, IR,
+  topology, semantic graph, constraints, validation report, and tool guide.
 
-## Verified Boundaries
+## VLM Grounding Workflow
 
-Default-safe tool families include drawing primitives, layers, filtered text search/replace, tables, blocks, most dimensions, hatches except gradient, query/database tools, noninteractive selections, views/layouts/viewports, solids, materials, UCS/named views, hyperlinks, XData, preferences, `export_pdf`/`export_dxf`/`export_dwf`, WMF `export_image`, and `export_view_image`.
+1. Call `export_view_image_with_mapping(include_overlay=True)`.
+2. Give the clean export, overlay export, and sidecar JSON to the VLM.
+3. Require VLM output with pixel bbox or overlay ID, issue type, confidence,
+   evidence, and any claimed handle.
+4. Call `ground_vlm_region(snapshot_id, bbox)` for each VLM bbox.
+5. Call `explain_entity` on top candidates before proposing edits.
+6. Convert confirmed issues into `propose_repair_plan` or a user-reviewed
+   `CADPlan`.
 
-Avoid by default:
+The first view mapper is most reliable for top/plan views. For twisted, UCS, or
+3D views, keep the warnings in the final reasoning and avoid claiming exact
+grounding beyond the returned confidence.
 
-- Lifecycle/security: `create_new_drawing`, `save_drawing`, `close_drawing`, `restart_mcp`, `set_drawing_password`. Use `open_drawing` only when opening a user-specified DWG is the task.
-- Interactive or command-state-sensitive: `send_command`, `select_on_screen`, `break_entity`, `stretch_entities`, `lengthen_entity`, `align_entities`, `add_baseline_dimension`, `add_continue_dimension`, `undo`, `redo`.
-- Modal plotting: `plot_to_device`, `plot_to_file`, `plot_preview`.
-- Destructive global state: `purge_drawing`, `delete_selection_set`, `erase_selection_entities`.
-- Preconditions/version-sensitive: `add_shape`, `set_entity_plot_style`, `unload_xref`, `reload_xref`, `hatch_set_gradient`.
+## Safe Plan Workflow
 
-Large drawing rules:
+Use a `CADPlan` for multi-step drawing or repair:
 
-- Use `isolate_layer` and `unisolate_layers`; do not hand-roll full layer-table loops.
-- Use `scan_all_entities(clear_db=True, detail_level="minimal", topology_detail="summary")` as the default survey. It records handles, layers, bbox data, and `cad_topology_summary` rows without expensive primitive/relation extraction. Use `topology_detail="full"` only when `get_entity_topology` must include starts_at/ends_at/bounded_by-style primitive relations.
-- Do not set `derive_topology=False` for recognition workflows unless the user only needs raw handle/type/layer inventory; without at least summary topology, agents lose useful geometric structure.
-- Use `find_text` and `replace_text`; they use filtered text selection. Do not scan all `ModelSpace.Item(i)` entries for text.
-- `select_all` may return a handle sample instead of creating a huge global selection set. Use area/window/crossing/query tools for precise bulk operations.
-- Use `get_xrefs` for xref listing instead of filtering `get_all_blocks`.
-- For paper-space work, create or obtain a real viewport handle with `add_viewport` or `get_viewports` before `set_viewport_properties`.
-- Prefer `export_pdf` for print review, `export_view_image` for visual-model inspection, `export_dxf` for exchange, and `export_dwf` only when a DWF deliverable is needed.
+1. Build a plan with high-level operations and explicit args.
+2. `validate_cad_plan`.
+3. `dry_run_cad_plan`.
+4. Ask for explicit modification permission when the user has not already
+   granted it.
+5. `execute_cad_plan(plan, allow_modify=True)`.
+6. `scan_all_entities`.
+7. `validate_geometry`.
+8. `export_view_image_with_mapping` for visual confirmation.
 
-## Workflow
+Plans must fail validation for unknown operations. `send_command` is disallowed
+by default. Dry-run is static and must not call AutoCAD.
 
-1. Clarify deliverable: outline assembly, sectioned assembly, exploded view, installation sheet, repair sheet, or subassembly.
-2. Inspect state: `get_document_info`, `get_active_space_info`, `get_variable("INSUNITS")`; for existing DWGs, run `scan_all_entities(clear_db=True, detail_level="minimal", topology_detail="summary")` and `get_entity_statistics`.
-3. For unclear existing drawings, combine SQL/topology-summary inspection with `export_view_image`; rerun with `topology_detail="full"` only for the relevant scope when primitive/relation topology is needed. Then add model-private labels for important handles or regions.
-4. Plan sheet: units, sheet size, scale, projection method, view set, title block, BOM location, layers, text style, dimension style, and assumptions.
-5. Build a component register before geometry: item number, part code, name, quantity, material/spec, standard/purchased/custom status, drawing/detail reference, and notes.
-6. Draw in batches with high-level tools, record handles, then verify before continuing.
-7. Add BOM, balloons, leaders, dimensions, hatches, and notes only after the component register and views are stable.
-8. Layout with viewports, lock viewport display, audit, export, and report verification evidence.
+## Assembly Drafting Rules
 
-## Assembly Tool Choices
+- Plates and rectangular parts: `draw_rectangle`.
+- Regular nuts/forms: `draw_polygon`.
+- Washers/gaskets/rings: `draw_donut`.
+- Repeated parts: `create_block`, `insert_block`, `array_rectangular`,
+  `array_polar`, or `insert_minsert_block`.
+- 3D forms: `draw_box`, `draw_cylinder`, `draw_torus`, `add_region`,
+  `extrude_region`, `revolve_region`, `solid_boolean`.
+- Sections: `add_hatch`, `hatch_add_boundary`, `hatch_add_inner_loop`,
+  `hatch_set_properties`; avoid gradient hatches by default.
+- Edits by handle: `move_entity`, `rotate_entity`, `offset_entity`,
+  `mirror_entity`, `trim_entity`, `extend_entity`, `fillet_entities`,
+  `chamfer_entities`.
+- Dimensions: use real dimension entities such as `add_linear_dimension`,
+  `add_radial_dimension`, `add_diametric_dimension`, `add_angular_dimension`,
+  and `add_qdim`; never fake dimensions with text and lines.
+- BOMs: create the parts list with `add_table`, fill with `edit_table_cell`,
+  and ensure every balloon maps to one BOM row.
+- Balloons/leaders: prefer `add_mleader`. If circular balloons are required,
+  create one consistent circle/text/leader unit and block or group it.
 
-- Plates and rectangular parts: `draw_rectangle`; regular nuts/forms: `draw_polygon`; washers/gaskets: `draw_donut`.
-- Profiles: `draw_polyline`, bulge/width tools, or `draw_spline`.
-- Repeated parts: `create_block`, `insert_block`, `insert_block_with_attributes`, `array_rectangular`, `array_polar`, `insert_minsert_block`.
-- 3D forms: `draw_box`, `draw_cylinder`, `draw_torus`, `add_region`, `extrude_region`, `extrude_region_along_path`, `revolve_region`, `solid_boolean`, `check_interference`.
-- Sections: `add_hatch`, `hatch_add_boundary`, `hatch_add_inner_loop`, `hatch_set_properties`; do not use gradient hatches by default.
-- Edits by handle: `move_entity`, `rotate_entity`, `offset_entity`, `mirror_entity`, `trim_entity`, `extend_entity`, `fillet_entities`, `chamfer_entities`.
-- Dimensions: use dimension entities, not plain text. Prefer `add_linear_dimension`, `add_rotated_dimension`, `add_radial_dimension`, `add_diametric_dimension`, `add_angular_dimension`, `add_3point_angular_dimension`, and `add_qdim`.
+## Verification Checklist
 
-## BOM And Balloons
+Before reporting completion:
 
-Create the parts list with `add_table`; fill it with `edit_table_cell`. Minimum columns: item, part/reference number, description/name, quantity, material/specification, and notes. For Chinese/GB-style deliverables, use item number, drawing/standard code, name, quantity, material, weight, and remarks where appropriate.
-
-Use `add_mleader` for item callouts. If circular balloons are required and no dedicated balloon tool exists, draw one consistent circle/text/leader unit and group or block it. Keep leaders outside part outlines where possible, avoid crossings, and ensure every balloon number maps to exactly one BOM row.
-
-Before dimensioning, verify:
-
-- Every BOM row has a visible part or subassembly representation.
-- Every balloon item number exists in the BOM.
-- Identical reused parts share one item number.
-- BOM quantities match block/array/pattern counts.
-
-## Layout And Export
-
-Use layouts and viewports instead of scaling model geometry to paper:
-
-1. `create_layout` or `set_active_layout`.
-2. Draw or insert title block and frame.
-3. `add_viewport`.
-4. `set_viewport_properties(display_locked=True, custom_scale=...)`.
-5. Check `get_plot_devices`, `get_plot_style_tables`, and `get_plot_configurations`.
-6. `zoom_extents`, `audit_drawing`, and `export_view_image` when a visual model should confirm the sheet.
-7. Export with `export_pdf`, `export_dxf`, `export_dwf`, or WMF `export_image`.
+- Document info, active space, and units inspected.
+- Existing drawing scanned and summarized.
+- CAD-IR built without leaking scoped internal keys.
+- Semantic objects detected for mechanical assemblies.
+- Constraints extracted and checked; uncertain dimensions called out.
+- Validation report generated and important issues handled or reported.
+- VLM/export grounding used when visual confirmation matters.
+- All intended edits executed by handle and followed by rescan.
+- BOM quantities match visible repeated parts, blocks, arrays, or patterns.
+- Balloons match BOM item numbers.
+- Final export path, layout, key handles, validation evidence, and unresolved
+  assumptions are included in the response.
 
 ## Recovery
 
-- If a tool times out, assume AutoCAD may still be waiting or plotting. Stop the batch, check idle state, and retry only the failed MCP tool once.
-- If COM calls are rejected, wait for idle and confirm document/handles before retrying.
-- If a wrapper asks AutoCAD to prompt for input, stop and supply complete arguments or fix the wrapper.
-- Clean up only temporary MCP artifacts with known `MCP_` prefixes. Do not purge, erase, close, save over, or password-protect the user's drawing without explicit instruction.
-
-## Completion Report
-
-Report the active document/layout, drawing/export paths, view types, layers/styles, BOM columns, item count, key handles or handle-register location, model-private spatial annotations used, visual export paths inspected, verification calls, skipped/risky tools avoided, and unresolved assumptions.
+- If AutoCAD is busy or COM rejects calls, stop the batch, wait for idle, and
+  retry only the failed MCP tool once.
+- If a tool prompts for input, stop and supply complete arguments or fix the
+  wrapper.
+- If VLM grounding is ambiguous, keep multiple candidate handles and ask for
+  confirmation before editing.
+- Clean only known temporary MCP artifacts. Do not purge, erase, save over,
+  close, or password-protect the user's drawing without explicit instruction.

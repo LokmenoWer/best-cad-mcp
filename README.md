@@ -148,6 +148,148 @@ variables before launch.
 6. Use `export_view_image` when visual verification is useful.
 7. Save or export the final DWG/PDF/DXF/DWF as needed.
 
+## CAD Understanding Layer
+
+`best-cad-mcp` now includes an additive CAD Understanding Layer on top of the
+existing AutoCAD COM controller and scanned SQLite metadata. New understanding
+tools return structured `ToolResult` dictionaries:
+
+```json
+{
+  "ok": true,
+  "message": "",
+  "data": {},
+  "handles": [],
+  "warnings": [],
+  "next_tools": []
+}
+```
+
+Understanding, search, validation, grounding, and dry-run tools do not modify
+the DWG. Semantic objects, constraints, validation reports, and view snapshots
+are stored in SQLite using the same workspace/drawing/conversation/thread
+scope as the existing metadata.
+
+## CAD-IR Schema
+
+Use `build_drawing_ir` to build a JSON CAD intermediate representation with:
+
+- Drawing metadata: `drawing_id`, name, path, units, extents, counts.
+- `entities`: native AutoCAD handles, object/type/layer/color/linetype,
+  visibility, bounding boxes, geometry, properties, topology refs, semantic
+  tags, source, and confidence.
+- `layers` and `blocks`: scoped layer and block summaries.
+- `topology`: primitive, relation, and summary rows derived from scanned
+  geometry.
+- `semantic_objects`, `semantic_relations`, `constraints`, `validation`, and
+  `views`: cached understanding outputs.
+
+The IR exposes native handles for agent use and avoids leaking scoped internal
+SQLite keys.
+
+## Semantic Graph And Constraints
+
+`detect_semantic_objects` is deterministic and rule-based in this first
+version. It can identify closed profiles, circle features or holes, repeated
+circle patterns, hatches or section regions, dimension annotations, text
+annotations, block instances, and domain-specific candidates for mechanical,
+architecture, and electrical drawings.
+
+`extract_drawing_constraints` writes constraints to SQLite, including radius,
+diameter, line distance, parallel, perpendicular, concentric, coincident
+endpoint, closed profile, repeated pattern count, and scanned dimension
+constraints. Dimension constraints remain `status="unknown"` when binding the
+dimension entity to measured geometry is ambiguous.
+
+## Validation Report
+
+`validate_geometry` creates a structured report with issue IDs, severity,
+handles, evidence, repair hints, and suggested tools. Initial checks cover
+zero-length lines, duplicate entities, tiny endpoint gaps, unclosed polylines,
+overlapping lines, missing dimension candidates, dimension mismatches,
+empty layers, out-of-extents geometry, and empty or unresolved blocks.
+
+`propose_repair_plan` returns a plan only; it does not execute changes.
+
+## VLM Visual Grounding Workflow
+
+`export_view_image_with_mapping` extends the existing visual export workflow by
+writing a sidecar JSON mapping between view pixels, world coordinates, visible
+handles, and entity screen bounding boxes. It can also create an overlay review
+artifact with numeric IDs mapped back to handles.
+
+Use `ground_vlm_region(snapshot_id, bbox)` when a vision model reports a pixel
+region. The tool ranks likely AutoCAD handles using overlap and distance
+against the mapped entity screen boxes.
+
+Current mapping is most reliable for top/plan views. Rotated, twisted, UCS, and
+3D views are handled as first-version approximations with warnings.
+
+## Safe CAD Plan Workflow
+
+The plan DSL supports `validate_cad_plan`, `dry_run_cad_plan`, and
+`execute_cad_plan`.
+
+- Unknown operations fail validation.
+- `send_command` is disallowed by default.
+- Dry-run never calls AutoCAD and never modifies the DWG.
+- Execution refuses to run unless `allow_modify=True`.
+- Execution routes through known existing MCP tool implementations.
+
+## Recommended Understanding Workflows
+
+For an existing DWG:
+
+1. `open_drawing`
+2. `scan_all_entities`
+3. `build_drawing_ir`
+4. `summarize_drawing`
+5. `detect_semantic_objects`
+6. `extract_drawing_constraints`
+7. `validate_geometry`
+8. `export_view_image_with_mapping`
+9. `ground_vlm_region` if using a VLM
+10. `propose_repair_plan`
+11. `dry_run_cad_plan`
+12. `execute_cad_plan` only with explicit modification permission
+
+For generating a new drawing:
+
+1. `create_new_drawing`
+2. Create a `CADPlan`
+3. `validate_cad_plan`
+4. `dry_run_cad_plan`
+5. `execute_cad_plan` with `allow_modify=True`
+6. `scan_all_entities`
+7. `validate_geometry`
+8. `export_view_image_with_mapping`
+9. Save or export
+
+Example mechanical review:
+
+1. `build_drawing_ir(rescan=True)`
+2. `summarize_drawing(level="deep")`
+3. `detect_semantic_objects(domain="mechanical")`
+4. `extract_drawing_constraints`
+5. `validate_geometry`
+6. `export_view_image_with_mapping(include_overlay=True)`
+7. VLM returns a bbox or overlay ID for a wrong hole
+8. `ground_vlm_region`
+9. `explain_entity`
+10. `propose_repair_plan`
+11. `dry_run_cad_plan`
+12. `execute_cad_plan(..., allow_modify=True)`
+13. `validate_geometry`
+
+## Limitations
+
+- Semantic detection is rule-based; no embedding search is implemented yet.
+- View mapping is initially best for plan/top views.
+- Dimension binding may be uncertain and should be interpreted through
+  confidence, evidence, and `status`.
+- Understanding tools operate on scanned metadata, so call `scan_all_entities`
+  after external edits or plan execution.
+
 ## Runtime Files
 
 The server may create these files under the active workspace:

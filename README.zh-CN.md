@@ -136,6 +136,125 @@ cad-mcp
 6. 需要视觉确认时，用 `export_view_image` 输出审阅图。
 7. 最后保存或导出 DWG/PDF/DXF/DWF。
 
+## CAD 理解层
+
+本项目新增了一个增量式 CAD Understanding Layer，位于现有 AutoCAD COM
+控制器、扫描工具、SQLite 元数据、拓扑表、私有空间标注和视觉导出流程之上。
+新理解工具统一返回结构化 `ToolResult`：
+
+```json
+{
+  "ok": true,
+  "message": "",
+  "data": {},
+  "handles": [],
+  "warnings": [],
+  "next_tools": []
+}
+```
+
+理解、查询、分析、验证、视觉 grounding 和 dry-run 工具不会修改 DWG。
+语义对象、约束、验证报告、视图快照和 VLM 映射信息只写入 SQLite，并继续使用
+workspace/drawing/conversation/thread 作用域。
+
+## CAD-IR Schema
+
+`build_drawing_ir` 会生成稳定 JSON 中间表示，包含 drawing metadata、native
+AutoCAD handles、entities、layers、blocks、topology primitives/relations、
+semantic objects、constraints、validation report 和 mapped views。IR 对 agent
+暴露原生 handle，不暴露内部 scoped SQLite key。
+
+## 语义图和约束
+
+`detect_semantic_objects` 目前是确定性的规则检测，可识别 closed profile、
+circle feature/hole、repeated circle pattern、hatch/section region、
+dimension annotation、text annotation、block instance，以及 mechanical、
+architecture、electrical 领域候选对象。
+
+`extract_drawing_constraints` 会提取 radius、diameter、distance、parallel、
+perpendicular、concentric、coincident endpoint、closed profile、repeated
+pattern count 和扫描到的 dimension 约束。如果 dimension 与真实几何的绑定不确定，
+工具会返回 `status="unknown"`、较低 confidence 和 evidence，而不会假装满足。
+
+## 验证报告
+
+`validate_geometry` 返回包含 issue_id、severity、handles、evidence、repair_hint
+和 suggested_tools 的结构化报告。首版检查包括 zero-length lines、duplicate
+entities、tiny endpoint gaps、unclosed polylines、overlapping lines、missing
+dimension candidates、dimension mismatches、empty layer、out-of-extents
+geometry 和 empty/unresolved blocks。
+
+`propose_repair_plan` 只提出计划，不执行修改。
+
+## VLM 视觉 Grounding 流程
+
+`export_view_image_with_mapping` 在现有 `export_view_image` 基础上生成 sidecar
+JSON，包含 image path、overlay image path、view 参数、world_to_pixel、
+pixel_to_world、visible handles 和 entity screen bounding boxes。VLM 返回像素
+bbox 后，调用 `ground_vlm_region(snapshot_id, bbox)` 可按 overlap/distance
+排序映射到可能的 AutoCAD handles。
+
+首版 view mapping 最适合 top/plan view；旋转、UCS、twist 和 3D view 会返回
+近似结果和 warnings。
+
+## 安全 Plan / Dry-run / Execute
+
+`validate_cad_plan` 校验 CADPlan，未知 op 会失败，`send_command` 默认禁止。
+`dry_run_cad_plan` 不调用 AutoCAD，不修改 DWG。`execute_cad_plan` 只有在
+`allow_modify=True` 时才会执行，并且只通过已知安全 MCP 工具实现。
+
+## 推荐 Agent Workflow
+
+现有 DWG：
+
+1. `open_drawing`
+2. `scan_all_entities`
+3. `build_drawing_ir`
+4. `summarize_drawing`
+5. `detect_semantic_objects`
+6. `extract_drawing_constraints`
+7. `validate_geometry`
+8. `export_view_image_with_mapping`
+9. 使用 VLM 时调用 `ground_vlm_region`
+10. `propose_repair_plan`
+11. `dry_run_cad_plan`
+12. 只有明确允许修改时调用 `execute_cad_plan`
+
+生成新图：
+
+1. `create_new_drawing`
+2. 创建 `CADPlan`
+3. `validate_cad_plan`
+4. `dry_run_cad_plan`
+5. `execute_cad_plan(..., allow_modify=True)`
+6. `scan_all_entities`
+7. `validate_geometry`
+8. `export_view_image_with_mapping`
+9. save/export
+
+机械图审查示例：
+
+1. `build_drawing_ir(rescan=True)`
+2. `summarize_drawing(level="deep")`
+3. `detect_semantic_objects(domain="mechanical")`
+4. `extract_drawing_constraints`
+5. `validate_geometry`
+6. `export_view_image_with_mapping(include_overlay=True)`
+7. VLM 返回错误孔位 bbox 或 overlay ID
+8. `ground_vlm_region`
+9. `explain_entity`
+10. `propose_repair_plan`
+11. `dry_run_cad_plan`
+12. `execute_cad_plan(..., allow_modify=True)`
+13. `validate_geometry`
+
+## 限制
+
+- 语义检测首版是规则系统，不包含 embedding search。
+- view mapping 首版最适合 plan/top view。
+- dimension binding 可能不确定，请结合 confidence、evidence 和 status 使用。
+- 理解层基于扫描元数据；外部编辑或 plan execution 后应重新 `scan_all_entities`。
+
 ## 运行时文件
 
 服务可能在 workspace 下生成：

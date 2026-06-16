@@ -410,6 +410,15 @@ from src.cad_tools import advanced_tools
 from src.cad_tools import polyline_tools
 from src.cad_tools import hatch_tools
 from src.cad_tools import attribute_tools
+from src.cad_understanding import analysis as understanding_analysis
+from src.cad_understanding import constraints as understanding_constraints
+from src.cad_understanding import ir_builder as understanding_ir_builder
+from src.cad_understanding import plan as understanding_plan
+from src.cad_understanding import resources as understanding_resources
+from src.cad_understanding import semantic_graph as understanding_semantic
+from src.cad_understanding import validators as understanding_validators
+from src.cad_understanding import view_grounding as understanding_view
+from src.cad_understanding.result import ok_result
 
 # Initialize subsystems
 from src.cad_controller import get_controller
@@ -4407,6 +4416,304 @@ def polyline_get_segment_type(ctx: Context, handle: str,
     return polyline_tools.polyline_get_segment_type(handle, index)
 
 
+# =================================================================================================
+#  CAD UNDERSTANDING TOOLS
+# =================================================================================================
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def build_drawing_ir(ctx: Context, rescan: bool = False) -> Dict[str, Any]:
+    """Build a structured CAD intermediate representation from scanned metadata."""
+    drawing_ir = understanding_ir_builder.build_drawing_ir(rescan=rescan)
+    return ok_result(
+        "Built CAD drawing IR.",
+        data={"drawing_ir": drawing_ir},
+        handles=[entity["handle"] for entity in drawing_ir.get("entities", []) if entity.get("handle")],
+        warnings=["Called scan_all_entities first because rescan=True."] if rescan else [],
+        next_tools=["summarize_drawing", "detect_semantic_objects", "validate_geometry"],
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def export_drawing_ir(ctx: Context, filepath: str, rescan: bool = False) -> Dict[str, Any]:
+    """Export the current CAD-IR as JSON without modifying the DWG."""
+    exported = understanding_ir_builder.export_drawing_ir(filepath, rescan=rescan)
+    return ok_result(
+        "Exported CAD drawing IR.",
+        data=exported,
+        handles=[entity["handle"] for entity in exported["drawing_ir"].get("entities", []) if entity.get("handle")],
+        next_tools=["summarize_drawing", "validate_geometry"],
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def summarize_drawing(ctx: Context, level: str = "normal") -> Dict[str, Any]:
+    """Summarize scanned drawing metadata for an agent."""
+    return understanding_analysis.summarize_drawing(level=level)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def explain_entity(ctx: Context, handle: str) -> Dict[str, Any]:
+    """Explain one scanned entity, including topology, nearby entities, and annotations."""
+    return understanding_analysis.explain_entity(handle)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def find_entities_by_description(ctx: Context, query: str,
+                                 top_k: int = 20) -> Dict[str, Any]:
+    """Find scanned entities with rule-based lexical and spatial matching."""
+    return understanding_analysis.find_entities_by_description(query, top_k=top_k)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def analyze_drawing_intent(ctx: Context,
+                           domain_hint: Optional[str] = None) -> Dict[str, Any]:
+    """Infer likely CAD drawing domain from scanned metadata."""
+    return understanding_analysis.analyze_drawing_intent(domain_hint=domain_hint)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
+def detect_semantic_objects(ctx: Context, domain: str = "generic") -> Dict[str, Any]:
+    """Detect rule-based semantic CAD objects and store them in SQLite only."""
+    return understanding_semantic.detect_semantic_objects(domain=domain)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def get_semantic_graph(ctx: Context) -> Dict[str, Any]:
+    """Return the current SQLite-backed semantic graph."""
+    return understanding_semantic.get_semantic_graph()
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def find_semantic_objects(ctx: Context,
+                          object_type: Optional[str] = None,
+                          label_query: Optional[str] = None,
+                          top_k: int = 20) -> Dict[str, Any]:
+    """Search detected semantic objects by type or label."""
+    return understanding_semantic.find_semantic_objects(
+        object_type=object_type,
+        label_query=label_query,
+        top_k=top_k,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
+def extract_drawing_constraints(ctx: Context) -> Dict[str, Any]:
+    """Extract dimension and rule-based geometric constraints into SQLite."""
+    return understanding_constraints.extract_drawing_constraints()
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
+def check_drawing_constraints(ctx: Context,
+                              tolerance: float = 1e-6) -> Dict[str, Any]:
+    """Check extracted constraints without modifying the DWG."""
+    return understanding_constraints.check_constraint_satisfaction(tolerance=tolerance)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def get_drawing_constraints(ctx: Context,
+                            status: Optional[str] = None) -> Dict[str, Any]:
+    """List extracted constraints, optionally filtered by status."""
+    return understanding_constraints.get_constraints(status=status)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
+def validate_geometry(ctx: Context,
+                      checks: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Create a geometry validation report from scanned metadata."""
+    return understanding_validators.validate_geometry(checks=checks)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def get_validation_report(ctx: Context) -> Dict[str, Any]:
+    """Return the latest cached validation report."""
+    return understanding_validators.get_validation_report()
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def propose_repair_plan(ctx: Context,
+                        issue_ids: List[str]) -> Dict[str, Any]:
+    """Propose a non-executing CAD repair plan for validation issues."""
+    return understanding_validators.propose_repair_plan(issue_ids=issue_ids)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
+def export_view_image_with_mapping(ctx: Context,
+                                   filepath: Optional[str] = None,
+                                   include_overlay: bool = True,
+                                   include_entity_bboxes: bool = True) -> Dict[str, Any]:
+    """Export a view artifact plus sidecar world/pixel/entity mapping."""
+    return understanding_view.export_view_image_with_mapping(
+        filepath=filepath,
+        include_overlay=include_overlay,
+        include_entity_bboxes=include_entity_bboxes,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def get_visible_entities_in_view(ctx: Context, snapshot_id: str) -> Dict[str, Any]:
+    """List handles visible in a mapped view snapshot."""
+    return understanding_view.get_visible_entities_in_view(snapshot_id)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def map_pixel_to_world(ctx: Context, snapshot_id: str,
+                       x: float, y: float) -> Dict[str, Any]:
+    """Map snapshot pixel coordinates to approximate world coordinates."""
+    return understanding_view.map_pixel_to_world(snapshot_id, x, y)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def map_world_to_pixel(ctx: Context, snapshot_id: str,
+                       x: float, y: float, z: float = 0.0) -> Dict[str, Any]:
+    """Map world coordinates to snapshot pixel coordinates."""
+    return understanding_view.map_world_to_pixel(snapshot_id, x, y, z)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def ground_vlm_region(ctx: Context, snapshot_id: str,
+                      bbox: List[float],
+                      top_k: int = 10) -> Dict[str, Any]:
+    """Ground a VLM pixel bbox to likely AutoCAD handles from a mapped snapshot."""
+    return understanding_view.ground_vlm_region(snapshot_id, bbox, top_k=top_k)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def validate_cad_plan(ctx: Context, plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate a guarded CAD plan without modifying the DWG."""
+    return understanding_plan.validate_cad_plan(plan)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def dry_run_cad_plan(ctx: Context, plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Dry-run a guarded CAD plan without modifying the DWG."""
+    return understanding_plan.dry_run_cad_plan(plan)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
+)
+def execute_cad_plan(ctx: Context, plan: Dict[str, Any],
+                     allow_modify: bool = False) -> Dict[str, Any]:
+    """Execute a guarded CAD plan only when allow_modify=True."""
+    return understanding_plan.execute_cad_plan(plan, allow_modify=allow_modify)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def list_cad_resources(ctx: Context) -> Dict[str, Any]:
+    """List CAD understanding resource URIs."""
+    return understanding_resources.list_cad_resources()
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def get_cad_resource(ctx: Context, uri: str) -> Dict[str, Any]:
+    """Return a read-only CAD understanding resource by URI."""
+    return understanding_resources.get_cad_resource(uri)
+
+
+@mcp.resource("cad://workspace/context",
+              name="CAD Workspace Context",
+              mime_type="application/json")
+def cad_workspace_context_resource() -> str:
+    return understanding_resources.get_resource_json("cad://workspace/context")
+
+
+@mcp.resource("cad://drawing/current/summary",
+              name="Current Drawing Summary",
+              mime_type="application/json")
+def cad_current_drawing_summary_resource() -> str:
+    return understanding_resources.get_resource_json("cad://drawing/current/summary")
+
+
+@mcp.resource("cad://drawing/current/ir",
+              name="Current Drawing CAD-IR",
+              mime_type="application/json")
+def cad_current_drawing_ir_resource() -> str:
+    return understanding_resources.get_resource_json("cad://drawing/current/ir")
+
+
+@mcp.resource("cad://drawing/current/topology",
+              name="Current Drawing Topology",
+              mime_type="application/json")
+def cad_current_drawing_topology_resource() -> str:
+    return understanding_resources.get_resource_json("cad://drawing/current/topology")
+
+
+@mcp.resource("cad://drawing/current/semantic-graph",
+              name="Current Drawing Semantic Graph",
+              mime_type="application/json")
+def cad_current_semantic_graph_resource() -> str:
+    return understanding_resources.get_resource_json("cad://drawing/current/semantic-graph")
+
+
+@mcp.resource("cad://drawing/current/constraints",
+              name="Current Drawing Constraints",
+              mime_type="application/json")
+def cad_current_constraints_resource() -> str:
+    return understanding_resources.get_resource_json("cad://drawing/current/constraints")
+
+
+@mcp.resource("cad://drawing/current/validation-report",
+              name="Current Drawing Validation Report",
+              mime_type="application/json")
+def cad_current_validation_report_resource() -> str:
+    return understanding_resources.get_resource_json("cad://drawing/current/validation-report")
+
+
+@mcp.resource("cad://drawing/current/tool-guide",
+              name="CAD Understanding Tool Guide",
+              mime_type="application/json")
+def cad_understanding_tool_guide_resource() -> str:
+    return understanding_resources.get_resource_json("cad://drawing/current/tool-guide")
+
+
 # ══════════════════════════════════════════════════════════════════
 #  PROMPTS
 # ══════════════════════════════════════════════════════════════════
@@ -4478,6 +4785,79 @@ create_layer("A-WINDOW", color=4)    # window layer
 create_layer("DIM-PLAN", color=5)    # plan dimensions
 create_layer("TEXT-NOTE", color=7)   # notes
 ```
+"""
+
+
+@mcp.prompt()
+def understand_existing_drawing() -> str:
+    """Workflow for safely understanding an existing DWG."""
+    return """## Understand Existing Drawing
+
+1. open_drawing if needed.
+2. scan_all_entities.
+3. build_drawing_ir.
+4. summarize_drawing.
+5. detect_semantic_objects.
+6. extract_drawing_constraints.
+7. validate_geometry.
+8. export_view_image_with_mapping when visual review helps.
+
+Do not modify the DWG during understanding. Use handles, evidence,
+confidence, warnings, and recommended next tools from each structured result.
+"""
+
+
+@mcp.prompt()
+def precise_draw_from_spec() -> str:
+    """Workflow for precise CAD generation through a guarded plan."""
+    return """## Precise Draw From Spec
+
+1. Analyze the spec.
+2. Create a CADPlan using high-level tools.
+3. validate_cad_plan.
+4. dry_run_cad_plan.
+5. execute_cad_plan only after explicit permission with allow_modify=True.
+6. scan_all_entities.
+7. validate_geometry.
+8. export_view_image_with_mapping.
+
+Do not put send_command in a plan unless the user explicitly approves a
+dangerous operation.
+"""
+
+
+@mcp.prompt()
+def vlm_review_drawing() -> str:
+    """Workflow for VLM-backed drawing review and grounding."""
+    return """## VLM Review Drawing
+
+1. export_view_image_with_mapping(include_overlay=True).
+2. Give the clean artifact, overlay artifact, and sidecar JSON to the VLM.
+3. Require VLM JSON with overlay IDs, handles, pixel bbox, issue type,
+   confidence, and evidence.
+4. ground_vlm_region for each VLM bbox.
+5. explain_entity for likely handles.
+6. propose_repair_plan for selected issues.
+
+Do not create visible helper geometry in the DWG for review annotations.
+"""
+
+
+@mcp.prompt()
+def repair_drawing() -> str:
+    """Workflow for validation-led drawing repair."""
+    return """## Repair Drawing
+
+1. validate_geometry.
+2. propose_repair_plan.
+3. validate_cad_plan.
+4. dry_run_cad_plan.
+5. execute_cad_plan only after explicit permission with allow_modify=True.
+6. scan_all_entities.
+7. validate_geometry again.
+8. export_view_image_with_mapping.
+
+Analysis, validation, grounding, and dry-run must not modify the DWG.
 """
 
 
