@@ -21,6 +21,11 @@ venv/
 # Project-specific (generated at runtime in Agent's working directory)
 autocad_data.db
 cad_mcp.log
+cad_visual_exports/
+autocad*_results.json
+autocad*_results_args/
+autocad_mcp_verify_results.json
+autocad_mcp_verify_results_args/
 
 # Pytest
 .pytest_cache/

@@ -1,13 +1,13 @@
 interface:
   display_name: "Assembly Drawing CAD"
-  short_description: "Draw complete assembly drawings step by step with best-cad-mcp"
-  default_prompt: "Use $draw-assembly-diagrams to create a standards-aware AutoCAD assembly drawing step by step with best-cad-mcp."
+  short_description: "Draw, visually verify, and label assembly CAD with best-cad-mcp"
+  default_prompt: "Use $draw-assembly-diagrams to create and visually verify a standards-aware AutoCAD assembly drawing with best-cad-mcp."
 
 dependencies:
   tools:
     - type: "mcp"
       value: "best-cad-mcp"
-      description: "AutoCAD MCP server with drawing, query, annotation, BOM/table, block, dimension, hatch, layout, and export tools."
+      description: "AutoCAD MCP server with drawing, query, model-private annotation, visual verification, BOM/table, block, dimension, hatch, layout, and export tools."
 
 policy:
   allow_implicit_invocation: true

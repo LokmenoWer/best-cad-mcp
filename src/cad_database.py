@@ -19,6 +19,7 @@ import json
 import math
 import os
 import logging
+import uuid
 from typing import Optional, List, Dict, Any, Tuple, Union
 from pathlib import Path
 from contextlib import contextmanager
@@ -156,6 +157,42 @@ class CADDatabase:
             ''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_topology_dim ON cad_topology_summary(dimensionality)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_topology_closed ON cad_topology_summary(is_closed)')
+
+            # Model-private annotations inspired by pointer-based CAD workflows.
+            # These marks are stored only in SQLite; no AutoCAD entities, layers,
+            # XData, or dictionaries are created in the user's drawing.
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS cad_spatial_annotations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    annotation_id TEXT UNIQUE NOT NULL,
+                    target_kind TEXT NOT NULL DEFAULT 'entity',
+                    label TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    entity_handle TEXT DEFAULT '',
+                    primitive_key TEXT DEFAULT '',
+                    x REAL,
+                    y REAL,
+                    z REAL,
+                    x2 REAL,
+                    y2 REAL,
+                    z2 REAL,
+                    bbox_min_x REAL,
+                    bbox_min_y REAL,
+                    bbox_max_x REAL,
+                    bbox_max_y REAL,
+                    confidence REAL DEFAULT 1.0,
+                    source TEXT DEFAULT 'model',
+                    hidden INTEGER DEFAULT 1,
+                    properties TEXT DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_annotations_id ON cad_spatial_annotations(annotation_id)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_annotations_label ON cad_spatial_annotations(label)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_annotations_target ON cad_spatial_annotations(target_kind)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_annotations_handle ON cad_spatial_annotations(entity_handle)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_annotations_bbox ON cad_spatial_annotations(bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y)')
 
             # Layer table
             c.execute('''
@@ -630,12 +667,166 @@ class CADDatabase:
             conn.execute("DELETE FROM cad_entities WHERE handle = ?", (handle,))
         return True
 
-    def clear_entities(self):
+    def clear_entities(self, clear_annotations: bool = False):
         with self._conn() as conn:
             conn.execute("DELETE FROM cad_geometry_relations")
             conn.execute("DELETE FROM cad_geometry_primitives")
             conn.execute("DELETE FROM cad_topology_summary")
             conn.execute("DELETE FROM cad_entities")
+            if clear_annotations:
+                conn.execute("DELETE FROM cad_spatial_annotations")
+
+    @staticmethod
+    def _coerce_optional_point(value: Any) -> Optional[Tuple[float, float, float]]:
+        if value is None:
+            return None
+        if not isinstance(value, (list, tuple)) or len(value) < 2:
+            raise ValueError("point must be a list/tuple with at least x and y")
+        return (
+            float(value[0]),
+            float(value[1]),
+            float(value[2]) if len(value) > 2 else 0.0,
+        )
+
+    @staticmethod
+    def _coerce_optional_bbox(value: Any) -> Optional[Tuple[float, float, float, float]]:
+        if value is None:
+            return None
+        if not isinstance(value, (list, tuple)) or len(value) < 4:
+            raise ValueError("bbox must contain [min_x, min_y, max_x, max_y]")
+        return (float(value[0]), float(value[1]), float(value[2]), float(value[3]))
+
+    def upsert_spatial_annotation(self, label: str, target_kind: str = "entity",
+                                  annotation_id: Optional[str] = None,
+                                  description: str = "",
+                                  entity_handle: Optional[str] = None,
+                                  primitive_key: Optional[str] = None,
+                                  point: Optional[List[float]] = None,
+                                  point2: Optional[List[float]] = None,
+                                  bbox: Optional[List[float]] = None,
+                                  confidence: float = 1.0,
+                                  source: str = "model",
+                                  properties: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Store a model-only spatial mark without modifying the DWG."""
+        clean_label = (label or "").strip()
+        if not clean_label:
+            raise ValueError("label is required")
+        clean_kind = (target_kind or "entity").strip().lower()
+        if clean_kind not in {"entity", "primitive", "point", "bbox", "area", "view", "group"}:
+            raise ValueError("target_kind must be entity, primitive, point, bbox, area, view, or group")
+        if not any([entity_handle, primitive_key, point, bbox, clean_kind in {"view", "group"}]):
+            raise ValueError("provide an entity handle, primitive key, point, bbox, view, or group target")
+
+        p1 = self._coerce_optional_point(point)
+        p2 = self._coerce_optional_point(point2)
+        bb = self._coerce_optional_bbox(bbox)
+        ann_id = (annotation_id or f"ann_{uuid.uuid4().hex[:12]}").strip()
+        props = properties or {}
+
+        with self._conn() as conn:
+            conn.execute('''
+                INSERT INTO cad_spatial_annotations
+                    (annotation_id, target_kind, label, description,
+                     entity_handle, primitive_key, x, y, z, x2, y2, z2,
+                     bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y,
+                     confidence, source, hidden, properties)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                ON CONFLICT(annotation_id) DO UPDATE SET
+                    target_kind=excluded.target_kind,
+                    label=excluded.label,
+                    description=excluded.description,
+                    entity_handle=excluded.entity_handle,
+                    primitive_key=excluded.primitive_key,
+                    x=excluded.x,
+                    y=excluded.y,
+                    z=excluded.z,
+                    x2=excluded.x2,
+                    y2=excluded.y2,
+                    z2=excluded.z2,
+                    bbox_min_x=excluded.bbox_min_x,
+                    bbox_min_y=excluded.bbox_min_y,
+                    bbox_max_x=excluded.bbox_max_x,
+                    bbox_max_y=excluded.bbox_max_y,
+                    confidence=excluded.confidence,
+                    source=excluded.source,
+                    hidden=1,
+                    properties=excluded.properties,
+                    updated_at=CURRENT_TIMESTAMP
+            ''', (
+                ann_id, clean_kind, clean_label, description or "",
+                entity_handle or "", primitive_key or "",
+                p1[0] if p1 else None, p1[1] if p1 else None, p1[2] if p1 else None,
+                p2[0] if p2 else None, p2[1] if p2 else None, p2[2] if p2 else None,
+                bb[0] if bb else None, bb[1] if bb else None,
+                bb[2] if bb else None, bb[3] if bb else None,
+                float(confidence), source or "model",
+                json.dumps(props, ensure_ascii=False),
+            ))
+        return self.get_spatial_annotation(ann_id) or {}
+
+    def get_spatial_annotation(self, annotation_id: str) -> Optional[Dict[str, Any]]:
+        rows = self.list_spatial_annotations(annotation_id=annotation_id, limit=1)
+        return rows[0] if rows else None
+
+    def list_spatial_annotations(self, annotation_id: Optional[str] = None,
+                                 label: Optional[str] = None,
+                                 target_kind: Optional[str] = None,
+                                 entity_handle: Optional[str] = None,
+                                 limit: int = 100) -> List[Dict[str, Any]]:
+        conditions = []
+        params: List[Any] = []
+        if annotation_id:
+            conditions.append("annotation_id = ?")
+            params.append(annotation_id)
+        if label:
+            conditions.append("label = ?")
+            params.append(label)
+        if target_kind:
+            conditions.append("target_kind = ?")
+            params.append(target_kind)
+        if entity_handle:
+            conditions.append("entity_handle = ?")
+            params.append(entity_handle)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        safe_limit = max(1, min(int(limit or 100), 1000))
+        with self._conn() as conn:
+            rows = conn.execute(f'''
+                SELECT * FROM cad_spatial_annotations
+                {where}
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+            ''', (*params, safe_limit)).fetchall()
+
+        results = []
+        for row in rows:
+            item = dict(row)
+            item["hidden"] = bool(item.get("hidden", 1))
+            item["properties"] = json.loads(item.get("properties") or "{}")
+            results.append(item)
+        return results
+
+    def delete_spatial_annotations(self, annotation_id: Optional[str] = None,
+                                   label: Optional[str] = None,
+                                   target_kind: Optional[str] = None,
+                                   entity_handle: Optional[str] = None) -> int:
+        conditions = []
+        params: List[Any] = []
+        if annotation_id:
+            conditions.append("annotation_id = ?")
+            params.append(annotation_id)
+        if label:
+            conditions.append("label = ?")
+            params.append(label)
+        if target_kind:
+            conditions.append("target_kind = ?")
+            params.append(target_kind)
+        if entity_handle:
+            conditions.append("entity_handle = ?")
+            params.append(entity_handle)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        with self._conn() as conn:
+            cursor = conn.execute(f"DELETE FROM cad_spatial_annotations {where}", params)
+            return cursor.rowcount
 
     def get_entity_topology(self, handle: str) -> Dict[str, Any]:
         with self._conn() as conn:

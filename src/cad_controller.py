@@ -161,8 +161,12 @@ class CADController:
         except Exception as e:
             return {"success": False, "message": f"Create failed: {e}"}
 
-    @require_document
     def open_drawing(self, filepath: str, password: Optional[str] = None) -> Dict[str, Any]:
+        """Open a drawing even when AutoCAD is only showing the Start tab."""
+        self._ensure_connected()
+        if self.acad is None:
+            return {"success": False,
+                    "message": "Unable to connect to AutoCAD. Please make sure AutoCAD is running."}
         try:
             if password:
                 doc = self.acad.Documents.Open(filepath, password)

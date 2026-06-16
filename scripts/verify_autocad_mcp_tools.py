@@ -615,7 +615,7 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
         args.update({"filepath": str(Path(ctx["tmp"]) / f"mcp_verify_{ctx.get('stamp', int(time.time()))}.dxf")})
     if name in {"export_dwf"}:
         args.update({"filepath": str(Path(ctx["tmp"]) / f"mcp_verify_{ctx.get('stamp', int(time.time()))}.dwf")})
-    if name in {"export_image"}:
+    if name in {"export_image", "export_view_image"}:
         args.update({"filepath": str(Path(ctx["tmp"]) / f"mcp_verify_{ctx.get('stamp', int(time.time()))}.wmf")})
     if name in {"set_current_text_style"}:
         args.update({"name": "Standard"})
@@ -687,6 +687,14 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
         args.update({"table_name": "cad_entities"})
     if name in {"get_entity_topology", "get_entity_properties", "get_bounding_box"}:
         args.update({"handle": ctx.get("line", "")})
+    if name in {"add_spatial_annotation"}:
+        args.update({
+            "label": "MCP_VERIFY_BASE_LINE",
+            "target_kind": "entity",
+            "handle": ctx.get("line", ""),
+            "description": "Verifier model-private label for a helper line.",
+            "confidence": 1.0,
+        })
     if name in {"polyline_num_vertices", "polyline_get_bulge", "polyline_get_width", "polyline_get_point_at_param", "polyline_get_segment_type"}:
         args.update({"handle": ctx.get("polyline", ""), "index": 0, "seg_index": 0, "param": 0})
     if name in {"polyline_set_bulge", "polyline_set_width", "polyline_add_vertex", "polyline_constant_width", "fillet_polyline", "chamfer_polyline"}:

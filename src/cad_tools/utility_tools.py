@@ -1,5 +1,5 @@
 """CAD MCP Tools — Database query, groups, styles, and utilities."""
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import json
 import os
 import threading
@@ -84,6 +84,75 @@ def get_topology_summary(limit: int = 100) -> str:
     """Return compact topology summaries for scanned entities."""
     rows = db.get_topology_summary(limit)
     return json.dumps(rows, indent=2, ensure_ascii=False, default=str)
+
+
+def add_spatial_annotation(label: str, target_kind: str = "entity",
+                           handle: Optional[str] = None,
+                           primitive_key: Optional[str] = None,
+                           description: str = "",
+                           point: Optional[List[float]] = None,
+                           point2: Optional[List[float]] = None,
+                           bbox: Optional[List[float]] = None,
+                           confidence: float = 1.0,
+                           properties: Optional[Dict[str, Any]] = None,
+                           annotation_id: Optional[str] = None,
+                           source: str = "model") -> str:
+    """Store a hidden model-only spatial label in SQLite, not in the DWG."""
+    try:
+        row = db.upsert_spatial_annotation(
+            annotation_id=annotation_id,
+            label=label,
+            target_kind=target_kind,
+            description=description,
+            entity_handle=handle,
+            primitive_key=primitive_key,
+            point=point,
+            point2=point2,
+            bbox=bbox,
+            confidence=confidence,
+            source=source,
+            properties=properties,
+        )
+        return (
+            "OK: stored model-private spatial annotation. "
+            "No AutoCAD geometry, layers, XData, or dictionaries were modified.\n"
+            + json.dumps(row, indent=2, ensure_ascii=False, default=str)
+        )
+    except Exception as e:
+        return f"ERROR: add_spatial_annotation failed: {e}"
+
+
+def list_spatial_annotations(annotation_id: Optional[str] = None,
+                             label: Optional[str] = None,
+                             target_kind: Optional[str] = None,
+                             handle: Optional[str] = None,
+                             limit: int = 100) -> str:
+    """List hidden model-only spatial labels from the MCP SQLite database."""
+    rows = db.list_spatial_annotations(
+        annotation_id=annotation_id,
+        label=label,
+        target_kind=target_kind,
+        entity_handle=handle,
+        limit=limit,
+    )
+    return json.dumps(rows, indent=2, ensure_ascii=False, default=str)
+
+
+def clear_spatial_annotations(annotation_id: Optional[str] = None,
+                              label: Optional[str] = None,
+                              target_kind: Optional[str] = None,
+                              handle: Optional[str] = None) -> str:
+    """Delete hidden model-only spatial labels from SQLite only."""
+    count = db.delete_spatial_annotations(
+        annotation_id=annotation_id,
+        label=label,
+        target_kind=target_kind,
+        entity_handle=handle,
+    )
+    return (
+        f"OK: removed {count} model-private spatial annotation(s). "
+        "The DWG was not modified."
+    )
 
 
 # ── Group Tools ────────────────────────────────────────────────
@@ -518,6 +587,34 @@ TOOL_ROUTING_CATALOG = [
         "keywords": ["topology", "entity topology", "relations", "bounded", "端点", "边界", "关系"],
     },
     {
+        "category": "Vision verification",
+        "tool": "export_view_image",
+        "use": "Export the current AutoCAD view as a model-facing review image artifact without modifying the DWG.",
+        "avoid": "Do not rely only on database scans when a vision-capable model needs to verify the visible drawing state.",
+        "keywords": ["vision", "visual check", "image export", "view image", "screenshot", "verify drawing", "export image", "visual", "review"],
+    },
+    {
+        "category": "Spatial annotations",
+        "tool": "add_spatial_annotation",
+        "use": "Add a hidden SQLite-only label for an entity, primitive, point, bbox, area, view, or group.",
+        "avoid": "Do not draw helper labels, create hidden layers, or write XData when the mark is only for model reasoning.",
+        "keywords": ["annotate", "spatial mark", "label entity", "pointer", "private label", "hidden mark", "mark part"],
+    },
+    {
+        "category": "Spatial annotations",
+        "tool": "list_spatial_annotations",
+        "use": "Retrieve hidden SQLite-only labels that help the model remember drawing parts and spatial intent.",
+        "avoid": "Do not rescan or visually inspect when the needed model-private mark is already stored.",
+        "keywords": ["list annotations", "spatial marks", "private labels", "pointers", "model context"],
+    },
+    {
+        "category": "Spatial annotations",
+        "tool": "clear_spatial_annotations",
+        "use": "Remove hidden SQLite-only labels without touching the AutoCAD drawing.",
+        "avoid": "Do not erase DWG geometry when only model-private context should be cleared.",
+        "keywords": ["clear annotations", "delete marks", "remove labels", "spatial marks"],
+    },
+    {
         "category": "System",
         "tool": "send_command",
         "use": "Raw AutoCAD command only when no dedicated MCP tool fits.",
@@ -590,6 +687,8 @@ def recommend_cad_tools(intent: str, max_results: int = 8) -> str:
     lines.append("")
     lines.append("Workflow guards:")
     lines.append("- Existing drawing: scan_all_entities -> get_entity_statistics/execute_query before edits.")
+    lines.append("- Vision-capable model: call export_view_image whenever the visible CAD state needs confirmation.")
+    lines.append("- Model-only context: use add_spatial_annotation/list_spatial_annotations instead of drawing helper labels.")
     lines.append("- Prefer named tools over draw_line/draw_circle/draw_polyline and repeated copy_entity.")
     lines.append("- Use send_command only after the catalog has no suitable tool.")
     lines.append("- Capture returned handles; most edits and dimensions need handles.")
