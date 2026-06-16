@@ -7,13 +7,12 @@ and CAD workflow guidance through the Model Context Protocol.
 ## Features
 
 - AutoCAD COM automation through a single controller layer.
-- 250+ MCP tools across drawing primitives, editing, dimensions, blocks,
+- 251 specialized MCP tools across drawing primitives, editing, dimensions, blocks,
   hatches, views, layouts, files, selection sets, metadata, and utilities.
 - SQLite-backed CAD metadata indexing for scan and query workflows.
-- Tool-selection guidance that encourages high-level CAD operations instead of
+- Built-in tool-selection guidance that prefers high-level CAD operations over
   primitive-only drafting.
-- Optional Codex agent skills under `.agents/` for CAD operations and mainland
-  China construction drafting workflows.
+- Optional Codex agent skills under `.agents/` for assembly drawing workflows.
 
 ## Requirements
 
@@ -21,6 +20,7 @@ and CAD workflow guidance through the Model Context Protocol.
 - AutoCAD 2020+ recommended
 - Python 3.11+
 - MCP-compatible client
+- An AutoCAD installation that is accessible through Windows COM automation
 
 Python dependencies:
 
@@ -40,7 +40,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Run the server:
+Run the server directly:
 
 ```powershell
 python src\server.py
@@ -55,7 +55,20 @@ cad-mcp
 
 ## MCP Client Configuration
 
-Example client configuration:
+After `pip install -e .`, the preferred client configuration can use the
+console script:
+
+```json
+{
+  "mcpServers": {
+    "CAD": {
+      "command": "cad-mcp"
+    }
+  }
+}
+```
+
+You can also run the server from the source checkout:
 
 ```json
 {
@@ -68,7 +81,9 @@ Example client configuration:
 }
 ```
 
-Use an absolute path for `src/server.py` in your local checkout.
+Use an absolute path for `src/server.py` in your local checkout. Run the MCP
+client from a working directory where it is acceptable for runtime files to be
+created.
 
 ## Runtime Files
 
@@ -86,6 +101,15 @@ python -m pytest
 
 The tests focus on interface coverage and module wiring. Some runtime behavior
 requires a local AutoCAD installation.
+
+For a real AutoCAD smoke run against registered MCP tools, use:
+
+```powershell
+python scripts\verify_autocad_mcp_tools.py
+```
+
+The verifier uses the existing AutoCAD COM session and skips risky, modal, or
+interactive tools by default.
 
 ## License
 
