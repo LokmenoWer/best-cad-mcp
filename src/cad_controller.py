@@ -2573,9 +2573,9 @@ class CADController:
     @require_document
     def get_current_view(self) -> Dict[str, Any]:
         try:
-            view = com_get(self.doc, "ActiveView", None)
+            view = com_get(self.doc, "ActiveViewport", None)
             if view is None:
-                view = com_get(self.doc, "ActiveViewport", None)
+                view = com_get(self.doc, "ActiveView", None)
             if view is None:
                 return {"error": "No active view or viewport is available"}
             return {

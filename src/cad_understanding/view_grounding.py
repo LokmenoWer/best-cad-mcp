@@ -41,19 +41,28 @@ def compute_plan_view_transform(view: Dict[str, Any],
     cy = float(center[1]) if len(center) > 1 else 0.0
     min_x = cx - width / 2.0
     max_y = cy + height / 2.0
-    sx = float(image_width) / width
-    sy = float(image_height) / height
+    scale = min(float(image_width) / width, float(image_height) / height)
+    content_width = width * scale
+    content_height = height * scale
+    offset_x = (float(image_width) - content_width) / 2.0
+    offset_y = (float(image_height) - content_height) / 2.0
     world_to_pixel = [
-        [sx, 0.0, -min_x * sx],
-        [0.0, -sy, max_y * sy],
+        [scale, 0.0, -min_x * scale + offset_x],
+        [0.0, -scale, max_y * scale + offset_y],
         [0.0, 0.0, 1.0],
     ]
     pixel_to_world = [
-        [1.0 / sx, 0.0, min_x],
-        [0.0, -1.0 / sy, max_y],
+        [1.0 / scale, 0.0, min_x - offset_x / scale],
+        [0.0, -1.0 / scale, max_y + offset_y / scale],
         [0.0, 0.0, 1.0],
     ]
     extent = (min_x, cy - height / 2.0, min_x + width, max_y)
+    content_bbox = [
+        offset_x,
+        offset_y,
+        offset_x + content_width,
+        offset_y + content_height,
+    ]
     warnings = []
     direction = view.get("direction") or view.get("view_direction") or [0, 0, 1]
     if len(direction) >= 3 and abs(float(direction[2] or 0.0)) < 0.9:
@@ -64,6 +73,8 @@ def compute_plan_view_transform(view: Dict[str, Any],
         "world_to_pixel": world_to_pixel,
         "pixel_to_world": pixel_to_world,
         "world_extent": extent,
+        "content_bbox": content_bbox,
+        "scale": scale,
         "warnings": warnings,
     }
 
@@ -240,6 +251,7 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
             "center": view.get("center") or view.get("target") or [0, 0, 0],
         },
         "image": {"width": image_width, "height": image_height},
+        "content_bbox": transform["content_bbox"],
         "world_to_pixel": transform["world_to_pixel"],
         "pixel_to_world": transform["pixel_to_world"],
         "visible_handles": visible_handles,

@@ -30,3 +30,16 @@ def test_bbox_world_to_pixel():
     bbox = bbox_world_to_pixel((-10, -10, 10, 10), transform["world_to_pixel"])
 
     assert bbox == [40, 40, 60, 60]
+
+
+def test_transform_preserves_aspect_with_letterboxing():
+    transform = compute_plan_view_transform(
+        {"center": [0, 0, 0], "height": 100, "width": 200, "direction": [0, 0, 1]},
+        1000,
+        1000,
+    )
+
+    bbox = bbox_world_to_pixel((-10, -10, 10, 10), transform["world_to_pixel"])
+
+    assert bbox == [450, 450, 550, 550]
+    assert transform["content_bbox"] == [0.0, 250.0, 1000.0, 750.0]
