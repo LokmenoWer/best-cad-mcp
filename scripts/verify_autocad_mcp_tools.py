@@ -13,7 +13,6 @@ import base64
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -252,6 +251,12 @@ def _status_for_payload(tool_name: str, payload: Any) -> str:
         if tool_name == "ground_vlm_region":
             if not data.get("candidates"):
                 return "semantic_error"
+        if tool_name == "find_semantic_objects":
+            if not data.get("semantic_objects"):
+                return "semantic_error"
+        if tool_name == "get_drawing_constraints":
+            if not data.get("constraints"):
+                return "semantic_error"
         if tool_name == "validate_cad_plan":
             plan_data = data if isinstance(data, dict) else {}
             if not plan_data.get("valid"):
@@ -380,13 +385,90 @@ def _cad_plan(ctx: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _create_xref_fixture(acad: Any, active_doc: Any, xref_path: Path) -> Path:
+    """Create a tiny standalone DWG that AutoCAD can attach as an xref."""
+    if xref_path.exists():
+        try:
+            xref_path.unlink()
+        except Exception:
+            pass
+    xref_doc = acad.Documents.Add()
+    saved = False
+    try:
+        xref_doc.ModelSpace.AddLine(_variant_point(0, 0, 0), _variant_point(10, 0, 0))
+        xref_doc.ModelSpace.AddCircle(_variant_point(5, 3, 0), 1)
+        xref_doc.SaveAs(str(xref_path))
+        saved = True
+    finally:
+        last_close_error = None
+        for attempt in range(6):
+            try:
+                xref_doc.Close(bool(saved))
+                last_close_error = None
+                break
+            except Exception as exc:
+                last_close_error = exc
+                time.sleep(0.5 * (attempt + 1))
+        if last_close_error is not None:
+            try:
+                acad.ActiveDocument.Close(bool(saved))
+                last_close_error = None
+            except Exception:
+                pass
+        try:
+            active_doc.Activate()
+        except Exception:
+            pass
+    deadline = time.time() + 6.0
+    still_open = True
+    while time.time() < deadline:
+        still_open = False
+        try:
+            doc_count = acad.Documents.Count
+        except Exception:
+            still_open = True
+            time.sleep(0.5)
+            continue
+        for i in range(doc_count):
+            try:
+                doc = acad.Documents.Item(i)
+                name = str(getattr(doc, "Name", "") or "")
+                full = str(getattr(doc, "FullName", "") or "")
+            except Exception:
+                still_open = True
+                break
+            if name.lower() == xref_path.name.lower() or full.lower() == str(xref_path).lower():
+                still_open = True
+                break
+        if not still_open:
+            break
+        time.sleep(0.5)
+    if not xref_path.exists():
+        raise FileNotFoundError(str(xref_path))
+    if still_open:
+        raise RuntimeError(f"xref fixture remained open in AutoCAD: {xref_path}")
+    return xref_path
+
+
+def _prepare_xref_fixture(ctx: dict[str, Any]) -> Path:
+    path = Path(ctx.get("xref") or Path(tempfile.gettempdir()) / f"mcp_verify_xref_{int(time.time())}.dwg")
+    pythoncom.CoInitialize()
+    try:
+        acad = _dispatch_autocad()
+        doc = acad.ActiveDocument
+        path = _create_xref_fixture(acad, doc, path)
+        ctx["xref"] = str(path)
+        return path
+    finally:
+        pythoncom.CoUninitialize()
+
+
 def setup_context() -> dict[str, Any]:
     """Create durable helper geometry in the active AutoCAD document."""
     pythoncom.CoInitialize()
     try:
         acad = _dispatch_autocad()
         doc = acad.ActiveDocument
-        ms = doc.ModelSpace
         selection_prefixes = (
             "MCP_VERIFY_SS_", "MCP_TEMP_SS", "MCP_AREA_SCAN",
             "MCP_POLY_SS", "MCP_PT_SS", "MCP_EXPORT_EMPTY_SS",
@@ -409,15 +491,8 @@ def setup_context() -> dict[str, Any]:
                 "//8/AwAI/AL+X9c7AAAAAElFTkSuQmCC"
             ))
         tmp_dir = Path(tempfile.gettempdir())
-        xref_source = tmp_dir / "mcp_verify.dwg"
         xref_path = tmp_dir / f"mcp_verify_xref_{stamp}.dwg"
-        if xref_source.exists():
-            try:
-                shutil.copyfile(xref_source, xref_path)
-            except Exception:
-                xref_path = xref_source
-        else:
-            xref_path = xref_source
+        ms = doc.ModelSpace
         layer_name = f"MCP_VERIFY_{stamp}"
         try:
             layer = doc.Layers.Add(layer_name)
@@ -792,6 +867,7 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
     if name in {"draw_raster_image"}:
         args.update({"filepath": ctx["image"], "insert_x": ctx["base_x"], "insert_y": 190})
     if name in {"attach_xref"}:
+        _prepare_xref_fixture(ctx)
         args.update({"filepath": ctx.get("xref", str(Path(ctx["tmp"]) / "mcp_verify.dwg")),
                      "insert_x": ctx["base_x"] + 140, "insert_y": 0,
                      "insert_z": 0, "scale": 1.0, "rotation": 0.0})
@@ -883,6 +959,14 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
     if name in {"explain_entity"}:
         _call_parent_tool("scan_all_entities", {"clear_db": True, "max_entities": 10000})
         args.update({"handle": ctx.get("line", "")})
+    if name in {"find_entities_by_description"}:
+        args.update({"query": "line circle dimension text block", "top_k": 20})
+    if name in {"find_semantic_objects"}:
+        args.update({"object_type": None, "label_query": None, "top_k": 20})
+    if name in {"get_drawing_constraints"}:
+        args.update({"status": None})
+    if name in {"propose_repair_plan"}:
+        args.update({"issue_ids": []})
     if name in {"get_cad_resource"}:
         _call_parent_tool("scan_all_entities", {"clear_db": True, "max_entities": 10000})
         args.update({"uri": "cad://drawing/current/ir"})
@@ -1136,7 +1220,21 @@ def run_driver(output: Path, limit: int | None, timeout: int,
             _write_results(output, results)
             print(f"[{index:03d}/{len(tools):03d}] {tool.name}: paused_setup_failed")
             return 2
-        args = args_for_tool(tool, ctx)
+        try:
+            args = args_for_tool(tool, ctx)
+        except Exception as exc:
+            result = {
+                "tool": tool.name,
+                "status": "paused_args_failed",
+                "reason": "Could not generate verifier arguments for this tool.",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "context": ctx,
+            }
+            results.append(result)
+            _write_results(output, results)
+            print(f"[{index:03d}/{len(tools):03d}] {tool.name}: paused_args_failed")
+            return 2
         args_file = args_dir / f"{index:03d}_{tool.name}.json"
         args_file.write_text(json.dumps(args, ensure_ascii=False, indent=2), encoding="utf-8")
         cmd = [sys.executable, str(Path(__file__).resolve()), "--call-one", tool.name,

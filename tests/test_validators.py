@@ -1,5 +1,6 @@
 from src.cad_database import CADDatabase
-from src.cad_understanding.validators import validate_geometry
+from src.cad_understanding.plan import dry_run_cad_plan, validate_cad_plan
+from src.cad_understanding.validators import propose_repair_plan, validate_geometry
 
 
 def make_db(tmp_path):
@@ -42,3 +43,27 @@ def test_validate_geometry_detects_basic_issues(tmp_path):
 
     assert result["ok"] is True
     assert {"zero_length_lines", "duplicate_entities", "unclosed_polylines"}.issubset(types)
+
+
+def test_proposed_repair_plan_can_be_validated_and_dry_run(tmp_path):
+    db = make_db(tmp_path)
+    db.upsert_entity(
+        "Z1",
+        "Line",
+        "AcDbLine",
+        geometry={"start": [0, 0, 0], "end": [0, 0, 0]},
+        bbox=(0, 0, 0, 0),
+    )
+
+    validation = validate_geometry(checks=["zero_length_lines"], database=db)
+    issue_id = validation["data"]["validation_report"]["issues"][0]["issue_id"]
+    repair = propose_repair_plan([issue_id], database=db)
+    plan = repair["data"]["plan"]
+    plan_validation = validate_cad_plan(plan)
+    dry_run = dry_run_cad_plan(plan)
+
+    assert repair["ok"] is True
+    assert plan["steps"][0]["op"] == "delete_entity"
+    assert plan_validation["ok"] is True
+    assert dry_run["ok"] is True
+    assert dry_run["handles"] == ["Z1"]
