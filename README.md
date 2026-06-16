@@ -7,9 +7,15 @@ and CAD workflow guidance through the Model Context Protocol.
 ## Features
 
 - AutoCAD COM automation through a single controller layer.
-- 251 specialized MCP tools across drawing primitives, editing, dimensions, blocks,
+- 260+ specialized MCP tools across drawing primitives, editing, dimensions, blocks,
   hatches, views, layouts, files, selection sets, metadata, and utilities.
 - SQLite-backed CAD metadata indexing for scan and query workflows.
+- Model-private spatial annotations for AI labels and pointer-style references
+  that stay in SQLite and do not create visible DWG geometry, layers, or XData.
+- Vision-model verification through `export_view_image`, which exports the
+  current AutoCAD view as a review artifact without modifying the drawing.
+- `open_drawing` can open a DWG even when AutoCAD is only showing the Start tab
+  and no drawing document is active.
 - Built-in tool-selection guidance that prefers high-level CAD operations over
   primitive-only drafting.
 - Optional Codex agent skills under `.agents/` for assembly drawing workflows.
@@ -90,6 +96,34 @@ created.
 The server can create runtime files such as `cad_mcp.log` and
 `autocad_data.db` in the MCP client's working directory. These files are ignored
 by Git and should not be committed.
+
+Visual review exports created by `export_view_image` default to
+`cad_visual_exports/` in the MCP working directory. These are review artifacts
+for the model or user and are not written into the DWG.
+
+## Model-Private CAD Context
+
+Run `scan_all_entities` to index drawing geometry into SQLite. The scan now
+keeps model-private spatial annotations by default, so an AI model can label
+important handles, primitives, points, bounding boxes, views, or groups across
+multi-step work:
+
+- `add_spatial_annotation` stores a hidden label such as `base plate`,
+  `bolt-hole pattern`, or `target face`.
+- `list_spatial_annotations` retrieves those labels for later reasoning.
+- `clear_spatial_annotations` removes only the SQLite annotations and never
+  erases AutoCAD entities.
+
+Pass `clear_annotations=true` to `scan_all_entities` only when stale model
+context should be discarded. The annotation system is inspired by pointer-based
+CAD workflows: references are explicit and queryable, but they do not pollute
+the user's drawing space.
+
+## Visual Verification
+
+Vision-capable models can call `export_view_image` whenever seeing the current
+CAD view would reduce ambiguity. The reliable AutoCAD COM image path is WMF; if
+a PNG or JPG is required, export PDF and render it externally.
 
 ## Development
 

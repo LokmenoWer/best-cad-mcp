@@ -208,7 +208,7 @@ class TestModuleImports(unittest.TestCase):
     def test_file_tools_functions(self):
         expected = [
             'get_document_info', 'export_pdf', 'export_dxf',
-            'export_dwf', 'export_image', 'purge_drawing',
+            'export_dwf', 'export_image', 'export_view_image', 'purge_drawing',
             'audit_drawing', 'undo', 'redo', 'regen',
             'send_command', 'get_variable', 'set_variable',
             'measure_distance', 'create_snapshot', 'get_snapshots',
@@ -229,6 +229,8 @@ class TestModuleImports(unittest.TestCase):
             'recommend_cad_tools', 'get_tool_help',
             'restart_mcp',
             'get_entity_topology', 'get_topology_summary',
+            'add_spatial_annotation', 'list_spatial_annotations',
+            'clear_spatial_annotations',
         ]
         for name in expected:
             with self.subTest(name=name):
@@ -619,9 +621,30 @@ class TestMCPToolSchemas(unittest.TestCase):
             "insert_block_with_attributes",
             "insert_minsert_block",
             "erase_selection_entities",
+            "export_view_image",
+            "add_spatial_annotation",
+            "list_spatial_annotations",
+            "clear_spatial_annotations",
         ]:
             self.assertIn(name, tool_names)
             self.assertIn(name, help_text)
+
+    def test_visual_and_spatial_tools_registered_with_guidance(self):
+        export_desc = self._get_tool_description("export_view_image")
+        add_schema = self._get_input_schema("add_spatial_annotation")
+        scan_schema = self._get_input_schema("scan_all_entities")
+
+        self.assertIn("Vision-model verification", export_desc)
+        self.assertIn("label", add_schema["properties"])
+        self.assertIn("target_kind", add_schema["properties"])
+        self.assertIn("clear_annotations", scan_schema["properties"])
+
+        recommendation = utility_tools.recommend_cad_tools(
+            "visually verify drawing and mark the base plate"
+        )
+
+        self.assertIn("export_view_image", recommendation)
+        self.assertIn("add_spatial_annotation", recommendation)
 
     def test_restart_mcp_registered_and_schedules_delayed_exit(self):
         schema = self._get_input_schema("restart_mcp")
@@ -658,6 +681,31 @@ class TestMCPToolSchemas(unittest.TestCase):
 
         mock_ctrl.get_dim_styles.assert_called_once_with()
         self.assertEqual(result, "ERROR: Get dimension styles failed: No open document")
+
+    def test_export_view_image_uses_non_dwg_review_artifact(self):
+        with patch.object(file_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.export_drawing.return_value = {
+                "success": True,
+                "message": r"exported C:\tmp\view.wmf",
+            }
+
+            result = file_tools.export_view_image(
+                r"C:\tmp\view.wmf",
+                zoom_extents_first=True,
+            )
+
+        mock_ctrl.zoom_extents.assert_called_once_with()
+        mock_ctrl.regen.assert_called_once_with("all")
+        mock_ctrl.export_drawing.assert_called_once_with(r"C:\tmp\view.wmf", "WMF")
+        self.assertIn("Visual verification artifact", result)
+        self.assertIn("does not modify the DWG", result)
+
+    def test_export_view_image_rejects_unsupported_raster_extensions(self):
+        with patch.object(file_tools, "ctrl") as mock_ctrl:
+            result = file_tools.export_view_image(r"C:\tmp\view.png")
+
+        mock_ctrl.export_drawing.assert_not_called()
+        self.assertIn("supports WMF reliably", result)
 
     def test_tool_call_exceptions_return_error_text(self):
         import asyncio
@@ -814,6 +862,7 @@ class TestDatabase(unittest.TestCase):
         self.assertIn('cad_geometry_primitives', tables)
         self.assertIn('cad_geometry_relations', tables)
         self.assertIn('cad_topology_summary', tables)
+        self.assertIn('cad_spatial_annotations', tables)
         self.assertIn('cad_layers', tables)
         self.assertIn('cad_blocks', tables)
         self.assertIn('text_patterns', tables)
@@ -862,6 +911,45 @@ class TestDatabase(unittest.TestCase):
         self.db.clear_entities()
         self.assertIsNone(self.db.get_entity("H4"))
         self.assertIsNone(self.db.get_entity_topology("H4")["summary"])
+
+    def test_spatial_annotations_are_hidden_model_context(self):
+        self.db.upsert_entity("H5", "Plate", "AcDbPolyline")
+        annotation = self.db.upsert_spatial_annotation(
+            annotation_id="ann_plate",
+            label="base plate",
+            target_kind="entity",
+            entity_handle="H5",
+            description="Main plate remembered by the model.",
+            confidence=0.9,
+            properties={"role": "support"},
+        )
+
+        self.assertEqual(annotation["annotation_id"], "ann_plate")
+        self.assertEqual(annotation["label"], "base plate")
+        self.assertTrue(annotation["hidden"])
+        self.assertEqual(annotation["properties"]["role"], "support")
+
+        rows = self.db.list_spatial_annotations(entity_handle="H5")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Main plate remembered by the model.")
+
+        self.db.clear_entities()
+        self.assertIsNone(self.db.get_entity("H5"))
+        self.assertEqual(len(self.db.list_spatial_annotations(entity_handle="H5")), 1)
+
+        deleted = self.db.delete_spatial_annotations(annotation_id="ann_plate")
+        self.assertEqual(deleted, 1)
+        self.assertEqual(self.db.list_spatial_annotations(entity_handle="H5"), [])
+
+        self.db.upsert_spatial_annotation(
+            annotation_id="ann_plate",
+            label="base plate",
+            target_kind="entity",
+            entity_handle="H5",
+        )
+
+        self.db.clear_entities(clear_annotations=True)
+        self.assertEqual(self.db.list_spatial_annotations(entity_handle="H5"), [])
 
     def test_closed_polyline_topology_has_surface(self):
         self.db.upsert_entity(
@@ -1327,6 +1415,31 @@ class TestActiveXCallShapes(unittest.TestCase):
 # ══════════════════════════════════════════════════════════════════
 #  Test: Bug detection – known issues that need fixing
 # ══════════════════════════════════════════════════════════════════
+
+class TestDocumentOpenBugs(unittest.TestCase):
+    """Regression tests for document lifecycle behavior."""
+
+    def test_open_drawing_allows_autocad_start_tab_without_document(self):
+        from src.cad_controller import CADController
+
+        controller = CADController()
+        acad = MagicMock()
+        acad.Documents.Count = 0
+        doc = MagicMock()
+        doc.Name = "opened.dwg"
+        acad.Documents.Open.return_value = doc
+        controller.acad = acad
+        controller.doc = None
+
+        with patch.object(controller, "_ensure_connected") as ensure:
+            result = controller.open_drawing(r"C:\drawings\opened.dwg")
+
+        ensure.assert_called_once_with()
+        acad.Documents.Open.assert_called_once_with(r"C:\drawings\opened.dwg")
+        self.assertTrue(result["success"], result)
+        self.assertEqual(controller.doc, doc)
+        self.assertEqual(result["name"], "opened.dwg")
+
 
 class TestViewportToolBugs(unittest.TestCase):
     """Regression tests for paper-space viewport delivery-view helpers."""

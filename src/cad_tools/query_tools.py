@@ -9,7 +9,8 @@ ctrl = get_controller()
 db = get_database()
 
 
-def scan_all_entities(clear_db: bool = True, max_entities: int = 5000) -> str:
+def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
+                      clear_annotations: bool = False) -> str:
     """扫描当前图纸所有实体并保存到数据库。
 
     这是 AI 理解图纸内容的核心工具 — 将 CAD 图形数据转换为结构化数据，
@@ -20,7 +21,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000) -> str:
         max_entities: 最大扫描实体数（默认5000）
     """
     if clear_db:
-        db.clear_entities()
+        db.clear_entities(clear_annotations=clear_annotations)
     result = ctrl.scan_model_space(max_entities)
     entities = result.get("entities", [])
     type_stats = result.get("type_stats", {})
@@ -56,6 +57,10 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000) -> str:
 
     lines = [f"OK: 已扫描 {saved} 个实体并保存到数据库"]
     lines.append(f"\n实体类型统计 ({len(type_stats)} 种):")
+    if clear_annotations:
+        lines.append("Model-private spatial annotations were cleared.")
+    else:
+        lines.append("Model-private spatial annotations were preserved.")
     for t, c in sorted(type_stats.items(), key=lambda x: -x[1])[:20]:
         lines.append(f"  {t}: {c}")
     if len(type_stats) > 20:

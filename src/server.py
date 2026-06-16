@@ -80,6 +80,12 @@ Tool-choice rules:
 - For existing drawings, scan first with scan_all_entities and query with
   get_entity_statistics/execute_query before editing. Capture returned handles;
   edits operate on handles.
+- Vision-capable models may call export_view_image at any point to export the
+  current AutoCAD view for visual confirmation. This writes a review artifact
+  only and must not be replaced with visible helper geometry.
+- Use add_spatial_annotation/list_spatial_annotations for model-private labels,
+  pointers, and part names. These annotations live only in the MCP SQLite
+  database and must not create layers, XData, blocks, or visible marks in DWG.
 - If unsure which tool to use, call recommend_cad_tools(intent) or
   get_tool_help(tool_name) before drawing.
 """
@@ -222,6 +228,24 @@ TOOL_DESCRIPTIONS = {
         "without arguments for categories. For an intent like 'draw a floor plan' "
         "or 'make bolt holes', prefer recommend_cad_tools(intent)."
     ),
+    "export_view_image": (
+        "Vision-model verification tool: export the current AutoCAD view as a "
+        "review image artifact without modifying the DWG. Use whenever visual "
+        "confirmation of the current drawing state would reduce ambiguity."
+    ),
+    "add_spatial_annotation": (
+        "Store a model-private spatial label or pointer in SQLite only. Use for "
+        "part names, semantic regions, entity/primitive references, and remembered "
+        "view context without drawing helper geometry or writing XData."
+    ),
+    "list_spatial_annotations": (
+        "List model-private spatial labels and pointers stored in SQLite. Use to "
+        "recover the model's hidden CAD context after scans or multi-step edits."
+    ),
+    "clear_spatial_annotations": (
+        "Remove model-private spatial labels from SQLite only. This does not erase "
+        "or modify any AutoCAD drawing entity."
+    ),
     "recommend_cad_tools": (
         "Semantic router for this CAD MCP. Pass a short natural-language intent "
         "and it returns the named tools to use, anti-patterns to avoid, and a "
@@ -272,6 +296,10 @@ def _registration_category(name: str) -> str:
         return "blocks, xrefs, and attributes"
     if "hatch" in name:
         return "hatch and fill"
+    if name == "export_view_image":
+        return "vision verification"
+    if name.endswith("_spatial_annotation") or name.endswith("_spatial_annotations"):
+        return "model-private spatial annotations"
     if name.startswith(("scan_", "select_", "highlight_", "execute_",
                         "get_entity", "get_all_tables", "get_table_schema")):
         return "query and selection"
@@ -2263,7 +2291,8 @@ def create_layout(ctx: Context, name: str) -> str:
 
 @mcp.tool()
 def scan_all_entities(ctx: Context, clear_db: bool = True,
-                      max_entities: int = 5000) -> str:
+                      max_entities: int = 5000,
+                      clear_annotations: bool = False) -> str:
     """扫描当前图纸中的所有实体并保存到数据库。
 
     这是 AI 理解图纸的核心工具 — 它将 AutoCAD 中的图形对象转换为结构化数据，
@@ -2275,8 +2304,9 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
     Args:
         clear_db:     是否先清空数据库（默认True=重新扫描, False=追加）
         max_entities: 最大扫描实体数（默认5000，超大图纸请谨慎）
+        clear_annotations: 是否同时清空模型私有空间标注（默认False=保留）
     """
-    return query_tools.scan_all_entities(clear_db, max_entities)
+    return query_tools.scan_all_entities(clear_db, max_entities, clear_annotations)
 
 
 @mcp.tool()
@@ -2438,6 +2468,23 @@ def export_image(ctx: Context, filepath: str) -> str:
         filepath: 图片保存路径（.bmp 或 .wmf 扩展名）
     """
     return file_tools.export_image(filepath)
+
+
+@mcp.tool(description=TOOL_DESCRIPTIONS["export_view_image"])
+def export_view_image(ctx: Context, filepath: Optional[str] = None,
+                      zoom_extents_first: bool = False) -> str:
+    """Export the current AutoCAD view for visual model verification.
+
+    This creates a review artifact for a vision-capable model without adding
+    visible geometry, layers, XData, blocks, or dictionaries to the DWG. Use
+    zoom_extents_first=True only when the model needs the whole drawing framed.
+
+    Args:
+        filepath: Optional .wmf output path. When omitted, a timestamped file
+            is written under cad_visual_exports in the MCP working directory.
+        zoom_extents_first: Whether to run zoom_extents before exporting.
+    """
+    return file_tools.export_view_image(filepath, zoom_extents_first)
 
 
 @mcp.tool()
@@ -2634,6 +2681,77 @@ def get_topology_summary(ctx: Context, limit: int = 100) -> str:
     return utility_tools.get_topology_summary(limit)
 
 
+@mcp.tool(description=TOOL_DESCRIPTIONS["add_spatial_annotation"])
+def add_spatial_annotation(ctx: Context, label: str,
+                           target_kind: str = "entity",
+                           handle: Optional[str] = None,
+                           primitive_key: Optional[str] = None,
+                           description: str = "",
+                           point: Optional[List[float]] = None,
+                           point2: Optional[List[float]] = None,
+                           bbox: Optional[List[float]] = None,
+                           confidence: float = 1.0,
+                           properties: Optional[Dict[str, Any]] = None,
+                           annotation_id: Optional[str] = None,
+                           source: str = "model") -> str:
+    """Store a model-private spatial label or pointer in SQLite only.
+
+    Use this to remember semantic parts such as "base plate", "hole array",
+    "target face", or "section A" without creating any visible CAD geometry.
+    Targets may be entity handles, derived primitive keys, points, bounding
+    boxes, areas, views, or groups.
+    """
+    return utility_tools.add_spatial_annotation(
+        label=label,
+        target_kind=target_kind,
+        handle=handle,
+        primitive_key=primitive_key,
+        description=description,
+        point=point,
+        point2=point2,
+        bbox=bbox,
+        confidence=confidence,
+        properties=properties,
+        annotation_id=annotation_id,
+        source=source,
+    )
+
+
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["list_spatial_annotations"],
+    annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+)
+def list_spatial_annotations(ctx: Context,
+                             annotation_id: Optional[str] = None,
+                             label: Optional[str] = None,
+                             target_kind: Optional[str] = None,
+                             handle: Optional[str] = None,
+                             limit: int = 100) -> str:
+    """List model-private spatial labels stored in SQLite only."""
+    return utility_tools.list_spatial_annotations(
+        annotation_id=annotation_id,
+        label=label,
+        target_kind=target_kind,
+        handle=handle,
+        limit=limit,
+    )
+
+
+@mcp.tool(description=TOOL_DESCRIPTIONS["clear_spatial_annotations"])
+def clear_spatial_annotations(ctx: Context,
+                              annotation_id: Optional[str] = None,
+                              label: Optional[str] = None,
+                              target_kind: Optional[str] = None,
+                              handle: Optional[str] = None) -> str:
+    """Clear model-private spatial labels from SQLite without touching the DWG."""
+    return utility_tools.clear_spatial_annotations(
+        annotation_id=annotation_id,
+        label=label,
+        target_kind=target_kind,
+        handle=handle,
+    )
+
+
 # ══════════════════════════════════════════════════════════════════
 #  GROUP & HATCH TOOLS
 # ══════════════════════════════════════════════════════════════════
@@ -2775,6 +2893,11 @@ def _registered_tools():
 
 
 def _tool_category(name: str) -> str:
+    if name == "export_view_image":
+        return "Vision verification"
+    if name in {"add_spatial_annotation", "list_spatial_annotations",
+                "clear_spatial_annotations"}:
+        return "Model-private spatial annotations"
     if name in {"create_new_drawing", "open_drawing", "save_drawing",
                 "close_drawing", "get_document_info"} or name.startswith("export_"):
         return "Document and export"
@@ -4242,7 +4365,13 @@ def cad_workflow_guide() -> str:
    mirror, scale, offset, trim, or array.
 6. Dimension with add_*_dimension or add_qdim; never fake dimensions with text
    and lines.
-7. Verify with scan_all_entities/zoom_extents and save/export.
+7. Vision-capable verification: call export_view_image whenever seeing the
+   current view would reduce ambiguity; use zoom_extents_first=True for whole
+   drawing review.
+8. Model-private context: use add_spatial_annotation/list_spatial_annotations
+   for hidden part labels or pointer-style references; do not draw helper
+   labels into the DWG for model memory.
+9. Verify with scan_all_entities/zoom_extents and save/export.
 
 When unsure, call recommend_cad_tools(intent). For a full generated index, use
 get_tool_help() or resource cad://tools.

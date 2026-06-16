@@ -1,5 +1,7 @@
 """CAD MCP Tools — File I/O, export, import, purge, audit, undo/redo, commands."""
+from datetime import datetime
 import math
+from pathlib import Path
 from typing import Optional, List
 from src.cad_controller import get_controller
 from src.cad_database import get_database
@@ -55,6 +57,44 @@ def export_image(filepath: str) -> str:
     ext = filepath.split(".")[-1].upper() if "." in filepath else "BMP"
     r = ctrl.export_drawing(filepath, ext)
     return r["message"]
+
+
+def export_view_image(filepath: Optional[str] = None,
+                      zoom_extents_first: bool = False) -> str:
+    """Export the current AutoCAD view for vision-capable model inspection.
+
+    This model-facing verification helper writes a review artifact to disk and
+    does not add visible geometry, layers, XData, or marks to the DWG. WMF is
+    the reliable AutoCAD COM image export format in this server.
+    """
+    if filepath is None or not str(filepath).strip():
+        out_dir = Path.cwd() / "cad_visual_exports"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = str(out_dir / f"cad_view_{stamp}.wmf")
+
+    suffix = Path(filepath).suffix.lower()
+    if suffix not in {".wmf", ".bmp"}:
+        return (
+            "ERROR: AutoCAD COM image export in this MCP supports WMF reliably "
+            "and BMP is disabled because it can block in this environment. "
+            "Use a .wmf filepath, or export_pdf and render the PDF externally "
+            "if a raster PNG/JPG is required."
+        )
+
+    if zoom_extents_first:
+        try:
+            ctrl.zoom_extents()
+            ctrl.regen("all")
+        except Exception:
+            pass
+
+    message = export_image(filepath)
+    return (
+        f"{message}\n"
+        f"Visual verification artifact: {filepath}\n"
+        "This export is model-only review output and does not modify the DWG."
+    )
 
 
 def purge_drawing() -> str:
