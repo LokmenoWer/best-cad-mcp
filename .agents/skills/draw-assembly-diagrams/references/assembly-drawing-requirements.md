@@ -77,7 +77,7 @@ Consider adding notes for:
 ## best-cad-mcp Verification Checklist
 
 - `get_document_info`, `get_active_space_info`, and units checked.
-- Existing drawings scanned with `scan_all_entities` before edits.
+- Existing drawings scanned with `scan_all_entities` before edits, keeping default topology summaries for agent recognition.
 - Layers, linetypes, text style, dimension style, sheet, and layout set before final annotation.
 - Component register created before balloons.
 - Geometry created with high-level tools and handles captured.
@@ -87,7 +87,7 @@ Consider adding notes for:
 - Hatches created with `add_hatch` plus boundary tools.
 - Repeated items created with blocks/arrays, not repeated manual copies.
 - Any needed Python COM automation converted into a best-cad-mcp tool before use; no standalone Python COM drawing scripts used as an agent-side shortcut.
-- `scan_all_entities` and `get_entity_statistics` rerun after major phases.
+- `scan_all_entities` and `get_entity_statistics` rerun after major phases. Use `topology_detail="summary"` for normal large-drawing verification and `topology_detail="full"` only when primitive/relation topology is required.
 - `zoom_extents`, `audit_drawing`, `save_drawing`, and export/plot checks completed.
 
 ## Sources Consulted

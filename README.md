@@ -133,9 +133,13 @@ variables before launch.
 ## Typical Agent Workflow
 
 1. Open or create a drawing with `open_drawing` or `create_new_drawing`.
-2. Run `scan_all_entities` on existing drawings.
+2. Run `scan_all_entities` on existing drawings. The default scan is large-drawing
+   friendly (`detail_level="minimal"`) and still writes topology summaries
+   (`topology_detail="summary"`).
 3. Use `get_entity_statistics`, `execute_query`, `get_entity_topology`, or
    `get_topology_summary` to understand geometry.
+   Use `scan_all_entities(topology_detail="full")` when primitive/relation
+   topology is needed for detailed geometric reasoning.
 4. Edit by handle with purpose-built tools such as `move_entity`,
    `array_rectangular`, `fillet_polyline`, `add_qdim`, `insert_block`,
    `add_hatch`, or `solid_boolean`.

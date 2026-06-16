@@ -946,6 +946,23 @@ class CADDatabase:
             area = sum(areas) if areas else None
         is_closed = bool(closed or any(p["is_closed"] for p in primitives))
 
+        if not primitives:
+            if "3dsolid" in etype:
+                solid_count = 1
+            elif "hatch" in etype or "region" in etype or "surface" in etype:
+                surface_count = 1
+                is_closed = True
+            elif "circle" in etype:
+                curve_count = 1
+                is_closed = True
+            elif "arc" in etype or "ellipse" in etype or "spline" in etype:
+                curve_count = 1
+            elif "polyline" in etype or "line" in etype or "ray" in etype:
+                line_count = 1
+            elif "text" in etype or "block" in etype or "point" in etype:
+                point_count = 1
+            dimensionality = 3 if solid_count else 2 if surface_count else 1 if (line_count or curve_count) else 0
+
         summary = {
             "dimensionality": dimensionality,
             "point_count": point_count,
@@ -1078,6 +1095,40 @@ class CADDatabase:
         ))
 
     @staticmethod
+    def _normalize_topology_detail(value: Optional[str]) -> str:
+        detail = (value or "full").strip().lower()
+        if detail in {"none", "off", "false", "0"}:
+            return "none"
+        if detail in {"summary", "summaries", "light", "lite"}:
+            return "summary"
+        return "full"
+
+    def _insert_topology_summary(self, conn: sqlite3.Connection, handle: str,
+                                 summary: Dict[str, Any]) -> None:
+        conn.execute('''
+            INSERT INTO cad_topology_summary
+                (entity_handle, dimensionality, point_count, line_count,
+                 curve_count, surface_count, solid_count, is_closed,
+                 length, area, summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            handle, summary["dimensionality"], summary["point_count"],
+            summary["line_count"], summary["curve_count"],
+            summary["surface_count"], summary["solid_count"],
+            summary["is_closed"], summary["length"], summary["area"],
+            summary["summary"],
+        ))
+
+    def _replace_entity_topology_summary(self, conn: sqlite3.Connection,
+                                         handle: str, entity_type: str,
+                                         geometry: Dict[str, Any]) -> None:
+        _, _, summary = self._derive_topology(entity_type, geometry or {})
+        conn.execute("DELETE FROM cad_geometry_relations WHERE entity_handle = ?", (handle,))
+        conn.execute("DELETE FROM cad_geometry_primitives WHERE entity_handle = ?", (handle,))
+        conn.execute("DELETE FROM cad_topology_summary WHERE entity_handle = ?", (handle,))
+        self._insert_topology_summary(conn, handle, summary)
+
+    @staticmethod
     def _delete_topology_for_handles(conn: sqlite3.Connection,
                                      handles: List[str]) -> None:
         if not handles:
@@ -1101,7 +1152,8 @@ class CADDatabase:
                       geometry: Dict = None,
                       bbox: Optional[Tuple[float,float,float,float]] = None,
                       derive_topology: bool = True,
-                      derive_bbox: bool = True) -> bool:
+                      derive_bbox: bool = True,
+                      topology_detail: str = "full") -> bool:
         try:
             if not handle:
                 return False
@@ -1142,10 +1194,13 @@ class CADDatabase:
                     bbox[2] if bbox else None, bbox[3] if bbox else None,
                     ctx.workspace_id, ctx.drawing_id, handle,
                 ))
-                if derive_topology:
-                    self._replace_entity_topology(conn, scoped_handle, entity_type, geometry or {})
-                else:
+                topology_mode = self._normalize_topology_detail(topology_detail)
+                if not derive_topology or topology_mode == "none":
                     self._delete_topology_for_handles(conn, [scoped_handle])
+                elif topology_mode == "summary":
+                    self._replace_entity_topology_summary(conn, scoped_handle, entity_type, geometry or {})
+                else:
+                    self._replace_entity_topology(conn, scoped_handle, entity_type, geometry or {})
             return True
         except Exception as e:
             logger.error(f"插入实体 {handle} 失败: {e}")
@@ -1153,7 +1208,8 @@ class CADDatabase:
 
     def upsert_entities_batch(self, entities: List[Dict[str, Any]],
                               derive_topology: bool = True,
-                              derive_bbox: bool = True) -> int:
+                              derive_bbox: bool = True,
+                              topology_detail: str = "full") -> int:
         """Batch insert/update entities. Returns count of successfully upserted."""
         if not entities:
             return 0
@@ -1222,14 +1278,18 @@ class CADDatabase:
                     drawing_id=excluded.drawing_id,
                     native_handle=excluded.native_handle
             ''', rows)
-            if derive_topology:
-                for scoped_handle, entity_type, geometry in topology_rows:
-                    self._replace_entity_topology(conn, scoped_handle, entity_type, geometry)
-            else:
+            topology_mode = self._normalize_topology_detail(topology_detail)
+            if not derive_topology or topology_mode == "none":
                 self._delete_topology_for_handles(
                     conn,
                     [scoped_handle for scoped_handle, _, _ in topology_rows],
                 )
+            elif topology_mode == "summary":
+                for scoped_handle, entity_type, geometry in topology_rows:
+                    self._replace_entity_topology_summary(conn, scoped_handle, entity_type, geometry)
+            else:
+                for scoped_handle, entity_type, geometry in topology_rows:
+                    self._replace_entity_topology(conn, scoped_handle, entity_type, geometry)
         if skipped:
             logger.info("Skipped %s invalid entities during batch upsert", skipped)
         return len(rows)

@@ -604,7 +604,7 @@ TOOL_ROUTING_CATALOG = [
     {
         "category": "Query",
         "tool": "scan_all_entities",
-        "use": "Scan an existing drawing into SQLite before analysis or edits.",
+        "use": "Scan an existing drawing into SQLite before analysis or edits. Default scans are lightweight but still derive topology summaries; use topology_detail='full' for primitive/relation topology.",
         "avoid": "Do not edit an unknown existing drawing without surveying handles first.",
         "keywords": ["scan", "survey", "inspect drawing", "existing drawing", "扫描", "识别", "现有图纸"],
     },

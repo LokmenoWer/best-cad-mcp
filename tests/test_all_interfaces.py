@@ -643,6 +643,7 @@ class TestMCPToolSchemas(unittest.TestCase):
         self.assertIn("detail_level", scan_schema["properties"])
         self.assertIn("include_bounding_boxes", scan_schema["properties"])
         self.assertIn("derive_topology", scan_schema["properties"])
+        self.assertIn("topology_detail", scan_schema["properties"])
 
         recommendation = utility_tools.recommend_cad_tools(
             "visually verify drawing and mark the base plate"
@@ -1021,6 +1022,40 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(ent["bbox_min_x"], 0.0)
         self.assertEqual(ent["bbox_max_x"], 10.0)
         self.assertIsNone(self.db.get_entity_topology("B1")["summary"])
+
+    def test_batch_upsert_summary_topology_keeps_agent_recognition(self):
+        count = self.db.upsert_entities_batch(
+            [
+                {
+                    "handle": "B2",
+                    "name": "LightLine",
+                    "type": "AcDbLine",
+                    "layer": "WALL",
+                    "bbox": [0, 0, 10, 1],
+                    "geometry": {},
+                },
+                {
+                    "handle": "B3",
+                    "name": "LightCircle",
+                    "type": "AcDbCircle",
+                    "layer": "HOLES",
+                    "bbox": [4, 4, 6, 6],
+                    "geometry": {},
+                },
+            ],
+            derive_topology=True,
+            derive_bbox=False,
+            topology_detail="summary",
+        )
+
+        self.assertEqual(count, 2)
+        line_topology = self.db.get_entity_topology("B2")
+        circle_topology = self.db.get_entity_topology("B3")
+        self.assertEqual(line_topology["summary"]["line_count"], 1)
+        self.assertEqual(circle_topology["summary"]["curve_count"], 1)
+        self.assertEqual(circle_topology["summary"]["is_closed"], 1)
+        self.assertEqual(line_topology["primitives"], [])
+        self.assertEqual(line_topology["relations"], [])
 
     def test_layer_save_and_get(self):
         self.db.save_layers([
@@ -2008,10 +2043,12 @@ class TestScanToolBugs(unittest.TestCase):
         self.assertEqual(records[0]["handle"], "H1")
         self.assertEqual(records[0]["bbox"], (0, 0, 10, 1))
         self.assertEqual(records[0]["geometry"], {})
-        self.assertFalse(mock_db.upsert_entities_batch.call_args.kwargs["derive_topology"])
+        self.assertTrue(mock_db.upsert_entities_batch.call_args.kwargs["derive_topology"])
         self.assertFalse(mock_db.upsert_entities_batch.call_args.kwargs["derive_bbox"])
+        self.assertEqual(mock_db.upsert_entities_batch.call_args.kwargs["topology_detail"], "summary")
         self.assertIn("truncated=True", result)
         self.assertIn("Skipped 1 entities", result)
+        self.assertIn("Topology summaries were derived", result)
 
 
 class TestBugDetection(unittest.TestCase):

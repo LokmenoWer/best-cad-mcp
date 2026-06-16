@@ -2295,7 +2295,8 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
                       clear_annotations: bool = False,
                       detail_level: str = "minimal",
                       include_bounding_boxes: bool = True,
-                      derive_topology: bool = False) -> str:
+                      derive_topology: bool = True,
+                      topology_detail: str = "summary") -> str:
     """扫描当前图纸中的所有实体并保存到数据库。
 
     这是 AI 理解图纸的核心工具 — 它将 AutoCAD 中的图形对象转换为结构化数据，
@@ -2310,7 +2311,8 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         clear_annotations: 是否同时清空模型私有空间标注（默认False=保留）
         detail_level: minimal/standard/full。大图默认 minimal 更快。
         include_bounding_boxes: 是否读取实体包围盒，便于后续空间查询。
-        derive_topology: 是否生成拓扑表。大图默认关闭以减少扫描耗时。
+        derive_topology: 是否生成拓扑表。默认生成轻量摘要，便于 agent 识别。
+        topology_detail: summary/full/none。summary 只写拓扑摘要，full 写点线面关系。
     """
     return query_tools.scan_all_entities(
         clear_db=clear_db,
@@ -2319,6 +2321,7 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         detail_level=detail_level,
         include_bounding_boxes=include_bounding_boxes,
         derive_topology=derive_topology,
+        topology_detail=topology_detail,
     )
 
 

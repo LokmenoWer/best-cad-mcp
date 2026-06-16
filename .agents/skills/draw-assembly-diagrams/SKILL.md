@@ -27,7 +27,7 @@ Read `references/assembly-drawing-requirements.md` before creating a new assembl
 - Stop if AutoCAD becomes busy, rejects COM calls, or a tool times out. Confirm idle state before any retry.
 - Avoid tools that need screen picks, open command prompts, modal dialogs, or destructive global state unless the user explicitly requested that exact action.
 - Track handles for every meaningful entity, block, solid, dimension, hatch, table, balloon, viewport, and exported artifact.
-- Verify after each phase with `scan_all_entities`, `get_entity_statistics`, targeted `execute_query`, `get_entity_properties`, topology tools, and `export_view_image` when visual confirmation would help.
+- Verify after each phase with `scan_all_entities`, `get_entity_statistics`, targeted `execute_query`, `get_entity_properties`, topology tools, and `export_view_image` when visual confirmation would help. Default scans should keep topology summaries; request full topology only when primitive/relation detail is needed.
 
 ## Vision Verification
 
@@ -46,7 +46,7 @@ Use the Pointer-CAD idea of explicit references to geometry, but keep the refere
 - Use `add_spatial_annotation` to label an entity handle, derived primitive key, point, bbox, area, view, or group with a model-only label such as `base plate`, `bolt-hole pattern`, `target face`, or `section cut region`.
 - Use `list_spatial_annotations` to recover those labels after scans or long multi-step work.
 - Use `clear_spatial_annotations` only to remove model-private context. It does not erase DWG entities.
-- `scan_all_entities(clear_db=True)` preserves model-private annotations by default. Pass `clear_annotations=True` only when stale model memory should be discarded.
+- `scan_all_entities(clear_db=True)` preserves model-private annotations by default and derives lightweight topology summaries by default. Pass `clear_annotations=True` only when stale model memory should be discarded.
 - Do not use visible text, nonplot layers, XData, extension dictionaries, groups, or blocks for model memory unless the user explicitly wants persistent CAD metadata in the DWG.
 
 ## Verified Boundaries
@@ -64,6 +64,8 @@ Avoid by default:
 Large drawing rules:
 
 - Use `isolate_layer` and `unisolate_layers`; do not hand-roll full layer-table loops.
+- Use `scan_all_entities(clear_db=True, detail_level="minimal", topology_detail="summary")` as the default survey. It records handles, layers, bbox data, and `cad_topology_summary` rows without expensive primitive/relation extraction. Use `topology_detail="full"` only when `get_entity_topology` must include starts_at/ends_at/bounded_by-style primitive relations.
+- Do not set `derive_topology=False` for recognition workflows unless the user only needs raw handle/type/layer inventory; without at least summary topology, agents lose useful geometric structure.
 - Use `find_text` and `replace_text`; they use filtered text selection. Do not scan all `ModelSpace.Item(i)` entries for text.
 - `select_all` may return a handle sample instead of creating a huge global selection set. Use area/window/crossing/query tools for precise bulk operations.
 - Use `get_xrefs` for xref listing instead of filtering `get_all_blocks`.
@@ -73,8 +75,8 @@ Large drawing rules:
 ## Workflow
 
 1. Clarify deliverable: outline assembly, sectioned assembly, exploded view, installation sheet, repair sheet, or subassembly.
-2. Inspect state: `get_document_info`, `get_active_space_info`, `get_variable("INSUNITS")`; for existing DWGs, run `scan_all_entities(clear_db=True)` and `get_entity_statistics`.
-3. For unclear existing drawings, combine SQL/topology inspection with `export_view_image`; then add model-private labels for important handles or regions.
+2. Inspect state: `get_document_info`, `get_active_space_info`, `get_variable("INSUNITS")`; for existing DWGs, run `scan_all_entities(clear_db=True, detail_level="minimal", topology_detail="summary")` and `get_entity_statistics`.
+3. For unclear existing drawings, combine SQL/topology-summary inspection with `export_view_image`; rerun with `topology_detail="full"` only for the relevant scope when primitive/relation topology is needed. Then add model-private labels for important handles or regions.
 4. Plan sheet: units, sheet size, scale, projection method, view set, title block, BOM location, layers, text style, dimension style, and assumptions.
 5. Build a component register before geometry: item number, part code, name, quantity, material/spec, standard/purchased/custom status, drawing/detail reference, and notes.
 6. Draw in batches with high-level tools, record handles, then verify before continuing.

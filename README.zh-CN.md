@@ -124,9 +124,12 @@ cad-mcp
 ## 推荐工作流
 
 1. 用 `open_drawing` 或 `create_new_drawing` 打开/创建图纸。
-2. 对现有图纸运行 `scan_all_entities`。
+2. 对现有图纸运行 `scan_all_entities`。默认扫描适合大图：
+   `detail_level="minimal"`，同时保留 `topology_detail="summary"` 拓扑摘要。
 3. 使用 `get_entity_statistics`、`execute_query`、`get_entity_topology` 或
    `get_topology_summary` 理解图纸内容。
+   需要端点、边界、primitive/relation 等细粒度拓扑时，使用
+   `scan_all_entities(topology_detail="full")`。
 4. 捕获 handle 后用专用工具编辑，例如 `move_entity`、`array_rectangular`、
    `fillet_polyline`、`add_qdim`、`insert_block`、`add_hatch`、`solid_boolean`。
 5. 需要模型记忆时，用 `add_spatial_annotation` 保存私有空间标注。

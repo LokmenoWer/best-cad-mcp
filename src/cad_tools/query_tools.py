@@ -53,7 +53,8 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
                       clear_annotations: bool = False,
                       detail_level: str = "minimal",
                       include_bounding_boxes: bool = True,
-                      derive_topology: bool = False) -> str:
+                      derive_topology: bool = True,
+                      topology_detail: str = "summary") -> str:
     """扫描当前图纸所有实体并保存到数据库。
 
     这是 AI 理解图纸内容的核心工具 — 将 CAD 图形数据转换为结构化数据，
@@ -86,6 +87,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
         records,
         derive_topology=derive_topology,
         derive_bbox=False,
+        topology_detail=topology_detail,
     )
 
     lines = [f"OK: 已扫描 {saved} 个实体并保存到数据库"]
@@ -101,6 +103,8 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
         lines.append(f"Skipped {errors} entities that returned scan errors.")
     if not derive_topology:
         lines.append("Topology derivation skipped for fast large-drawing scans.")
+    elif (topology_detail or "").lower() == "summary":
+        lines.append("Topology summaries were derived; use topology_detail='full' when primitive/relation topology is needed.")
     if clear_annotations:
         lines.append("Model-private spatial annotations were cleared.")
     else:
