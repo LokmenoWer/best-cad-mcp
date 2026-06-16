@@ -8,6 +8,13 @@ ctrl = get_controller()
 db = get_database()
 
 
+def _activate_db_drawing(name: str = "active", path: str = "") -> None:
+    try:
+        db.activate_drawing(name=name or "active", path=path or "")
+    except Exception:
+        pass
+
+
 def create_new_drawing(template: Optional[str] = None) -> str:
     """创建新的 AutoCAD 图纸。可选择指定模板文件路径。
 
@@ -16,6 +23,7 @@ def create_new_drawing(template: Optional[str] = None) -> str:
     """
     r = ctrl.create_drawing(template)
     if r["success"]:
+        _activate_db_drawing(r.get("name", "active"), "")
         return format_success(r["message"], name=r.get("name", ""))
     return f"创建图纸失败: {r['message']}"
 
@@ -29,6 +37,7 @@ def open_drawing(filepath: str, password: Optional[str] = None) -> str:
     """
     r = ctrl.open_drawing(filepath, password)
     if r["success"]:
+        _activate_db_drawing(r.get("name", ""), filepath)
         return format_success(r["message"], name=r.get("name", ""))
     return f"打开图纸失败: {r['message']}"
 
@@ -41,6 +50,8 @@ def save_drawing(filepath: Optional[str] = None) -> str:
     """
     r = ctrl.save_drawing(filepath)
     if r["success"]:
+        if filepath:
+            _activate_db_drawing(r.get("name", ""), filepath)
         return r["message"]
     return f"保存失败: {r['message']}"
 

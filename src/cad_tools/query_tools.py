@@ -9,6 +9,18 @@ ctrl = get_controller()
 db = get_database()
 
 
+def _sync_db_active_drawing() -> None:
+    try:
+        info = ctrl.get_document_info()
+        if isinstance(info, dict) and "error" not in info:
+            db.activate_drawing(
+                name=info.get("name", "active"),
+                path=info.get("full_name") or info.get("path", ""),
+            )
+    except Exception:
+        pass
+
+
 def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
                       clear_annotations: bool = False) -> str:
     """扫描当前图纸所有实体并保存到数据库。
@@ -20,6 +32,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
         clear_db:     是否先清空数据库（默认True）
         max_entities: 最大扫描实体数（默认5000）
     """
+    _sync_db_active_drawing()
     if clear_db:
         db.clear_entities(clear_annotations=clear_annotations)
     result = ctrl.scan_model_space(max_entities)

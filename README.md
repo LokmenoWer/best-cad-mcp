@@ -1,24 +1,65 @@
 # best-cad-mcp
 
-Comprehensive AutoCAD MCP server for Windows. It exposes high-level tools for
-drawing, editing, querying, annotation, layout, plotting, metadata, 3D solids,
-and CAD workflow guidance through the Model Context Protocol.
+Comprehensive Windows AutoCAD MCP server for agents that need to work on real
+drawings, not just call a handful of primitive drawing commands.
 
-## Features
+[中文说明](README.zh-CN.md)
 
-- AutoCAD COM automation through a single controller layer.
-- 260+ specialized MCP tools across drawing primitives, editing, dimensions, blocks,
-  hatches, views, layouts, files, selection sets, metadata, and utilities.
-- SQLite-backed CAD metadata indexing for scan and query workflows.
-- Model-private spatial annotations for AI labels and pointer-style references
-  that stay in SQLite and do not create visible DWG geometry, layers, or XData.
-- Vision-model verification through `export_view_image`, which exports the
-  current AutoCAD view as a review artifact without modifying the drawing.
-- `open_drawing` can open a DWG even when AutoCAD is only showing the Start tab
-  and no drawing document is active.
-- Built-in tool-selection guidance that prefers high-level CAD operations over
-  primitive-only drafting.
-- Optional Codex agent skills under `.agents/` for assembly drawing workflows.
+## Why This MCP Is Different
+
+Many CAD MCP servers stop at simple tools such as `draw_line`, `draw_circle`,
+or raw command forwarding. `best-cad-mcp` is built for multi-step CAD work:
+
+- 260+ purpose-built AutoCAD tools for drawing, editing, dimensions, blocks,
+  hatches, layouts, plotting, metadata, 3D solids, and workflow guidance.
+- Handle-based editing workflows: scan first, query structured metadata, then
+  edit the exact entities returned by AutoCAD.
+- Workspace-aware SQLite metadata storage for multi-drawing, multi-turn, and
+  multi-thread agent sessions.
+- Scoped SQL views: `execute_query("SELECT * FROM cad_entities")` returns only
+  the active workspace/drawing/thread context while still exposing native
+  AutoCAD handles.
+- Model-private spatial annotations for pointer-style references such as
+  important parts, points, faces, bounding boxes, or semantic regions. These
+  annotations stay in SQLite and never pollute the DWG with helper layers,
+  XData, or visible labels.
+- Derived topology tables for points, lines, curves, surfaces, solids, and
+  relationships, so agents can reason over geometry instead of parsing raw COM
+  fields repeatedly.
+- Visual verification through `export_view_image`, which writes a review
+  artifact without modifying the drawing.
+- Built-in tool-selection guidance that steers agents toward high-level CAD
+  operations instead of rebuilding rectangles, arrays, dimensions, blocks, or
+  hatches from primitives.
+
+## Workspace Database Architecture
+
+Runtime metadata is stored by default in:
+
+```text
+<workspace>/.cad_mcp/workspace.db
+```
+
+The database tracks four scopes:
+
+- `workspace`: the project directory shared by one or more agent sessions.
+- `drawing`: each DWG has its own entity/layer/block/query scope, so identical
+  AutoCAD handles in different drawings do not collide.
+- `conversation`: multi-turn context for a client session.
+- `thread`: parallel agent threads can share the same workspace database while
+  keeping model-private annotations and query history isolated.
+
+Internally, physical SQLite keys are scoped. Externally, MCP tools and scoped
+SQL views still return native AutoCAD handles and names. This keeps existing
+handle-based workflows compatible while making the database safe for multiple
+drawings and threads.
+
+Useful context tools:
+
+- `get_workspace_context`
+- `set_workspace_context`
+- `activate_workspace_drawing`
+- `list_workspace_drawings`
 
 ## Requirements
 
@@ -26,17 +67,15 @@ and CAD workflow guidance through the Model Context Protocol.
 - AutoCAD 2020+ recommended
 - Python 3.11+
 - MCP-compatible client
-- An AutoCAD installation that is accessible through Windows COM automation
+- AutoCAD accessible through Windows COM automation
 
-Python dependencies:
+Install Python dependencies:
 
 ```powershell
 pip install -r requirements.txt
 ```
 
 ## Quick Start
-
-Clone the repository and install dependencies:
 
 ```powershell
 git clone https://github.com/LokmenoWer/best-cad-mcp.git
@@ -52,7 +91,7 @@ Run the server directly:
 python src\server.py
 ```
 
-Or install the package locally:
+Or install the console script:
 
 ```powershell
 pip install -e .
@@ -61,8 +100,7 @@ cad-mcp
 
 ## MCP Client Configuration
 
-After `pip install -e .`, the preferred client configuration can use the
-console script:
+After `pip install -e .`:
 
 ```json
 {
@@ -74,7 +112,7 @@ console script:
 }
 ```
 
-You can also run the server from the source checkout:
+From a source checkout:
 
 ```json
 {
@@ -87,43 +125,36 @@ You can also run the server from the source checkout:
 }
 ```
 
-Use an absolute path for `src/server.py` in your local checkout. Run the MCP
-client from a working directory where it is acceptable for runtime files to be
-created.
+Run the MCP client from the workspace directory you want to use for runtime
+metadata. You can also set `CAD_MCP_WORKSPACE_ROOT`, `CAD_MCP_WORKSPACE_ID`,
+`CAD_MCP_CONVERSATION_ID`, `CAD_MCP_THREAD_ID`, or drawing-specific environment
+variables before launch.
+
+## Typical Agent Workflow
+
+1. Open or create a drawing with `open_drawing` or `create_new_drawing`.
+2. Run `scan_all_entities` on existing drawings.
+3. Use `get_entity_statistics`, `execute_query`, `get_entity_topology`, or
+   `get_topology_summary` to understand geometry.
+4. Edit by handle with purpose-built tools such as `move_entity`,
+   `array_rectangular`, `fillet_polyline`, `add_qdim`, `insert_block`,
+   `add_hatch`, or `solid_boolean`.
+5. Store model-only context with `add_spatial_annotation` when the agent needs
+   to remember a part, region, edge-like primitive, point, or target face.
+6. Use `export_view_image` when visual verification is useful.
+7. Save or export the final DWG/PDF/DXF/DWF as needed.
 
 ## Runtime Files
 
-The server can create runtime files such as `cad_mcp.log` and
-`autocad_data.db` in the MCP client's working directory. These files are ignored
-by Git and should not be committed.
+The server may create these files under the active workspace:
 
-Visual review exports created by `export_view_image` default to
-`cad_visual_exports/` in the MCP working directory. These are review artifacts
-for the model or user and are not written into the DWG.
+- `.cad_mcp/workspace.db`
+- `.cad_mcp/workspace.db-wal`
+- `.cad_mcp/workspace.db-shm`
+- `cad_mcp.log`
+- `cad_visual_exports/`
 
-## Model-Private CAD Context
-
-Run `scan_all_entities` to index drawing geometry into SQLite. The scan now
-keeps model-private spatial annotations by default, so an AI model can label
-important handles, primitives, points, bounding boxes, views, or groups across
-multi-step work:
-
-- `add_spatial_annotation` stores a hidden label such as `base plate`,
-  `bolt-hole pattern`, or `target face`.
-- `list_spatial_annotations` retrieves those labels for later reasoning.
-- `clear_spatial_annotations` removes only the SQLite annotations and never
-  erases AutoCAD entities.
-
-Pass `clear_annotations=true` to `scan_all_entities` only when stale model
-context should be discarded. The annotation system is inspired by pointer-based
-CAD workflows: references are explicit and queryable, but they do not pollute
-the user's drawing space.
-
-## Visual Verification
-
-Vision-capable models can call `export_view_image` whenever seeing the current
-CAD view would reduce ambiguity. The reliable AutoCAD COM image path is WMF; if
-a PNG or JPG is required, export PDF and render it externally.
+These are runtime artifacts and should not be committed.
 
 ## Development
 
@@ -133,17 +164,22 @@ Run the test suite:
 python -m pytest
 ```
 
-The tests focus on interface coverage and module wiring. Some runtime behavior
-requires a local AutoCAD installation.
-
-For a real AutoCAD smoke run against registered MCP tools, use:
+Run the AutoCAD smoke verifier against registered MCP tools:
 
 ```powershell
 python scripts\verify_autocad_mcp_tools.py
 ```
 
-The verifier uses the existing AutoCAD COM session and skips risky, modal, or
-interactive tools by default.
+The unit tests run without AutoCAD by mocking COM-dependent modules. Runtime
+smoke verification requires a local AutoCAD COM session.
+
+## Acknowledgements
+
+The model-private annotation and pointer-style workflow is conceptually
+informed by the public Pointer-CAD project and paper:
+https://github.com/Snitro/Pointer-CAD
+
+No Pointer-CAD source code is copied into this repository.
 
 ## License
 

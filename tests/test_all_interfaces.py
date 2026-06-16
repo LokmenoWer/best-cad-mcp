@@ -231,6 +231,8 @@ class TestModuleImports(unittest.TestCase):
             'get_entity_topology', 'get_topology_summary',
             'add_spatial_annotation', 'list_spatial_annotations',
             'clear_spatial_annotations',
+            'get_workspace_context', 'set_workspace_context',
+            'activate_workspace_drawing', 'list_workspace_drawings',
         ]
         for name in expected:
             with self.subTest(name=name):
@@ -1026,6 +1028,95 @@ class TestDatabase(unittest.TestCase):
         result = self.db.execute("SELECT * FROM cad_entities WHERE color = 1")
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["rows"][0]["handle"], "H1")
+
+    def test_workspace_scopes_multiple_drawings_with_same_handle(self):
+        self.db.activate_drawing("a.dwg", r"C:\drawings\a.dwg")
+        self.db.upsert_entity("H1", "LineA", "AcDbLine", layer="A")
+
+        self.db.activate_drawing("b.dwg", r"C:\drawings\b.dwg")
+        self.assertIsNone(self.db.get_entity("H1"))
+        self.db.upsert_entity("H1", "LineB", "AcDbLine", layer="B")
+        b_rows = self.db.execute("SELECT handle, name, layer FROM cad_entities")
+        self.assertEqual(b_rows["rows"], [{"handle": "H1", "name": "LineB", "layer": "B"}])
+
+        self.db.activate_drawing("a.dwg", r"C:\drawings\a.dwg")
+        a_rows = self.db.execute("SELECT handle, name, layer FROM cad_entities")
+        self.assertEqual(a_rows["rows"], [{"handle": "H1", "name": "LineA", "layer": "A"}])
+
+    def test_spatial_annotations_are_thread_scoped(self):
+        self.db.activate_drawing("shared.dwg", r"C:\drawings\shared.dwg")
+        self.db.configure_context(conversation_id="conv", thread_id="thread-a")
+        self.db.upsert_spatial_annotation(
+            annotation_id="ann1",
+            label="thread a mark",
+            target_kind="entity",
+            entity_handle="H1",
+        )
+
+        self.db.configure_context(conversation_id="conv", thread_id="thread-b")
+        self.assertEqual(self.db.list_spatial_annotations(annotation_id="ann1"), [])
+        self.db.upsert_spatial_annotation(
+            annotation_id="ann1",
+            label="thread b mark",
+            target_kind="entity",
+            entity_handle="H1",
+        )
+        self.assertEqual(
+            self.db.list_spatial_annotations(annotation_id="ann1")[0]["label"],
+            "thread b mark",
+        )
+
+        self.db.configure_context(conversation_id="conv", thread_id="thread-a")
+        self.assertEqual(
+            self.db.list_spatial_annotations(annotation_id="ann1")[0]["label"],
+            "thread a mark",
+        )
+
+    def test_workspace_database_allows_multiple_threads_same_workspace(self):
+        import threading
+        from src.cad_database import CADDatabase
+
+        errors = []
+
+        def worker(idx):
+            try:
+                local_db = CADDatabase(self.tmpfile)
+                local_db.configure_context(
+                    workspace_id="shared-workspace",
+                    conversation_id="conv",
+                    thread_id=f"thread-{idx}",
+                    drawing_name="shared.dwg",
+                    drawing_path=r"C:\drawings\shared.dwg",
+                )
+                local_db.upsert_entity(f"H{idx}", f"Line{idx}", "AcDbLine")
+                local_db.upsert_spatial_annotation(
+                    annotation_id="mark",
+                    label=f"thread-{idx}",
+                    target_kind="entity",
+                    entity_handle=f"H{idx}",
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(errors, [])
+        self.db.configure_context(
+            workspace_id="shared-workspace",
+            conversation_id="conv",
+            thread_id="thread-0",
+            drawing_name="shared.dwg",
+            drawing_path=r"C:\drawings\shared.dwg",
+        )
+        self.assertEqual(self.db.count_entities(), 6)
+        self.assertEqual(
+            self.db.list_spatial_annotations(annotation_id="mark")[0]["label"],
+            "thread-0",
+        )
 
     def test_execute_read_only_rejects_writes(self):
         self.db.clear_entities()

@@ -19,7 +19,10 @@ venv/
 *.swo
 
 # Project-specific (generated at runtime in Agent's working directory)
+.cad_mcp/
 autocad_data.db
+*.db-wal
+*.db-shm
 cad_mcp.log
 cad_visual_exports/
 autocad*_results.json

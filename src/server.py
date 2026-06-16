@@ -2670,6 +2670,51 @@ def execute_sql_query(ctx: Context, query: str) -> str:
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
+def get_workspace_context(ctx: Context) -> str:
+    """Return the active workspace/conversation/thread/drawing database scope."""
+    return utility_tools.get_workspace_context()
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
+def set_workspace_context(ctx: Context,
+                          workspace_root: Optional[str] = None,
+                          workspace_id: Optional[str] = None,
+                          conversation_id: Optional[str] = None,
+                          thread_id: Optional[str] = None,
+                          drawing_id: Optional[str] = None,
+                          drawing_name: Optional[str] = None,
+                          drawing_path: Optional[str] = None) -> str:
+    """Set the workspace-aware metadata database scope for this MCP call path."""
+    return utility_tools.set_workspace_context(
+        workspace_root=workspace_root,
+        workspace_id=workspace_id,
+        conversation_id=conversation_id,
+        thread_id=thread_id,
+        drawing_id=drawing_id,
+        drawing_name=drawing_name,
+        drawing_path=drawing_path,
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
+def activate_workspace_drawing(ctx: Context, drawing_name: str = "active",
+                               drawing_path: str = "",
+                               drawing_id: Optional[str] = None) -> str:
+    """Switch metadata reads and writes to a drawing inside the current workspace."""
+    return utility_tools.activate_workspace_drawing(
+        drawing_name=drawing_name,
+        drawing_path=drawing_path,
+        drawing_id=drawing_id,
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
+def list_workspace_drawings(ctx: Context, limit: int = 100) -> str:
+    """List drawings known to the current workspace metadata database."""
+    return utility_tools.list_workspace_drawings(limit)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
 def get_entity_topology(ctx: Context, handle: str) -> str:
     """获取单个实体派生出的点、线、面与拓扑关系。"""
     return utility_tools.get_entity_topology(handle)
