@@ -59,32 +59,107 @@ pip install -e .
 cad-mcp
 ```
 
-## MCP 客户端配置
+## Codex MCP 配置
 
-执行 `pip install -e .` 后：
+Codex 从 `config.toml` 读取 MCP server 配置。本仓库已提供项目级
+`.codex/config.toml`，在 Codex 信任该项目后会自动加载。它会从当前源码
+checkout 启动 server，自动批准常规 CAD 工具，同时让原始命令和破坏性兜底工具
+继续走人工审批。
 
-```json
-{
-  "mcpServers": {
-    "CAD": {
-      "command": "cad-mcp"
-    }
-  }
-}
+如果要写入用户级 Codex 配置，执行 `pip install -e .` 后，把下面内容加入
+`~/.codex/config.toml`：
+
+```toml
+[mcp_servers.best-cad-mcp]
+enabled = true
+command = "cad-mcp"
+cwd = "C:/path/to/best-cad-mcp"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+default_tools_approval_mode = "approve"
 ```
 
-从源码运行：
+如果直接从源码 checkout 和虚拟环境启动：
+
+```toml
+[mcp_servers.best-cad-mcp]
+enabled = true
+command = "C:/path/to/best-cad-mcp/.venv/Scripts/python.exe"
+args = ["-m", "src.server"]
+cwd = "C:/path/to/best-cad-mcp"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+default_tools_approval_mode = "approve"
+```
+
+即使常规工具自动批准，也建议让高风险工具保持人工审批：
+
+```toml
+[mcp_servers.best-cad-mcp.tools.send_command]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.execute_cad_plan]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.delete_entity]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.delete_entities]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.erase_selection_entities]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.delete_layer]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.purge_drawing]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.audit_drawing]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.save_drawing]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.close_drawing]
+approval_mode = "prompt"
+```
+
+## Claude Code MCP 配置
+
+Claude Code 从 `.mcp.json` 读取共享的项目 MCP server，从 `.claude/settings.json`
+读取共享的项目权限。本仓库已经提供这两个文件：
+
+- `.mcp.json` 把本地 stdio server 注册为 `best-cad-mcp`。
+- `.claude/settings.json` 启用该项目 MCP server，自动允许常规
+  `mcp__best-cad-mcp__*` 工具，同时让高风险工具继续确认。
+
+仓库内的 MCP server 配置使用 Claude 暴露的项目目录变量
+`CLAUDE_PROJECT_DIR`：
 
 ```json
 {
   "mcpServers": {
-    "CAD": {
+    "best-cad-mcp": {
       "command": "python",
-      "args": ["C:/path/to/best-cad-mcp/src/server.py"]
+      "args": ["${CLAUDE_PROJECT_DIR:-.}/src/server.py"],
+      "env": {
+        "CAD_MCP_WORKSPACE_ROOT": "${CLAUDE_PROJECT_DIR:-.}",
+        "PYTHONPATH": "${CLAUDE_PROJECT_DIR:-.}"
+      }
     }
   }
 }
 ```
+
+如果依赖只安装在项目虚拟环境里，把 `.mcp.json` 里的 `command` 改成：
+
+```json
+"C:/path/to/best-cad-mcp/.venv/Scripts/python.exe"
+```
+
+可以用 `claude mcp list` 或 Claude Code 内的 `/mcp` 确认 server 已连接。
 
 建议从目标 workspace 目录启动 MCP 客户端，这样运行时元数据会落在对应工作区。
 也可以在启动前设置 `CAD_MCP_WORKSPACE_ROOT`、`CAD_MCP_WORKSPACE_ID`、

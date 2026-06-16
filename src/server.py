@@ -27,15 +27,19 @@ Architecture:
 Start manually:
     python server.py
 
-Or via Claude Desktop MCP config:
-    {
-      "mcpServers": {
-        "CAD": {
-          "command": "python",
-          "args": ["C:/Users/qxqxx/workspace/best-cad-mcp/src/server.py"]
-        }
-      }
-    }
+Or via Codex MCP config:
+    [mcp_servers.best-cad-mcp]
+    command = "python"
+    args = ["-m", "src.server"]
+    cwd = "C:/path/to/best-cad-mcp"
+    default_tools_approval_mode = "approve"
+
+Or via Claude Code project config:
+    .mcp.json registers best-cad-mcp as:
+      command = "python"
+      args = ["${CLAUDE_PROJECT_DIR:-.}/src/server.py"]
+    .claude/settings.json allows routine mcp__best-cad-mcp__* tool calls
+    and asks before raw/destructive tools.
 """
 
 import sys

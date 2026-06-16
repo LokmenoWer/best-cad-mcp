@@ -64,32 +64,111 @@ pip install -e .
 cad-mcp
 ```
 
-## MCP Client Configuration
+## Codex MCP Configuration
 
-After `pip install -e .`:
+Codex reads MCP servers from `config.toml`. This repository includes a
+project-scoped `.codex/config.toml` for trusted Codex projects. It starts the
+server from the checkout, auto-approves routine CAD tools, and keeps raw or
+destructive escape hatches interactive.
 
-```json
-{
-  "mcpServers": {
-    "CAD": {
-      "command": "cad-mcp"
-    }
-  }
-}
+For a user-level Codex config, add this to `~/.codex/config.toml` after
+`pip install -e .`:
+
+```toml
+[mcp_servers.best-cad-mcp]
+enabled = true
+command = "cad-mcp"
+cwd = "C:/path/to/best-cad-mcp"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+default_tools_approval_mode = "approve"
 ```
 
-From a source checkout:
+From a source checkout with a virtual environment:
+
+```toml
+[mcp_servers.best-cad-mcp]
+enabled = true
+command = "C:/path/to/best-cad-mcp/.venv/Scripts/python.exe"
+args = ["-m", "src.server"]
+cwd = "C:/path/to/best-cad-mcp"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+default_tools_approval_mode = "approve"
+```
+
+Keep high-risk tools on manual approval even when routine tools are approved
+automatically:
+
+```toml
+[mcp_servers.best-cad-mcp.tools.send_command]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.execute_cad_plan]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.delete_entity]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.delete_entities]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.erase_selection_entities]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.delete_layer]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.purge_drawing]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.audit_drawing]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.save_drawing]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.close_drawing]
+approval_mode = "prompt"
+```
+
+## Claude Code MCP Configuration
+
+Claude Code reads shared project MCP servers from `.mcp.json` and shared
+project permissions from `.claude/settings.json`. This repository includes both:
+
+- `.mcp.json` registers the local stdio server as `best-cad-mcp`.
+- `.claude/settings.json` enables that project MCP server, allows routine
+  `mcp__best-cad-mcp__*` tools automatically, and keeps high-risk tools on
+  confirmation.
+
+The checked-in MCP server config uses the project directory that Claude exposes
+as `CLAUDE_PROJECT_DIR`:
 
 ```json
 {
   "mcpServers": {
-    "CAD": {
+    "best-cad-mcp": {
       "command": "python",
-      "args": ["C:/path/to/best-cad-mcp/src/server.py"]
+      "args": ["${CLAUDE_PROJECT_DIR:-.}/src/server.py"],
+      "env": {
+        "CAD_MCP_WORKSPACE_ROOT": "${CLAUDE_PROJECT_DIR:-.}",
+        "PYTHONPATH": "${CLAUDE_PROJECT_DIR:-.}"
+      }
     }
   }
 }
 ```
+
+If your dependencies live only in the project virtual environment, change
+`command` in `.mcp.json` to:
+
+```json
+"C:/path/to/best-cad-mcp/.venv/Scripts/python.exe"
+```
+
+Use `claude mcp list` or `/mcp` inside Claude Code to verify the server is
+connected.
 
 Start the MCP client from the workspace directory whose runtime metadata should
 be used. You can also set `CAD_MCP_WORKSPACE_ROOT`, `CAD_MCP_WORKSPACE_ID`,

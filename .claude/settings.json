@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "enabledMcpjsonServers": [
+    "best-cad-mcp"
+  ],
+  "permissions": {
+    "allow": [
+      "mcp__best-cad-mcp__*"
+    ],
+    "ask": [
+      "mcp__best-cad-mcp__send_command",
+      "mcp__best-cad-mcp__execute_cad_plan",
+      "mcp__best-cad-mcp__delete_entity",
+      "mcp__best-cad-mcp__delete_entities",
+      "mcp__best-cad-mcp__erase_selection_entities",
+      "mcp__best-cad-mcp__delete_layer",
+      "mcp__best-cad-mcp__purge_drawing",
+      "mcp__best-cad-mcp__audit_drawing",
+      "mcp__best-cad-mcp__save_drawing",
+      "mcp__best-cad-mcp__close_drawing"
+    ]
+  }
+}

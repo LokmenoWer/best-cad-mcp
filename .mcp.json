@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "best-cad-mcp": {
+      "command": "python",
+      "args": [
+        "${CLAUDE_PROJECT_DIR:-.}/src/server.py"
+      ],
+      "env": {
+        "CAD_MCP_WORKSPACE_ROOT": "${CLAUDE_PROJECT_DIR:-.}",
+        "PYTHONPATH": "${CLAUDE_PROJECT_DIR:-.}"
+      }
+    }
+  }
+}

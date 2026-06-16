@@ -34,4 +34,5 @@ autocad_mcp_verify_results_args/
 .pytest_cache/
 
 # Claude Code
-.claude/
+.claude/*
+!.claude/settings.json
