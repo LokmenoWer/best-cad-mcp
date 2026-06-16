@@ -351,6 +351,7 @@ class CADController:
 
     def _export_with_selection_set(self, filepath: str, format_type: str) -> None:
         export_path = self._strip_export_extension(filepath, format_type)
+        self._ensure_export_parent(filepath)
         ss_name = "MCP_EXPORT_EMPTY_SS"
         selection_set = None
         try:
@@ -360,11 +361,15 @@ class CADController:
                 pass
             selection_set = self.doc.SelectionSets.Add(ss_name)
             if format_type in {"WMF", "BMP"} and self.doc.ModelSpace.Count > 0:
-                item = self.doc.ModelSpace.Item(self.doc.ModelSpace.Count - 1)
+                items = [
+                    self.doc.ModelSpace.Item(index)
+                    for index in range(self.doc.ModelSpace.Count)
+                ]
                 selection_set.AddItems(win32com.client.VARIANT(
-                    pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, [item]
+                    pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, items
                 ))
             self.doc.Export(export_path, format_type, selection_set)
+            self._wait_for_export_file(filepath, format_type)
         finally:
             if selection_set is not None:
                 try:
@@ -377,6 +382,32 @@ class CADController:
         if ext.lower() == f".{format_type.lower()}":
             return root
         return filepath
+
+    def _ensure_export_parent(self, filepath: str) -> None:
+        parent = os.path.dirname(os.path.abspath(filepath))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+
+    def _export_file_candidates(self, filepath: str, format_type: str) -> List[str]:
+        export_path = self._strip_export_extension(filepath, format_type)
+        root, ext = os.path.splitext(filepath)
+        candidates = [filepath]
+        if ext.lower() != f".{format_type.lower()}":
+            candidates.append(f"{export_path}.{format_type.lower()}")
+        candidates.append(export_path)
+        return list(dict.fromkeys(candidates))
+
+    def _wait_for_export_file(self, filepath: str, format_type: str) -> None:
+        candidates = self._export_file_candidates(filepath, format_type)
+        for _ in range(20):
+            for candidate in candidates:
+                if os.path.exists(candidate) and os.path.getsize(candidate) > 0:
+                    return
+            time.sleep(0.1)
+        raise RuntimeError(
+            "Export completed without creating a non-empty file. "
+            f"Checked: {', '.join(candidates)}"
+        )
 
     @require_document
     def close_drawing(self, save: bool = False) -> Dict[str, Any]:

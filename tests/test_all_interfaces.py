@@ -1556,10 +1556,33 @@ class TestActiveXCallShapes(unittest.TestCase):
         doc.SelectionSets.Add.return_value = selection_set
         controller = self._controller_with_doc(doc)
 
-        result = controller.export_drawing(r"C:\tmp\out.dxf", "DXF")
+        with patch("src.cad_controller.os.path.exists", return_value=True), \
+             patch("src.cad_controller.os.path.getsize", return_value=1):
+            result = controller.export_drawing(r"C:\tmp\out.dxf", "DXF")
 
         self.assertTrue(result["success"], result)
         doc.Export.assert_called_once_with(r"C:\tmp\out", "DXF", selection_set)
+        selection_set.Delete.assert_called_once()
+
+    def test_export_wmf_supplies_all_modelspace_entities(self):
+        doc = MagicMock()
+        selection_set = MagicMock()
+        ent_a = MagicMock()
+        ent_b = MagicMock()
+        ent_c = MagicMock()
+        doc.SelectionSets.Item.side_effect = Exception("not found")
+        doc.SelectionSets.Add.return_value = selection_set
+        doc.ModelSpace.Count = 3
+        doc.ModelSpace.Item.side_effect = [ent_a, ent_b, ent_c]
+        controller = self._controller_with_doc(doc)
+
+        with patch("src.cad_controller.os.path.exists", return_value=True), \
+             patch("src.cad_controller.os.path.getsize", return_value=1):
+            result = controller.export_drawing(r"C:\tmp\out.wmf", "WMF")
+
+        self.assertTrue(result["success"], result)
+        selection_set.AddItems.assert_called_once_with([ent_a, ent_b, ent_c])
+        doc.Export.assert_called_once_with(r"C:\tmp\out", "WMF", selection_set)
         selection_set.Delete.assert_called_once()
 
     def test_text_tool_mleader_handles_controller_error_dict(self):
