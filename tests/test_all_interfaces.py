@@ -640,6 +640,9 @@ class TestMCPToolSchemas(unittest.TestCase):
         self.assertIn("label", add_schema["properties"])
         self.assertIn("target_kind", add_schema["properties"])
         self.assertIn("clear_annotations", scan_schema["properties"])
+        self.assertIn("detail_level", scan_schema["properties"])
+        self.assertIn("include_bounding_boxes", scan_schema["properties"])
+        self.assertIn("derive_topology", scan_schema["properties"])
 
         recommendation = utility_tools.recommend_cad_tools(
             "visually verify drawing and mark the base plate"
@@ -996,6 +999,28 @@ class TestDatabase(unittest.TestCase):
         stats = self.db.get_type_stats()
         self.assertEqual(stats.get("AcDbLine"), 2)
         self.assertEqual(stats.get("AcDbCircle"), 1)
+
+    def test_batch_upsert_can_skip_topology_for_fast_scans(self):
+        count = self.db.upsert_entities_batch(
+            [
+                {
+                    "handle": "B1",
+                    "name": "Line",
+                    "type": "AcDbLine",
+                    "layer": "WALL",
+                    "bbox": [0, 0, 10, 1],
+                    "geometry": {"start": [0, 0, 0], "end": [10, 0, 0]},
+                }
+            ],
+            derive_topology=False,
+            derive_bbox=False,
+        )
+
+        self.assertEqual(count, 1)
+        ent = self.db.get_entity("B1")
+        self.assertEqual(ent["bbox_min_x"], 0.0)
+        self.assertEqual(ent["bbox_max_x"], 10.0)
+        self.assertIsNone(self.db.get_entity_topology("B1")["summary"])
 
     def test_layer_save_and_get(self):
         self.db.save_layers([
@@ -1889,6 +1914,104 @@ class TestSelectionToolBugs(unittest.TestCase):
         self.assertIn("H1", result)
         self.assertIn("5000", result)
         self.assertIn("truncated", result)
+
+
+class TestScanToolBugs(unittest.TestCase):
+    """Regression tests for scanning large drawings without per-entity DB writes."""
+
+    def _controller_with_doc(self, doc):
+        from src.cad_controller import CADController
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.Documents.Count = 1
+        controller.acad.ActiveDocument = doc
+        controller.doc = doc
+        return controller
+
+    def test_minimal_scan_avoids_dispatch_and_detail_properties(self):
+        class FakeEntity:
+            ObjectName = "AcDbLine"
+            Handle = "H1"
+            Layer = "WALL"
+
+            @property
+            def Color(self):
+                raise AssertionError("minimal scan should not read Color")
+
+            @property
+            def StartPoint(self):
+                raise AssertionError("minimal scan should not read geometry")
+
+            def GetBoundingBox(self):
+                return ((0, 0, 0), (10, 1, 0))
+
+        class FakeModelSpace:
+            Count = 1
+
+            def Item(self, index):
+                return FakeEntity()
+
+        doc = MagicMock()
+        doc.ModelSpace = FakeModelSpace()
+        controller = self._controller_with_doc(doc)
+
+        with patch("src.cad_controller.win32com.client.Dispatch") as dispatch:
+            result = controller.scan_model_space(
+                max_entities=1,
+                detail_level="minimal",
+                include_bounding_boxes=True,
+            )
+
+        dispatch.assert_not_called()
+        entity = result["entities"][0]
+        self.assertEqual(entity["handle"], "H1")
+        self.assertEqual(entity["bbox"], [0.0, 0.0, 10.0, 1.0])
+        self.assertNotIn("color", entity)
+        self.assertNotIn("start", entity)
+
+    def test_scan_all_entities_uses_lightweight_scan_and_batch_write(self):
+        with patch.object(query_tools, "ctrl") as mock_ctrl, \
+             patch.object(query_tools, "db") as mock_db:
+            mock_ctrl.get_document_info.return_value = {
+                "name": "large.dwg",
+                "full_name": r"C:\drawings\large.dwg",
+            }
+            mock_ctrl.scan_model_space.return_value = {
+                "entities": [
+                    {
+                        "handle": "H1",
+                        "type": "AcDbLine",
+                        "name": "Line",
+                        "layer": "WALL",
+                        "bbox": [0, 0, 10, 1],
+                    },
+                    {"index": 2, "error": "bad entity"},
+                ],
+                "type_stats": {"AcDbLine": 1},
+                "total_available": 10000,
+                "scanned": 2,
+                "truncated": True,
+                "detail_level": "minimal",
+            }
+            mock_db.upsert_entities_batch.return_value = 1
+
+            result = query_tools.scan_all_entities(max_entities=2)
+
+        mock_ctrl.scan_model_space.assert_called_once_with(
+            2,
+            detail_level="minimal",
+            include_bounding_boxes=True,
+        )
+        mock_db.upsert_entity.assert_not_called()
+        mock_db.upsert_entities_batch.assert_called_once()
+        records = mock_db.upsert_entities_batch.call_args.args[0]
+        self.assertEqual(records[0]["handle"], "H1")
+        self.assertEqual(records[0]["bbox"], (0, 0, 10, 1))
+        self.assertEqual(records[0]["geometry"], {})
+        self.assertFalse(mock_db.upsert_entities_batch.call_args.kwargs["derive_topology"])
+        self.assertFalse(mock_db.upsert_entities_batch.call_args.kwargs["derive_bbox"])
+        self.assertIn("truncated=True", result)
+        self.assertIn("Skipped 1 entities", result)
 
 
 class TestBugDetection(unittest.TestCase):

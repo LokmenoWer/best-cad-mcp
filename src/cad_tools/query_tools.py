@@ -1,5 +1,5 @@
 """CAD MCP Tools — Selection sets, entity scanning, spatial queries, highlight."""
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import json
 from src.cad_controller import get_controller
 from src.cad_database import get_database
@@ -21,8 +21,39 @@ def _sync_db_active_drawing() -> None:
         pass
 
 
+def _scan_entity_record(ent: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if "error" in ent:
+        return None
+    metadata_keys = {
+        "index", "handle", "name", "type", "layer", "color", "linetype",
+        "bbox", "bounds", "error",
+    }
+    geometry = {
+        key: value for key, value in ent.items()
+        if key not in metadata_keys
+    }
+    bbox = ent.get("bbox", ent.get("bounds"))
+    if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+        bbox = tuple(bbox[:4])
+    else:
+        bbox = None
+    return {
+        "handle": ent.get("handle", ""),
+        "name": ent.get("name", ent.get("type", "Unknown")),
+        "type": ent.get("type", "Unknown"),
+        "layer": ent.get("layer", "0"),
+        "color": ent.get("color", 256),
+        "linetype": ent.get("linetype", "ByLayer"),
+        "geometry": geometry,
+        "bbox": bbox,
+    }
+
+
 def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
-                      clear_annotations: bool = False) -> str:
+                      clear_annotations: bool = False,
+                      detail_level: str = "minimal",
+                      include_bounding_boxes: bool = True,
+                      derive_topology: bool = False) -> str:
     """扫描当前图纸所有实体并保存到数据库。
 
     这是 AI 理解图纸内容的核心工具 — 将 CAD 图形数据转换为结构化数据，
@@ -35,41 +66,41 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
     _sync_db_active_drawing()
     if clear_db:
         db.clear_entities(clear_annotations=clear_annotations)
-    result = ctrl.scan_model_space(max_entities)
+    result = ctrl.scan_model_space(
+        max_entities,
+        detail_level=detail_level,
+        include_bounding_boxes=include_bounding_boxes,
+    )
     entities = result.get("entities", [])
     type_stats = result.get("type_stats", {})
 
-    # Batch save to database
-    saved = 0
+    records = []
+    errors = 0
     for ent in entities:
-        if "error" in ent:
+        record = _scan_entity_record(ent)
+        if record is None:
+            errors += 1
             continue
-        metadata_keys = {
-            "handle", "name", "type", "layer", "color", "linetype", "error"
-        }
-        geometry = {
-            key: value for key, value in ent.items()
-            if key not in metadata_keys
-        }
-        bbox = geometry.pop("bbox", geometry.pop("bounds", None))
-        if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
-            bbox = tuple(bbox[:4])
-        else:
-            bbox = None
-        if db.upsert_entity(
-            handle=ent.get("handle", ""),
-            name=ent.get("name", ent.get("type", "Unknown")),
-            entity_type=ent.get("type", "Unknown"),
-            layer=ent.get("layer", "0"),
-            color=ent.get("color", 256),
-            linetype=ent.get("linetype", "ByLayer"),
-            geometry=geometry,
-            bbox=bbox,
-        ):
-            saved += 1
+        records.append(record)
+    saved = db.upsert_entities_batch(
+        records,
+        derive_topology=derive_topology,
+        derive_bbox=False,
+    )
 
     lines = [f"OK: 已扫描 {saved} 个实体并保存到数据库"]
     lines.append(f"\n实体类型统计 ({len(type_stats)} 种):")
+    total_available = result.get("total_available")
+    if total_available is not None:
+        lines.append(
+            f"Scanned {result.get('scanned', len(entities))}/{total_available} entities "
+            f"(detail_level={result.get('detail_level', detail_level)}, "
+            f"truncated={result.get('truncated', False)})."
+        )
+    if errors:
+        lines.append(f"Skipped {errors} entities that returned scan errors.")
+    if not derive_topology:
+        lines.append("Topology derivation skipped for fast large-drawing scans.")
     if clear_annotations:
         lines.append("Model-private spatial annotations were cleared.")
     else:

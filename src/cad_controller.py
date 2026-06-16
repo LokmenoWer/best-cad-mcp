@@ -19,7 +19,7 @@ import os
 import time
 from typing import Optional, List, Tuple, Dict, Any, Union
 from contextlib import contextmanager
-from src.cad_utils import com_get, com_set
+from src.cad_utils import DetailLevel, com_get, com_set
 
 logger = logging.getLogger(__name__)
 
@@ -2515,21 +2515,56 @@ class CADController:
 
     # ── Scanning ───────────────────────────────────────────
 
+    @staticmethod
+    def _scan_point(value: Any) -> Optional[List[float]]:
+        try:
+            return [
+                round(float(value[0]), 4),
+                round(float(value[1]), 4),
+                round(float(value[2]) if len(value) > 2 else 0.0, 4),
+            ]
+        except Exception:
+            return None
+
+    @staticmethod
+    def _scan_bbox(ent: Any) -> Optional[List[float]]:
+        try:
+            min_pt, max_pt = ent.GetBoundingBox()
+            return [
+                round(float(min_pt[0]), 4),
+                round(float(min_pt[1]), 4),
+                round(float(max_pt[0]), 4),
+                round(float(max_pt[1]), 4),
+            ]
+        except Exception:
+            return None
+
     @require_document
-    def scan_model_space(self, max_entities: int = 10000) -> List[Dict[str, Any]]:
-        """Scan all entities in model space and return their metadata."""
+    def scan_model_space(self, max_entities: int = 10000,
+                         detail_level: str = DetailLevel.MINIMAL,
+                         include_bounding_boxes: bool = True) -> Dict[str, Any]:
+        """Scan model space with a large-drawing friendly default.
+
+        minimal: handle/type/layer, optionally bbox.
+        standard/full: also read common properties and simple geometry.
+        """
+        level = (detail_level or DetailLevel.MINIMAL).lower()
+        if level not in {DetailLevel.MINIMAL, DetailLevel.STANDARD, DetailLevel.FULL}:
+            level = DetailLevel.MINIMAL
+
+        model_space = self.doc.ModelSpace
+        total_available = int(com_get(model_space, "Count", 0) or 0)
+        limit = total_available if max_entities is None else max(0, int(max_entities))
+        count = min(total_available, limit)
         entities = []
-        count = min(self.doc.ModelSpace.Count, max_entities)
         type_stats = {}
+        read_common_properties = level in {DetailLevel.STANDARD, DetailLevel.FULL}
+        read_geometry = level in {DetailLevel.STANDARD, DetailLevel.FULL}
+
         for i in range(count):
             try:
-                ent = self.doc.ModelSpace.Item(i)
+                ent = model_space.Item(i)
                 obj_name = com_get(ent, "ObjectName", "Unknown")
-                typed_ent = ent
-                try:
-                    typed_ent = win32com.client.Dispatch(ent)
-                except Exception:
-                    pass
                 type_stats[obj_name] = type_stats.get(obj_name, 0) + 1
                 info = {
                     "index": i,
@@ -2537,35 +2572,58 @@ class CADController:
                     "type": obj_name,
                     "name": obj_name.replace("AcDb", ""),
                     "layer": com_get(ent, "Layer", "0"),
-                    "color": com_get(ent, "Color", 256),
-                    "linetype": com_get(ent, "Linetype", "ByLayer"),
                 }
-                # Fast type-specific properties
-                if obj_name == "AcDbLine":
-                    start = com_get(typed_ent, "StartPoint", [0, 0, 0])
-                    end = com_get(typed_ent, "EndPoint", [0, 0, 0])
-                    info["start"] = [round(start[0], 4), round(start[1], 4), round(start[2], 4)]
-                    info["end"] = [round(end[0], 4), round(end[1], 4), round(end[2], 4)]
-                    info["length"] = round(com_get(typed_ent, "Length", 0), 4)
-                elif obj_name == "AcDbCircle":
-                    center = com_get(typed_ent, "Center", [0, 0, 0])
-                    info["center"] = [round(center[0],4), round(center[1],4), round(center[2],4)]
-                    info["radius"] = round(com_get(typed_ent, "Radius", 0), 4)
-                elif obj_name == "AcDbArc":
-                    center = com_get(typed_ent, "Center", [0, 0, 0])
-                    info["center"] = [round(center[0],4), round(center[1],4), round(center[2],4)]
-                    info["radius"] = round(com_get(typed_ent, "Radius", 0), 4)
-                    info["start_angle"] = round(com_get(typed_ent, "StartAngle", 0), 4)
-                    info["end_angle"] = round(com_get(typed_ent, "EndAngle", 0), 4)
-                elif obj_name in ("AcDbText", "AcDbMText"):
-                    info["text"] = com_get(typed_ent, "TextString", "")
-                elif "Polyline" in obj_name:
-                    info["length"] = round(com_get(typed_ent, "Length", 0), 4)
-                    info["closed"] = bool(com_get(typed_ent, "Closed", False))
+                if read_common_properties:
+                    info["color"] = com_get(ent, "Color", 256)
+                    info["linetype"] = com_get(ent, "Linetype", "ByLayer")
+                if include_bounding_boxes:
+                    bbox = self._scan_bbox(ent)
+                    if bbox is not None:
+                        info["bbox"] = bbox
+                if read_geometry:
+                    typed_ent = ent
+                    if level == DetailLevel.FULL:
+                        try:
+                            typed_ent = win32com.client.Dispatch(ent)
+                        except Exception:
+                            pass
+                    if obj_name == "AcDbLine":
+                        start = self._scan_point(com_get(typed_ent, "StartPoint", None))
+                        end = self._scan_point(com_get(typed_ent, "EndPoint", None))
+                        if start:
+                            info["start"] = start
+                        if end:
+                            info["end"] = end
+                        info["length"] = round(float(com_get(typed_ent, "Length", 0) or 0), 4)
+                    elif obj_name == "AcDbCircle":
+                        center = self._scan_point(com_get(typed_ent, "Center", None))
+                        if center:
+                            info["center"] = center
+                        info["radius"] = round(float(com_get(typed_ent, "Radius", 0) or 0), 4)
+                    elif obj_name == "AcDbArc":
+                        center = self._scan_point(com_get(typed_ent, "Center", None))
+                        if center:
+                            info["center"] = center
+                        info["radius"] = round(float(com_get(typed_ent, "Radius", 0) or 0), 4)
+                        info["start_angle"] = round(float(com_get(typed_ent, "StartAngle", 0) or 0), 4)
+                        info["end_angle"] = round(float(com_get(typed_ent, "EndAngle", 0) or 0), 4)
+                    elif obj_name in ("AcDbText", "AcDbMText"):
+                        info["text"] = com_get(typed_ent, "TextString", "")
+                    elif "Polyline" in obj_name:
+                        info["length"] = round(float(com_get(typed_ent, "Length", 0) or 0), 4)
+                        info["closed"] = bool(com_get(typed_ent, "Closed", False))
                 entities.append(info)
             except Exception as e:
                 entities.append({"index": i, "error": str(e)})
-        return {"entities": entities, "total": count, "type_stats": type_stats}
+        return {
+            "entities": entities,
+            "total": count,
+            "total_available": total_available,
+            "scanned": count,
+            "truncated": count < total_available,
+            "detail_level": level,
+            "type_stats": type_stats,
+        }
 
     @require_document
     def scan_entities_in_area(self, xmin: float, ymin: float,

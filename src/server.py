@@ -2292,7 +2292,10 @@ def create_layout(ctx: Context, name: str) -> str:
 @mcp.tool()
 def scan_all_entities(ctx: Context, clear_db: bool = True,
                       max_entities: int = 5000,
-                      clear_annotations: bool = False) -> str:
+                      clear_annotations: bool = False,
+                      detail_level: str = "minimal",
+                      include_bounding_boxes: bool = True,
+                      derive_topology: bool = False) -> str:
     """扫描当前图纸中的所有实体并保存到数据库。
 
     这是 AI 理解图纸的核心工具 — 它将 AutoCAD 中的图形对象转换为结构化数据，
@@ -2305,8 +2308,18 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         clear_db:     是否先清空数据库（默认True=重新扫描, False=追加）
         max_entities: 最大扫描实体数（默认5000，超大图纸请谨慎）
         clear_annotations: 是否同时清空模型私有空间标注（默认False=保留）
+        detail_level: minimal/standard/full。大图默认 minimal 更快。
+        include_bounding_boxes: 是否读取实体包围盒，便于后续空间查询。
+        derive_topology: 是否生成拓扑表。大图默认关闭以减少扫描耗时。
     """
-    return query_tools.scan_all_entities(clear_db, max_entities, clear_annotations)
+    return query_tools.scan_all_entities(
+        clear_db=clear_db,
+        max_entities=max_entities,
+        clear_annotations=clear_annotations,
+        detail_level=detail_level,
+        include_bounding_boxes=include_bounding_boxes,
+        derive_topology=derive_topology,
+    )
 
 
 @mcp.tool()

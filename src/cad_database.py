@@ -989,6 +989,20 @@ class CADDatabase:
         except Exception:
             return {}
 
+    @staticmethod
+    def _normalize_bbox(value: Any) -> Optional[Tuple[float, float, float, float]]:
+        if not isinstance(value, (list, tuple)) or len(value) < 4:
+            return None
+        try:
+            return (
+                float(value[0]),
+                float(value[1]),
+                float(value[2]),
+                float(value[3]),
+            )
+        except (TypeError, ValueError):
+            return None
+
     def _public_entity_row(self, row: Union[sqlite3.Row, Dict[str, Any]]) -> Dict[str, Any]:
         item = dict(row)
         if item.get("native_handle"):
@@ -1063,19 +1077,40 @@ class CADDatabase:
             summary["summary"],
         ))
 
+    @staticmethod
+    def _delete_topology_for_handles(conn: sqlite3.Connection,
+                                     handles: List[str]) -> None:
+        if not handles:
+            return
+        for i in range(0, len(handles), 900):
+            chunk = handles[i:i + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            for table in (
+                "cad_geometry_relations",
+                "cad_geometry_primitives",
+                "cad_topology_summary",
+            ):
+                conn.execute(
+                    f"DELETE FROM {table} WHERE entity_handle IN ({placeholders})",
+                    chunk,
+                )
+
     def upsert_entity(self, handle: str, name: str, entity_type: str,
                       layer: str = "0", color: int = 256,
                       linetype: str = "ByLayer", properties: Dict = None,
                       geometry: Dict = None,
-                      bbox: Optional[Tuple[float,float,float,float]] = None) -> bool:
+                      bbox: Optional[Tuple[float,float,float,float]] = None,
+                      derive_topology: bool = True,
+                      derive_bbox: bool = True) -> bool:
         try:
             if not handle:
                 return False
             ctx = self.get_context()
             scoped_handle = self._entity_key(handle, ctx)
             geometry = geometry or {}
+            bbox = self._normalize_bbox(bbox)
             if bbox is None:
-                bbox = self._derive_bbox(entity_type, geometry)
+                bbox = self._derive_bbox(entity_type, geometry) if derive_bbox else None
             with self._conn() as conn:
                 self._ensure_context_rows(conn, ctx)
                 c = conn.cursor()
@@ -1107,29 +1142,97 @@ class CADDatabase:
                     bbox[2] if bbox else None, bbox[3] if bbox else None,
                     ctx.workspace_id, ctx.drawing_id, handle,
                 ))
-                self._replace_entity_topology(conn, scoped_handle, entity_type, geometry or {})
+                if derive_topology:
+                    self._replace_entity_topology(conn, scoped_handle, entity_type, geometry or {})
+                else:
+                    self._delete_topology_for_handles(conn, [scoped_handle])
             return True
         except Exception as e:
             logger.error(f"插入实体 {handle} 失败: {e}")
             return False
 
-    def upsert_entities_batch(self, entities: List[Dict[str, Any]]) -> int:
+    def upsert_entities_batch(self, entities: List[Dict[str, Any]],
+                              derive_topology: bool = True,
+                              derive_bbox: bool = True) -> int:
         """Batch insert/update entities. Returns count of successfully upserted."""
-        count = 0
+        if not entities:
+            return 0
+
+        ctx = self.get_context()
+        rows: List[Tuple[Any, ...]] = []
+        topology_rows: List[Tuple[str, str, Dict[str, Any]]] = []
+        skipped = 0
         for ent in entities:
-            if self.upsert_entity(
-                handle=ent.get("handle", ""),
-                name=ent.get("name", ent.get("type", "Unknown")),
-                entity_type=ent.get("type", "Unknown"),
-                layer=ent.get("layer", "0"),
-                color=ent.get("color", 256),
-                linetype=ent.get("linetype", "ByLayer"),
-                properties=ent.get("properties"),
-                geometry=ent.get("geometry"),
-                bbox=ent.get("bbox"),
-            ):
-                count += 1
-        return count
+            try:
+                handle = ent.get("handle", "")
+                if not handle:
+                    skipped += 1
+                    continue
+                entity_type = ent.get("type", "Unknown")
+                geometry = ent.get("geometry") or {}
+                bbox = self._normalize_bbox(ent.get("bbox"))
+                if bbox is None:
+                    bbox = self._derive_bbox(entity_type, geometry) if derive_bbox else None
+                scoped_handle = self._entity_key(handle, ctx)
+                rows.append((
+                    scoped_handle,
+                    ent.get("name", entity_type),
+                    entity_type,
+                    ent.get("layer", "0"),
+                    ent.get("color", 256),
+                    ent.get("linetype", "ByLayer"),
+                    json.dumps(ent.get("properties") or {}, ensure_ascii=False),
+                    json.dumps(geometry, ensure_ascii=False),
+                    bbox[0] if bbox else None,
+                    bbox[1] if bbox else None,
+                    bbox[2] if bbox else None,
+                    bbox[3] if bbox else None,
+                    ctx.workspace_id,
+                    ctx.drawing_id,
+                    handle,
+                ))
+                topology_rows.append((scoped_handle, entity_type, geometry))
+            except Exception as e:
+                skipped += 1
+                logger.error("Failed to prepare entity for batch upsert: %s", e)
+
+        if not rows:
+            return 0
+
+        with self._conn() as conn:
+            self._ensure_context_rows(conn, ctx)
+            conn.executemany('''
+                INSERT INTO cad_entities
+                    (handle, name, type, layer, color, linetype,
+                     properties, geometry, bbox_min_x, bbox_min_y,
+                     bbox_max_x, bbox_max_y, workspace_id, drawing_id,
+                     native_handle)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(handle) DO UPDATE SET
+                    name=excluded.name, type=excluded.type,
+                    layer=excluded.layer, color=excluded.color,
+                    linetype=excluded.linetype,
+                    properties=excluded.properties,
+                    geometry=excluded.geometry,
+                    bbox_min_x=excluded.bbox_min_x,
+                    bbox_min_y=excluded.bbox_min_y,
+                    bbox_max_x=excluded.bbox_max_x,
+                    bbox_max_y=excluded.bbox_max_y,
+                    workspace_id=excluded.workspace_id,
+                    drawing_id=excluded.drawing_id,
+                    native_handle=excluded.native_handle
+            ''', rows)
+            if derive_topology:
+                for scoped_handle, entity_type, geometry in topology_rows:
+                    self._replace_entity_topology(conn, scoped_handle, entity_type, geometry)
+            else:
+                self._delete_topology_for_handles(
+                    conn,
+                    [scoped_handle for scoped_handle, _, _ in topology_rows],
+                )
+        if skipped:
+            logger.info("Skipped %s invalid entities during batch upsert", skipped)
+        return len(rows)
 
     def get_entity(self, handle: str) -> Optional[Dict[str, Any]]:
         scoped_handle = self._entity_key(handle)
@@ -1153,17 +1256,16 @@ class CADDatabase:
     def clear_entities(self, clear_annotations: bool = False):
         scope_sql, scope_params = self._entity_scope_clause()
         with self._conn() as conn:
-            handles = [
-                row["handle"]
-                for row in conn.execute(
-                    f"SELECT handle FROM cad_entities WHERE {scope_sql}",
+            handle_subquery = f"SELECT handle FROM cad_entities WHERE {scope_sql}"
+            for table in (
+                "cad_geometry_relations",
+                "cad_geometry_primitives",
+                "cad_topology_summary",
+            ):
+                conn.execute(
+                    f"DELETE FROM {table} WHERE entity_handle IN ({handle_subquery})",
                     scope_params,
-                ).fetchall()
-            ]
-            for scoped_handle in handles:
-                conn.execute("DELETE FROM cad_geometry_relations WHERE entity_handle = ?", (scoped_handle,))
-                conn.execute("DELETE FROM cad_geometry_primitives WHERE entity_handle = ?", (scoped_handle,))
-                conn.execute("DELETE FROM cad_topology_summary WHERE entity_handle = ?", (scoped_handle,))
+                )
             conn.execute(f"DELETE FROM cad_entities WHERE {scope_sql}", scope_params)
             if clear_annotations:
                 thread_sql, thread_params = self._thread_scope_clause()
