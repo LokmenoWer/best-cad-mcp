@@ -45,8 +45,8 @@ jobs:
             }
           }
 
-      - name: Run tests
-        run: pytest -q
+      - name: Run unit tests without AutoCAD COM
+        run: pytest -q -m "not autocad_com"
 
       - name: Build distributions
         run: python -m build

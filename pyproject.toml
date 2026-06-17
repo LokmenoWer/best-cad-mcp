@@ -47,6 +47,12 @@ dev = [
 [project.scripts]
 cad-mcp = "src.server:main"
 
+[tool.pytest.ini_options]
+markers = [
+    "autocad_com: tests that require a local AutoCAD COM session and should not run in GitHub Actions release publishing",
+]
+testpaths = ["tests"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 
