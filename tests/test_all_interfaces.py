@@ -83,6 +83,7 @@ with patch('src.cad_controller.CADController', autospec=True) as mock_ctrl_cls, 
     from src.cad_tools import attribute_tools
     from src.cad_understanding import analysis as understanding_analysis
     from src.cad_understanding import constraints as understanding_constraints
+    from src.cad_understanding import dimension_binding as understanding_dimensions
     from src.cad_understanding import ir_builder as understanding_ir_builder
     from src.cad_understanding import plan as understanding_plan
     from src.cad_understanding import resources as understanding_resources
@@ -1325,7 +1326,7 @@ class TestToolWiring(unittest.TestCase):
             'file_tools', 'utility_tools', 'solid_tools', 'advanced_tools',
             'polyline_tools', 'hatch_tools', 'attribute_tools',
             'understanding_analysis', 'understanding_constraints',
-            'understanding_ir_builder', 'understanding_plan',
+            'understanding_dimensions', 'understanding_ir_builder', 'understanding_plan',
             'understanding_resources', 'understanding_semantic',
             'understanding_validators', 'understanding_view',
         }
@@ -1369,6 +1370,7 @@ class TestToolWiring(unittest.TestCase):
             'attribute_tools': attribute_tools,
             'understanding_analysis': understanding_analysis,
             'understanding_constraints': understanding_constraints,
+            'understanding_dimensions': understanding_dimensions,
             'understanding_ir_builder': understanding_ir_builder,
             'understanding_plan': understanding_plan,
             'understanding_resources': understanding_resources,
@@ -1411,6 +1413,7 @@ class TestToolWiring(unittest.TestCase):
             '_default_tool_description', '_wrap_tool_errors',
             '_safe_mcp_tool', '_registered_tools', '_tool_category',
             '_first_description_line', '_build_registered_tool_help',
+            '_load_prompt_file',
             'cad_tool_selection_resource',
             'cad_registered_tools_resource', 'cad_workflow_guide',
             'cad_layer_planning', 'understand_existing_drawing',

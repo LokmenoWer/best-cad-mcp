@@ -131,6 +131,24 @@ def undo(count: int = 1) -> str:
     return r["message"]
 
 
+def begin_undo_group(name: str = "MCP") -> dict:
+    """Begin an AutoCAD undo group for transactional tool batches."""
+    r = ctrl.begin_undo_group(name)
+    return {"ok": bool(r.get("success")), **r}
+
+
+def end_undo_group(name: str = "MCP") -> dict:
+    """End an AutoCAD undo group."""
+    r = ctrl.end_undo_group(name)
+    return {"ok": bool(r.get("success")), **r}
+
+
+def rollback_undo_group(name: str = "MCP") -> dict:
+    """Rollback an AutoCAD undo group when supported."""
+    r = ctrl.rollback_undo_group(name)
+    return {"ok": bool(r.get("success")), **r}
+
+
 def redo(count: int = 1) -> str:
     """重做上一步撤销的操作。
 

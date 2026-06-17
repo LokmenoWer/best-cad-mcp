@@ -416,6 +416,7 @@ from src.cad_tools import hatch_tools
 from src.cad_tools import attribute_tools
 from src.cad_understanding import analysis as understanding_analysis
 from src.cad_understanding import constraints as understanding_constraints
+from src.cad_understanding import dimension_binding as understanding_dimensions
 from src.cad_understanding import ir_builder as understanding_ir_builder
 from src.cad_understanding import plan as understanding_plan
 from src.cad_understanding import resources as understanding_resources
@@ -2542,6 +2543,24 @@ def undo(ctx: Context, count: int = 1) -> str:
 
 
 @mcp.tool()
+def begin_undo_group(ctx: Context, name: str = "MCP") -> Dict[str, Any]:
+    """Begin an AutoCAD undo group for transactional CADPlan execution."""
+    return file_tools.begin_undo_group(name)
+
+
+@mcp.tool()
+def end_undo_group(ctx: Context, name: str = "MCP") -> Dict[str, Any]:
+    """End an AutoCAD undo group."""
+    return file_tools.end_undo_group(name)
+
+
+@mcp.tool()
+def rollback_undo_group(ctx: Context, name: str = "MCP") -> Dict[str, Any]:
+    """Rollback the current AutoCAD undo group when possible."""
+    return file_tools.rollback_undo_group(name)
+
+
+@mcp.tool()
 def redo(ctx: Context, count: int = 1) -> str:
     """重做被撤销的操作。
 
@@ -4509,11 +4528,19 @@ def get_semantic_graph(ctx: Context) -> Dict[str, Any]:
 def find_semantic_objects(ctx: Context,
                           object_type: Optional[str] = None,
                           label_query: Optional[str] = None,
+                          handle: Optional[str] = None,
+                          bbox_region: Optional[List[float]] = None,
+                          domain: Optional[str] = None,
+                          confidence_threshold: float = 0.0,
                           top_k: int = 20) -> Dict[str, Any]:
     """Search detected semantic objects by type or label."""
     return understanding_semantic.find_semantic_objects(
         object_type=object_type,
         label_query=label_query,
+        handle=handle,
+        bbox_region=bbox_region,
+        domain=domain,
+        confidence_threshold=confidence_threshold,
         top_k=top_k,
     )
 
@@ -4542,6 +4569,33 @@ def get_drawing_constraints(ctx: Context,
                             status: Optional[str] = None) -> Dict[str, Any]:
     """List extracted constraints, optionally filtered by status."""
     return understanding_constraints.get_constraints(status=status)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def bind_dimension_to_geometry(ctx: Context, handle: str,
+                               tolerance: float = 1e-3) -> Dict[str, Any]:
+    """Bind one scanned dimension annotation to likely measured geometry."""
+    return understanding_dimensions.bind_dimension_to_geometry(handle, tolerance=tolerance)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def bind_all_dimensions(ctx: Context,
+                        tolerance: float = 1e-3) -> Dict[str, Any]:
+    """Bind all scanned dimension annotations to likely measured geometry."""
+    return understanding_dimensions.bind_all_dimensions(tolerance=tolerance)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def propose_constraint_repair_plan(ctx: Context,
+                                   constraint_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Propose a non-executing CAD repair plan for violated constraints."""
+    return understanding_constraints.propose_constraint_repair_plan(constraint_ids=constraint_ids)
 
 
 @mcp.tool(
@@ -4614,11 +4668,29 @@ def map_world_to_pixel(ctx: Context, snapshot_id: str,
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
+def map_pixel_region_to_world_bbox(ctx: Context, snapshot_id: str,
+                                   bbox: List[float]) -> Dict[str, Any]:
+    """Map a pixel bbox region from a snapshot to an approximate world bbox."""
+    return understanding_view.map_pixel_region_to_world_bbox(snapshot_id, bbox)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
 def ground_vlm_region(ctx: Context, snapshot_id: str,
                       bbox: List[float],
                       top_k: int = 10) -> Dict[str, Any]:
     """Ground a VLM pixel bbox to likely AutoCAD handles from a mapped snapshot."""
     return understanding_view.ground_vlm_region(snapshot_id, bbox, top_k=top_k)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def ground_vlm_overlay_id(ctx: Context, snapshot_id: str,
+                          overlay_id: str) -> Dict[str, Any]:
+    """Ground a VLM overlay ID to an AutoCAD handle and primitive candidates."""
+    return understanding_view.ground_vlm_overlay_id(snapshot_id, overlay_id)
 
 
 @mcp.tool(
@@ -4641,9 +4713,26 @@ def dry_run_cad_plan(ctx: Context, plan: Dict[str, Any]) -> Dict[str, Any]:
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
 )
 def execute_cad_plan(ctx: Context, plan: Dict[str, Any],
-                     allow_modify: bool = False) -> Dict[str, Any]:
+                     allow_modify: bool = False,
+                     transactional: bool = True,
+                     rollback_on_error: bool = True,
+                     rollback_on_high_severity_validation: bool = True,
+                     validate_after_each_step: bool = False,
+                     validate_after_plan: bool = True,
+                     rescan_after_plan: bool = False,
+                     export_view_after_plan: bool = False) -> Dict[str, Any]:
     """Execute a guarded CAD plan only when allow_modify=True."""
-    return understanding_plan.execute_cad_plan(plan, allow_modify=allow_modify)
+    return understanding_plan.execute_cad_plan(
+        plan,
+        allow_modify=allow_modify,
+        transactional=transactional,
+        rollback_on_error=rollback_on_error,
+        rollback_on_high_severity_validation=rollback_on_high_severity_validation,
+        validate_after_each_step=validate_after_each_step,
+        validate_after_plan=validate_after_plan,
+        rescan_after_plan=rescan_after_plan,
+        export_view_after_plan=export_view_after_plan,
+    )
 
 
 @mcp.tool(
@@ -4792,77 +4881,102 @@ create_layer("TEXT-NOTE", color=7)   # notes
 """
 
 
+def _load_prompt_file(filename: str, fallback: str) -> str:
+    prompt_path = os.path.join(_project_root, "prompts", filename)
+    try:
+        with open(prompt_path, "r", encoding="utf-8") as prompt_file:
+            content = prompt_file.read().strip()
+            if content:
+                return content
+    except OSError:
+        pass
+    return fallback.strip()
+
+
 @mcp.prompt()
 def understand_existing_drawing() -> str:
     """Workflow for safely understanding an existing DWG."""
-    return """## Understand Existing Drawing
+    return _load_prompt_file("understand_existing_drawing.md", """## Understand Existing Drawing
 
 1. open_drawing if needed.
-2. scan_all_entities.
+2. scan_all_entities(topology_detail="full" when primitive grounding is needed).
 3. build_drawing_ir.
 4. summarize_drawing.
 5. detect_semantic_objects.
 6. extract_drawing_constraints.
-7. validate_geometry.
-8. export_view_image_with_mapping when visual review helps.
+7. bind_all_dimensions.
+8. check_drawing_constraints.
+9. validate_geometry.
+10. export_view_image_with_mapping(include_overlay=True) when visual review helps.
 
 Do not modify the DWG during understanding. Use handles, evidence,
 confidence, warnings, and recommended next tools from each structured result.
-"""
+Ambiguous dimensions and low-confidence semantic objects must remain uncertain.
+""")
 
 
 @mcp.prompt()
 def precise_draw_from_spec() -> str:
     """Workflow for precise CAD generation through a guarded plan."""
-    return """## Precise Draw From Spec
+    return _load_prompt_file("precise_draw_from_spec.md", """## Precise Draw From Spec
 
 1. Analyze the spec.
-2. Create a CADPlan using high-level tools.
+2. Create a CADPlan using high-level tools, variables, save_as, dependencies,
+   expectations, and postconditions.
 3. validate_cad_plan.
 4. dry_run_cad_plan.
-5. execute_cad_plan only after explicit permission with allow_modify=True.
+5. execute_cad_plan only after explicit permission with allow_modify=True and
+   transactional=True.
 6. scan_all_entities.
-7. validate_geometry.
-8. export_view_image_with_mapping.
+7. build_drawing_ir.
+8. validate_geometry.
+9. export_view_image_with_mapping(include_overlay=True).
 
 Do not put send_command in a plan unless the user explicitly approves a
 dangerous operation.
-"""
+If execution fails, inspect failed_step, completed_steps, and rollback_status.
+""")
 
 
 @mcp.prompt()
 def vlm_review_drawing() -> str:
     """Workflow for VLM-backed drawing review and grounding."""
-    return """## VLM Review Drawing
+    return _load_prompt_file("vlm_review_drawing.md", """## VLM Review Drawing
 
 1. export_view_image_with_mapping(include_overlay=True).
 2. Give the clean artifact, overlay artifact, and sidecar JSON to the VLM.
 3. Require VLM JSON with overlay IDs, handles, pixel bbox, issue type,
    confidence, and evidence.
-4. ground_vlm_region for each VLM bbox.
-5. explain_entity for likely handles.
-6. propose_repair_plan for selected issues.
+4. ground_vlm_overlay_id for overlay IDs or ground_vlm_region for each VLM bbox.
+5. map_pixel_region_to_world_bbox when world extents are needed.
+6. explain_entity for likely handles and inspect primitive candidates.
+7. propose_repair_plan or propose_constraint_repair_plan for selected issues.
 
 Do not create visible helper geometry in the DWG for review annotations.
-"""
+Do not claim exact grounding when limitations or low confidence are returned.
+""")
 
 
 @mcp.prompt()
 def repair_drawing() -> str:
     """Workflow for validation-led drawing repair."""
-    return """## Repair Drawing
+    return _load_prompt_file("repair_drawing.md", """## Repair Drawing
 
 1. validate_geometry.
-2. propose_repair_plan.
-3. validate_cad_plan.
-4. dry_run_cad_plan.
-5. execute_cad_plan only after explicit permission with allow_modify=True.
-6. scan_all_entities.
-7. validate_geometry again.
-8. export_view_image_with_mapping.
+2. extract_drawing_constraints, bind_all_dimensions, and check_drawing_constraints
+   when dimension or geometric intent matters.
+3. propose_repair_plan or propose_constraint_repair_plan.
+4. validate_cad_plan.
+5. dry_run_cad_plan.
+6. execute_cad_plan only after explicit permission with allow_modify=True and
+   transactional=True.
+7. scan_all_entities.
+8. validate_geometry again.
+9. export_view_image_with_mapping.
 
 Analysis, validation, grounding, and dry-run must not modify the DWG.
-"""
+Never execute a repair automatically; ambiguous issues should return alternatives.
+""")
 
 
 # ══════════════════════════════════════════════════════════════════

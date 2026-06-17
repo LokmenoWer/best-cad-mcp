@@ -350,8 +350,70 @@ When a VLM reports a pixel bbox, call `ground_vlm_region(snapshot_id, bbox)` to
 rank likely handles by overlap and distance. Then call `explain_entity` on the
 best candidates before editing.
 
-The first mapper is most reliable for top/plan views. Twisted, UCS, and 3D
-views return warnings and should be treated as approximate.
+The current mapper is exact for top/plan modelspace views and includes view
+twist when present. UCS axes are honored when the view context provides them.
+Non-plan 3D and complex paperspace/layout viewport cases return explicit
+limitations and confidence; do not claim exact grounding for those views.
+
+## Production CAD Agent Workflow
+
+Existing DWG review:
+
+1. `open_drawing` when a DWG path is supplied.
+2. `scan_all_entities(topology_detail="full")`.
+3. `build_drawing_ir`.
+4. `summarize_drawing(level="deep")`.
+5. `detect_semantic_objects(domain=...)`.
+6. `extract_drawing_constraints`.
+7. `bind_all_dimensions`.
+8. `check_drawing_constraints`.
+9. `validate_geometry`.
+10. `export_view_image_with_mapping(include_overlay=True)`.
+11. Run VLM review against the clean image, overlay image, and sidecar JSON.
+12. `ground_vlm_region` or `ground_vlm_overlay_id`.
+13. `explain_entity`.
+14. `propose_repair_plan` or `propose_constraint_repair_plan`.
+15. `validate_cad_plan`.
+16. `dry_run_cad_plan`.
+17. `execute_cad_plan(allow_modify=True, transactional=True)` only after
+    explicit modification permission.
+18. Rescan, validate again, and save/export.
+
+New drawing generation:
+
+1. `create_new_drawing`.
+2. Generate a CADPlan with high-level operations, `save_as` variables,
+   dependencies, expectations, and postconditions.
+3. `validate_cad_plan`.
+4. `dry_run_cad_plan`.
+5. `execute_cad_plan(allow_modify=True, transactional=True)`.
+6. `scan_all_entities`, `build_drawing_ir`, `validate_geometry`, and
+   `export_view_image_with_mapping`.
+
+## Production Capabilities and Limits
+
+- View grounding returns clean image, overlay artifact, and stable sidecar JSON.
+  Raster overlays are produced when Pillow can open the source image; SVG is the
+  documented fallback for WMF or unavailable raster sources.
+- `ground_vlm_region` ranks entity handles and primitive candidates when
+  topology primitives are available. `ground_vlm_overlay_id` maps overlay IDs
+  directly back to handles.
+- Dimension binding links radial, diametric, and linear dimensions to likely
+  circles/arcs/lines using value, spatial, extension point, and association
+  evidence. Ambiguous dimensions stay `unknown`.
+- Semantic understanding remains deterministic and evidence-first. Complex
+  mechanical, architecture, electrical, and drafting objects are marked as
+  candidates when confidence is low.
+- CADPlan supports variables, `save_as`, dependency validation, output handle
+  capture, postconditions, transactional undo groups, rollback attempts, and
+  structured execution state.
+- Repair tools only propose plans. They never execute automatically, and
+  destructive or geometric changes require `allow_modify=True`.
+- Unit tests do not require AutoCAD. Real COM verification is separate:
+
+```powershell
+python scripts\verify_cad_understanding_workflow.py
+```
 
 ## Tool Selection Guidance
 
@@ -413,6 +475,12 @@ Run the AutoCAD smoke verifier against registered MCP tools:
 
 ```powershell
 python scripts\verify_autocad_mcp_tools.py
+```
+
+Run the production CAD understanding workflow smoke benchmark:
+
+```powershell
+python scripts\verify_cad_understanding_workflow.py
 ```
 
 Unit tests mock COM-dependent modules and do not require AutoCAD. Runtime smoke

@@ -3012,6 +3012,51 @@ class CADController:
             return {"success": False, "message": f"撤销失败: {e}"}
 
     @require_document
+    def begin_undo_group(self, name: str = "MCP") -> Dict[str, Any]:
+        """Begin an AutoCAD undo mark for transactional CADPlan execution."""
+        del name
+        try:
+            if hasattr(self.doc, "StartUndoMark"):
+                self.doc.StartUndoMark()
+                return {"success": True, "message": "Started AutoCAD undo mark", "method": "StartUndoMark"}
+            return {
+                "success": False,
+                "message": "Active AutoCAD document does not expose StartUndoMark",
+                "method": "unavailable",
+            }
+        except Exception as e:
+            return {"success": False, "message": f"Start undo mark failed: {e}", "method": "StartUndoMark"}
+
+    @require_document
+    def end_undo_group(self, name: str = "MCP") -> Dict[str, Any]:
+        """End an AutoCAD undo mark."""
+        del name
+        try:
+            if hasattr(self.doc, "EndUndoMark"):
+                self.doc.EndUndoMark()
+                return {"success": True, "message": "Ended AutoCAD undo mark", "method": "EndUndoMark"}
+            return {
+                "success": False,
+                "message": "Active AutoCAD document does not expose EndUndoMark",
+                "method": "unavailable",
+            }
+        except Exception as e:
+            return {"success": False, "message": f"End undo mark failed: {e}", "method": "EndUndoMark"}
+
+    @require_document
+    def rollback_undo_group(self, name: str = "MCP") -> Dict[str, Any]:
+        """Rollback the current AutoCAD undo mark by ending it and undoing one group."""
+        end_result = self.end_undo_group(name)
+        undo_result = self.undo(1)
+        return {
+            "success": bool(undo_result.get("success")),
+            "message": f"{end_result.get('message', '')}; rollback undo: {undo_result.get('message', '')}",
+            "end_undo_group": end_result,
+            "undo": undo_result,
+            "method": "EndUndoMark+U",
+        }
+
+    @require_document
     def redo(self, count: int = 1) -> Dict[str, Any]:
         try:
             for _ in range(count):

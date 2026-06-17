@@ -25,6 +25,7 @@ from .common import (
     point_distance,
     stable_id,
 )
+from .dimension_binding import bind_all_dimensions, bind_dimension_to_geometry_data
 from .result import ToolResult, ok_result
 
 
@@ -153,39 +154,65 @@ def _dimension_value(entity: Dict[str, Any]) -> Optional[float]:
 def extract_dimension_constraints(database: Optional[CADDatabase] = None) -> ToolResult:
     db = get_db(database)
     constraints = []
+    warnings = []
     for entity in all_entities(db):
         if "dimension" not in entity_type(entity):
             continue
         handle = str(entity.get("handle"))
-        value = _dimension_value(entity)
-        ctype = "dimension_value"
-        text = entity_text(entity)
-        if "radial" in text or "radius" in text:
-            ctype = "radius"
-        elif "diametric" in text or "diameter" in text:
-            ctype = "diameter"
+        binding = bind_dimension_to_geometry_data(handle, database=db)
+        value = (
+            binding.get("text_value")
+            if binding.get("text_value") is not None
+            else binding.get("measurement")
+        )
+        best_target = binding.get("best_target") or {}
+        actual = best_target.get("actual") if binding.get("status") == "bound" else None
+        tolerance = 1e-3 if binding.get("status") == "bound" else None
+        status = "unknown"
+        if binding.get("status") == "bound" and value is not None and actual is not None:
+            status = "satisfied" if abs(float(value) - float(actual)) <= float(tolerance or 1e-3) else "violated"
+        elif binding.get("status") in {"ambiguous", "unbound"}:
+            status = "unknown"
+        ctype_map = {
+            "radial": "radius",
+            "diametric": "diameter",
+            "linear": "distance",
+            "aligned": "distance",
+            "angular": "angle",
+            "ordinate": "ordinate",
+        }
+        ctype = ctype_map.get(str(binding.get("dimension_type") or ""), "dimension_value")
+        handles = [handle]
+        if best_target.get("handle"):
+            handles.append(str(best_target["handle"]))
+        if binding.get("status") != "bound":
+            warnings.append(f"Dimension {handle} binding status is {binding.get('status')}; constraint remains unknown.")
         constraints.append(_constraint(
             ctype,
-            "dimension:scanned",
-            [handle],
+            "dimension:bound" if binding.get("status") == "bound" else "dimension:scanned",
+            handles,
             value=value,
-            actual=None,
-            tolerance=None,
+            actual=actual,
+            tolerance=tolerance,
             unit="drawing_units",
-            confidence=0.55 if value is not None else 0.35,
-            status="unknown",
+            confidence=float(binding.get("confidence") or (0.55 if value is not None else 0.35)),
+            status=status,
             evidence={
-                "reason": "Dimension binding to measured geometry is not known from scanned metadata.",
-                "dimension_text": text[:120],
+                "reason": (
+                    "Dimension binding was resolved to geometry."
+                    if binding.get("status") == "bound"
+                    else "Dimension binding to measured geometry is ambiguous or unavailable."
+                ),
+                "dimension_binding": binding,
             },
         ))
     _replace_constraints(db, constraints, ["dimension:"])
     return ok_result(
-        f"Extracted {len(constraints)} dimension constraints with unknown binding status.",
+        f"Extracted {len(constraints)} dimension constraints with geometry binding evidence.",
         data={"constraints": constraints},
         handles=[h for c in constraints for h in c["target_handles"]],
-        warnings=["Dimension constraints are status=unknown until their measured geometry can be bound confidently."],
-        next_tools=["infer_geometric_constraints", "check_drawing_constraints"],
+        warnings=warnings,
+        next_tools=["bind_all_dimensions", "infer_geometric_constraints", "check_drawing_constraints"],
     )
 
 
@@ -376,3 +403,116 @@ def extract_drawing_constraints(database: Optional[CADDatabase] = None) -> ToolR
         next_tools=["check_drawing_constraints", "validate_geometry"],
     )
 
+
+def propose_constraint_repair_plan(constraint_ids: Optional[List[str]] = None,
+                                   database: Optional[CADDatabase] = None) -> ToolResult:
+    db = get_db(database)
+    selected_ids = set(str(item) for item in (constraint_ids or []) if item)
+    constraints = [
+        item for item in _read_constraints(db)
+        if item.get("status") == "violated"
+        and (not selected_ids or item.get("constraint_id") in selected_ids)
+    ]
+    steps: List[Dict[str, Any]] = []
+    affected: List[str] = []
+    alternatives: List[Dict[str, Any]] = []
+    high_risk = False
+    for index, constraint in enumerate(constraints, start=1):
+        handles = [str(handle) for handle in constraint.get("target_handles", []) if handle]
+        affected.extend(handles)
+        ctype = str(constraint.get("constraint_type") or "")
+        expected = constraint.get("value")
+        actual = constraint.get("actual")
+        issue = {
+            "constraint_id": constraint.get("constraint_id"),
+            "constraint_type": ctype,
+            "handles": handles,
+            "expected": expected,
+            "actual": actual,
+        }
+        if ctype in {"radius", "diameter"} and len(handles) >= 2 and expected and actual:
+            target = handles[-1]
+            scale = float(expected) / float(actual) if float(actual) else 1.0
+            if ctype == "diameter":
+                scale = float(expected) / float(actual) if float(actual) else 1.0
+            steps.append({
+                "step_id": f"constraint_repair_{index}",
+                "op": "scale_entity",
+                "args": {"handle": target, "base_point": [0, 0, 0], "scale": scale},
+                "writes": True,
+                "expect": {"constraint_id": constraint.get("constraint_id"), "status": "satisfied"},
+                "postconditions": [
+                    {"type": ctype, "target": target, "value": expected, "tolerance": constraint.get("tolerance") or 1e-3}
+                ],
+                "rationale": "Adjust candidate geometry to match the bound dimension value after dry-run review.",
+            })
+            high_risk = True
+            alternatives.append({**issue, "alternative": "Edit the dimension text/annotation instead if geometry is authoritative."})
+        elif ctype == "distance" and handles:
+            target = handles[-1]
+            steps.append({
+                "step_id": f"constraint_repair_{index}",
+                "op": "move_entity",
+                "args": {
+                    "handle": target,
+                    "from_point": [0, 0, 0],
+                    "to_point": [0, 0, 0],
+                    "requires_manual_points": True,
+                },
+                "writes": True,
+                "expect": {"constraint_id": constraint.get("constraint_id"), "status": "satisfied"},
+                "postconditions": [
+                    {"type": "distance", "target": target, "value": expected, "tolerance": constraint.get("tolerance") or 1e-3}
+                ],
+                "rationale": "Move/extend the measured geometry after selecting the intended endpoint correction.",
+            })
+            high_risk = True
+            alternatives.append({**issue, "alternative": "Use endpoint-level repair when primitive binding identifies the measured endpoint."})
+        elif ctype == "concentric" and len(handles) >= 2:
+            steps.append({
+                "step_id": f"constraint_repair_{index}",
+                "op": "move_entity",
+                "args": {
+                    "handle": handles[-1],
+                    "from_point": [0, 0, 0],
+                    "to_point": [0, 0, 0],
+                    "requires_manual_center_points": True,
+                },
+                "writes": True,
+                "expect": {"constraint_id": constraint.get("constraint_id"), "status": "satisfied"},
+                "rationale": "Move one candidate center onto the other only after confirming design intent.",
+            })
+            high_risk = True
+        elif ctype == "closed_profile" and handles:
+            steps.append({
+                "step_id": f"constraint_repair_{index}",
+                "op": "set_entity_properties",
+                "args": {"handle": handles[-1], "properties": {"closed": True}},
+                "writes": True,
+                "expect": {"constraint_id": constraint.get("constraint_id"), "status": "satisfied"},
+                "rationale": "Close the profile only if the boundary is intended to be closed.",
+            })
+        else:
+            alternatives.append({**issue, "alternative": "Constraint type is ambiguous; inspect binding evidence before editing."})
+    plan = {
+        "plan_id": stable_id("plan", "constraint_repair", ",".join(selected_ids), len(constraints)),
+        "description": "Constraint-solving repair plan proposed from violated constraints.",
+        "units": "drawing_units",
+        "steps": steps,
+        "constraints": constraints,
+        "risk_level": "high" if high_risk else "medium" if steps else "low",
+        "requires_confirmation": True,
+        "dry_run_available": True,
+        "affected_handles": sorted(set(affected)),
+        "alternatives": alternatives,
+    }
+    return ok_result(
+        f"Proposed constraint repair plan with {len(steps)} executable steps and {len(alternatives)} alternatives.",
+        data={"plan": plan, "constraints": constraints},
+        handles=plan["affected_handles"],
+        warnings=[
+            "This tool only proposes repairs; it never modifies the DWG.",
+            "Always validate and dry-run the plan before execute_cad_plan(allow_modify=True).",
+        ],
+        next_tools=["validate_cad_plan", "dry_run_cad_plan"],
+    )

@@ -376,16 +376,111 @@ def propose_repair_plan(issue_ids: List[str],
     ]
     steps = []
     affected: List[str] = []
+    alternatives: List[Dict[str, Any]] = []
+    risk_levels: List[str] = []
     for index, issue in enumerate(selected, start=1):
         handles = issue.get("handles", [])
         affected.extend(handles)
-        op = "manual_review"
+        issue_type = issue.get("issue_type")
+        op = "draw_text"
         args: Dict[str, Any] = {"issue_id": issue.get("issue_id"), "handles": handles}
         writes = False
-        if issue.get("issue_type") in {"zero_length_lines", "duplicate_entities"} and handles:
+        step_risk = "low"
+        rationale = issue.get("repair_hint", "")
+        if issue_type == "zero_length_lines" and handles:
+            op = "delete_entity"
+            args = {"handle": handles[-1]}
+            writes = True
+            step_risk = "high"
+            alternatives.append({
+                "issue_id": issue.get("issue_id"),
+                "option": "redraw_line",
+                "reason": "Delete is high risk when the tiny line encodes intentional construction geometry.",
+            })
+        elif issue_type == "duplicate_entities" and handles:
             op = "delete_entity" if len(handles) == 1 else "delete_entities"
             args = {"handle": handles[-1]} if len(handles) == 1 else {"handles": handles[1:]}
             writes = True
+            step_risk = "high"
+            alternatives.append({
+                "issue_id": issue.get("issue_id"),
+                "option": "keep_duplicate",
+                "reason": "Duplicate geometry may be intentional for stacked disciplines or plotting weights.",
+            })
+        elif issue_type == "tiny_gaps_between_endpoints" and len(handles) >= 2:
+            op = "move_entity"
+            evidence = issue.get("evidence", {})
+            args = {
+                "handle": handles[-1],
+                "from_point": evidence.get("p2") or [0, 0, 0],
+                "to_point": evidence.get("p1") or [0, 0, 0],
+            }
+            writes = True
+            step_risk = "medium"
+            alternatives.append({
+                "issue_id": issue.get("issue_id"),
+                "option": "extend_endpoint",
+                "reason": "Extending a segment can preserve alignment better than moving the whole entity.",
+            })
+        elif issue_type == "unclosed_polylines" and handles:
+            op = "set_entity_properties"
+            args = {"handle": handles[-1], "closed": True}
+            writes = True
+            step_risk = "medium"
+        elif issue_type == "dimension_value_mismatch" and handles:
+            op = "set_entity_properties"
+            args = {
+                "handle": handles[0],
+                "requires_dimension_binding_review": True,
+                "expected": issue.get("expected"),
+                "actual": issue.get("actual"),
+            }
+            writes = False
+            step_risk = "medium"
+            alternatives.append({
+                "issue_id": issue.get("issue_id"),
+                "option": "edit_geometry_or_annotation",
+                "reason": "The correct repair depends on whether the dimension or measured geometry is authoritative.",
+            })
+        elif issue_type == "wrong_or_empty_layer" and handles:
+            op = "set_entity_properties"
+            args = {"handle": handles[-1], "layer": "0"}
+            writes = True
+            step_risk = "low"
+        elif issue_type == "missing_dimensions_candidate":
+            op = "add_linear_dimension"
+            args = {
+                "x1": 0,
+                "y1": 0,
+                "x2": 0,
+                "y2": 0,
+                "text_x": 0,
+                "text_y": 0,
+            }
+            writes = False
+            step_risk = "low"
+            rationale = "Replace placeholder points with production-critical edges or holes before execution."
+        elif issue_type == "unresolved_or_empty_blocks":
+            op = "create_block"
+            args = {
+                "requires_manual_block_review": True,
+                "issue_id": issue.get("issue_id"),
+            }
+            writes = False
+            step_risk = "medium"
+            alternatives.append({
+                "issue_id": issue.get("issue_id"),
+                "option": "purge_or_reload",
+                "reason": "Purging/reloading blocks can affect drawing references and needs explicit user approval.",
+            })
+        else:
+            args = {
+                "text": f"Review issue {issue.get('issue_id')}",
+                "insert_x": 0,
+                "insert_y": 0,
+                "layer": "TEXT-NOTE",
+            }
+            rationale = "No automatic repair is safe; manual review placeholder only."
         steps.append({
             "step_id": f"repair_{index}",
             "op": op,
@@ -393,11 +488,13 @@ def propose_repair_plan(issue_ids: List[str],
             "expect": {"issue_type": issue.get("issue_type")},
             "depends_on": [],
             "writes": writes,
-            "rationale": issue.get("repair_hint", ""),
+            "risk_level": step_risk,
+            "rationale": rationale,
         })
-    risk = "medium" if any(step["writes"] for step in steps) else "low"
-    if any(issue.get("severity") in {"high", "critical"} for issue in selected):
-        risk = "high" if any(step["writes"] for step in steps) else "medium"
+        risk_levels.append(step_risk)
+    risk = "high" if "high" in risk_levels else "medium" if "medium" in risk_levels else "low"
+    if any(issue.get("severity") in {"high", "critical"} for issue in selected) and risk == "low":
+        risk = "medium"
     plan = {
         "plan_id": stable_id("plan", "repair", ",".join(issue_ids or []), report.get("generated_at")),
         "description": "Repair plan proposed from validation issues.",
@@ -408,6 +505,7 @@ def propose_repair_plan(issue_ids: List[str],
         "requires_confirmation": True,
         "dry_run_available": True,
         "affected_handles": sorted(set(affected)),
+        "alternatives": alternatives,
     }
     return ok_result(
         f"Proposed repair plan with {len(steps)} steps.",

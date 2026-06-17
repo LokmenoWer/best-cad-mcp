@@ -1,3 +1,4 @@
+from src.cad_understanding import plan as plan_module
 from src.cad_understanding.plan import dry_run_cad_plan, execute_cad_plan, validate_cad_plan
 
 
@@ -25,3 +26,95 @@ def test_dry_run_and_execute_gate():
     assert "No DWG changes" in dry["message"]
     assert execute["ok"] is False
     assert "allow_modify" in execute["message"]
+
+
+def test_plan_variables_save_as_and_reference():
+    plan = {
+        "plan_id": "p1",
+        "steps": [
+            {
+                "step_id": "outer",
+                "op": "draw_circle",
+                "args": {"center_x": 0, "center_y": 0, "radius": 5},
+                "save_as": "$outer_circle",
+            },
+            {
+                "step_id": "move",
+                "op": "move_entity",
+                "args": {"handle": "$outer_circle", "from_point": [0, 0, 0], "to_point": [1, 0, 0]},
+                "depends_on": ["outer"],
+            },
+        ],
+    }
+
+    validation = validate_cad_plan(plan)
+    dry = dry_run_cad_plan(plan)
+
+    assert validation["ok"] is True
+    assert dry["ok"] is True
+    assert dry["data"]["steps"][1]["args"]["handle"]["unresolved_future_handle"] == "$outer_circle"
+
+
+def test_missing_variable_fails_validation():
+    result = validate_cad_plan({
+        "steps": [
+            {"step_id": "move", "op": "move_entity", "args": {"handle": "$missing", "from_point": [0, 0, 0], "to_point": [1, 0, 0]}}
+        ]
+    })
+
+    assert result["ok"] is False
+    assert "Unknown variable" in result["data"]["errors"][0]["message"]
+
+
+def test_execute_captures_handles_and_postcondition(monkeypatch):
+    def draw_circle(**kwargs):
+        assert kwargs["radius"] == 5
+        return "Created circle handle: C1"
+
+    monkeypatch.setattr(plan_module, "_tool_dispatch", lambda: {"draw_circle": draw_circle})
+
+    result = execute_cad_plan(
+        {
+            "plan_id": "p1",
+            "steps": [
+                {
+                    "step_id": "outer",
+                    "op": "draw_circle",
+                    "args": {"center_x": 0, "center_y": 0, "radius": 5},
+                    "save_as": "$outer_circle",
+                    "postconditions": [{"type": "exists", "target": "$outer_circle"}],
+                }
+            ],
+        },
+        allow_modify=True,
+        transactional=False,
+        validate_after_plan=False,
+    )
+
+    assert result["ok"] is True
+    assert result["handles"] == ["C1"]
+    assert result["data"]["state"]["outer_circle"] == "C1"
+    assert result["data"]["postconditions"][0]["ok"] is True
+
+
+def test_execute_rolls_back_on_failure(monkeypatch):
+    rollback_calls = []
+
+    def failing_tool(**kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(plan_module, "_tool_dispatch", lambda: {"draw_line": failing_tool})
+    monkeypatch.setattr(plan_module, "_transaction_begin", lambda enabled: {"enabled": enabled, "ok": True})
+    monkeypatch.setattr(plan_module, "_transaction_rollback", lambda enabled: rollback_calls.append(enabled) or {"enabled": enabled, "ok": True})
+
+    result = execute_cad_plan(
+        {"plan_id": "p1", "steps": [{"step_id": "s1", "op": "draw_line", "args": {}}]},
+        allow_modify=True,
+        transactional=True,
+        rollback_on_error=True,
+        validate_after_plan=False,
+    )
+
+    assert result["ok"] is False
+    assert rollback_calls == [True]
+    assert result["data"]["failed_step"]["step_id"] == "s1"

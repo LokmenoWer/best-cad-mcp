@@ -1,5 +1,9 @@
 from src.cad_database import CADDatabase
-from src.cad_understanding.semantic_graph import detect_semantic_objects, get_semantic_graph
+from src.cad_understanding.semantic_graph import (
+    detect_semantic_objects,
+    find_semantic_objects,
+    get_semantic_graph,
+)
 
 
 def make_db(tmp_path):
@@ -61,3 +65,82 @@ def test_detect_semantic_objects_rule_based_fixture(tmp_path):
     assert "text_annotation" in types
     assert "block_instance" in types
     assert graph["semantic_relations"]
+
+
+def test_detect_architecture_electrical_and_drafting_candidates(tmp_path):
+    db = make_db(tmp_path)
+    db.upsert_entity(
+        "W1",
+        "Line",
+        "AcDbLine",
+        layer="A-WALL",
+        geometry={"start": [0, 0, 0], "end": [20, 0, 0]},
+        bbox=(0, 0, 20, 0),
+    )
+    db.upsert_entity(
+        "DR1",
+        "BlockReference",
+        "AcDbBlockReference",
+        layer="A-DOOR",
+        geometry={"block_name": "DOOR_900"},
+        bbox=(4, -1, 6, 1),
+    )
+    arch = detect_semantic_objects("architecture", database=db)
+    arch_types = {obj["object_type"] for obj in arch["data"]["semantic_objects"]}
+
+    assert "wall_candidate" in arch_types
+    assert "door" in arch_types
+
+    db.upsert_entity(
+        "E1",
+        "Polyline",
+        "AcDbPolyline",
+        layer="E-WIRE",
+        geometry={"vertices": [[0, 5, 0], [20, 5, 0]], "closed": False},
+        bbox=(0, 5, 20, 5),
+    )
+    db.upsert_entity(
+        "TB1",
+        "BlockReference",
+        "AcDbBlockReference",
+        layer="E-DEVICE",
+        geometry={"block_name": "TERMINAL_BLOCK"},
+        bbox=(10, 4, 12, 6),
+    )
+    electrical = detect_semantic_objects("electrical", database=db)
+    electrical_types = {obj["object_type"] for obj in electrical["data"]["semantic_objects"]}
+
+    assert "wire" in electrical_types
+    assert "terminal" in electrical_types
+
+    db.upsert_entity(
+        "T1",
+        "Text",
+        "AcDbText",
+        layer="TITLE",
+        geometry={"text": "REVISION TABLE"},
+        bbox=(0, -10, 20, -8),
+    )
+    drafting = detect_semantic_objects("drafting", database=db)
+    drafting_types = {obj["object_type"] for obj in drafting["data"]["semantic_objects"]}
+
+    assert "revision_table" in drafting_types
+
+
+def test_find_semantic_objects_filters_by_handle_domain_and_confidence(tmp_path):
+    db = make_db(tmp_path)
+    populate_semantic_fixture(db)
+    detect_semantic_objects("mechanical", database=db)
+
+    result = find_semantic_objects(
+        object_type="hole",
+        handle="C1",
+        domain="mechanical",
+        confidence_threshold=0.5,
+        database=db,
+    )
+    objects = result["data"]["semantic_objects"]
+
+    assert result["ok"]
+    assert objects
+    assert objects[0]["entity_handles"] == ["C1"]

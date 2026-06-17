@@ -53,11 +53,16 @@ def test_server_understanding_tool_functions_importable():
         "extract_drawing_constraints",
         "check_drawing_constraints",
         "get_drawing_constraints",
+        "bind_dimension_to_geometry",
+        "bind_all_dimensions",
+        "propose_constraint_repair_plan",
         "validate_geometry",
         "get_validation_report",
         "propose_repair_plan",
         "export_view_image_with_mapping",
+        "map_pixel_region_to_world_bbox",
         "ground_vlm_region",
+        "ground_vlm_overlay_id",
         "validate_cad_plan",
         "dry_run_cad_plan",
         "execute_cad_plan",
@@ -65,3 +70,17 @@ def test_server_understanding_tool_functions_importable():
         "get_cad_resource",
     ]:
         assert callable(getattr(server, name))
+
+    prompt_root = Path(__file__).resolve().parents[1] / "prompts"
+    assert server.understand_existing_drawing() == (
+        prompt_root / "understand_existing_drawing.md"
+    ).read_text(encoding="utf-8").strip()
+    assert server.precise_draw_from_spec() == (
+        prompt_root / "precise_draw_from_spec.md"
+    ).read_text(encoding="utf-8").strip()
+    assert server.vlm_review_drawing() == (
+        prompt_root / "vlm_review_drawing.md"
+    ).read_text(encoding="utf-8").strip()
+    assert server.repair_drawing() == (
+        prompt_root / "repair_drawing.md"
+    ).read_text(encoding="utf-8").strip()

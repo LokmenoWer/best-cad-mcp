@@ -11,6 +11,7 @@ from src.cad_understanding.validators import propose_repair_plan, validate_geome
 from src.cad_understanding.view_grounding import (
     export_view_image_with_mapping,
     get_visible_entities_in_view,
+    ground_vlm_overlay_id,
     ground_vlm_region,
 )
 
@@ -79,6 +80,11 @@ def test_understanding_layer_end_to_end_without_autocad(tmp_path, monkeypatch):
     snapshot = snapshot_result["data"]["snapshot"]
     visible = get_visible_entities_in_view(snapshot["snapshot_id"], database=db)
     grounded = ground_vlm_region(snapshot["snapshot_id"], [300, 300, 600, 700], database=db)
+    overlay_grounded = ground_vlm_overlay_id(
+        snapshot["snapshot_id"],
+        snapshot["overlay_items"][0]["overlay_id"],
+        database=db,
+    )
 
     plan = {
         "plan_id": "p1",
@@ -104,8 +110,11 @@ def test_understanding_layer_end_to_end_without_autocad(tmp_path, monkeypatch):
     assert ir_resource["ok"]
     assert snapshot_result["ok"]
     assert Path(snapshot["context_json_path"]).exists()
+    assert Path(snapshot["overlay_image_path"]).exists()
+    assert snapshot["overlay_items"][0]["overlay_id"].startswith("E")
     assert visible["ok"]
     assert grounded["ok"]
+    assert overlay_grounded["ok"]
     assert plan_validation["ok"]
     assert dry_run["ok"]
     assert repair["ok"]

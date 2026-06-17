@@ -3,58 +3,71 @@ name: draw-assembly-diagrams
 description: >-
   Create, inspect, understand, validate, repair, annotate, visually ground, and
   export standards-aware AutoCAD assembly drawings through best-cad-mcp. Use
-  when working with DWG/DXF/PDF CAD deliverables, existing drawing
-  understanding, CAD-IR, semantic objects, constraints, validation reports,
-  VLM-to-handle grounding, model-private spatial annotations, safe CADPlan
-  dry-runs/execution, BOMs, balloons/item numbers, sectioned or exploded
-  assemblies, dimensions, blocks, hatches, layouts, and precise handle-based
-  edits. Requires using best-cad-mcp tools, scanned SQLite metadata, explicit
-  dry-run before planned modification, and no standalone AutoCAD COM scripts.
+  when working with DWG/DXF/PDF CAD deliverables, CAD-IR, semantic graphs,
+  constraints, dimension binding, validation reports, VLM-to-handle grounding,
+  pixel/world mapping, model-private spatial annotations, prompt resources,
+  safe CADPlan dry-runs/execution, BOMs, balloons/item numbers, sectioned or
+  exploded assemblies, dimensions, blocks, hatches, layouts, and precise
+  handle-based edits. Requires best-cad-mcp tools, scanned SQLite metadata,
+  explicit dry-run before planned modification, modular assembly-standard
+  references, and no standalone AutoCAD COM scripts.
 ---
 
 # Draw Assembly Diagrams
 
-Use this skill as an operating guide for best-cad-mcp. Treat AutoCAD as the
-source of truth, handles as the edit targets, SQLite as the agent's private CAD
-memory, and CADPlan as the guarded path for multi-step modification.
+Use this skill as the operating guide for best-cad-mcp. Treat AutoCAD as the
+source of truth, native handles as edit targets, SQLite as model-private CAD
+memory, prompt/resources as reusable guidance, and CADPlan as the guarded path
+for multi-step changes.
 
-Read `references/assembly-drawing-requirements.md` before creating or checking
-an assembly drawing, BOM, item-numbering scheme, sectioned view, exploded view,
-or standards-compliance claim.
+## Reference Routing
+
+Read only the references needed for the task:
+
+- Assembly drawing, BOM, item-numbering, section, exploded view, or
+  standards-compliance work: read `references/assembly/index.md`.
+- When no project/company/national standard is specified, use
+  `references/assembly/standards/generic-mechanical.md` as the default assembly
+  standard module.
+- `references/assembly-drawing-requirements.md` is a compatibility entrypoint;
+  prefer the modular assembly references above for new work.
+- Prompt content may come from repository prompt files through MCP prompt tools;
+  prefer prompt resources over duplicating long instructions in chat.
 
 ## Hard Boundaries
 
-- Use the active best-cad-mcp AutoCAD connection. Do not launch a separate
-  AutoCAD process.
+- Use the active best-cad-mcp AutoCAD connection. Do not launch another AutoCAD
+  process.
 - Do not write standalone Python, VBA, LISP, or pywin32 COM scripts to modify
-  drawings. If a COM behavior is missing, add or fix a best-cad-mcp tool.
-- Understanding, scan, query, semantic detection, constraints, validation,
-  VLM grounding, resource reads, prompt reads, and dry-runs must not modify the
-  DWG.
-- Editing requires a specific editing/drawing tool call or
+  drawings. Add or fix a best-cad-mcp tool when COM behavior is missing.
+- Understanding, scans, CAD-IR/resource reads, semantic detection, dimension
+  binding, constraints, validation, VLM grounding, prompt reads, and dry-runs
+  must not modify the DWG.
+- Editing requires a specific drawing/editing tool call or
   `execute_cad_plan(plan, allow_modify=True)` after validation and dry-run.
 - Treat `send_command`, modal plotting, screen-pick tools, purge, erase,
-  password, close, and global undo/redo as unsafe unless the user specifically
-  requested that operation.
-- Keep agent memory in SQLite with spatial annotations, semantic objects, or
-  resources. Do not add hidden helper layers, XData, blocks, labels, or visible
-  marks to the DWG for model memory.
+  password, close, and global undo/redo as unsafe unless explicitly requested.
+- Keep agent memory in SQLite resources, semantic objects, constraints, or
+  spatial annotations. Do not create hidden helper layers, XData, blocks,
+  labels, or visible marks for memory.
 
 ## Choose The Workflow
 
-- Existing DWG inspection: scan, build IR, summarize, detect semantics, extract
-  constraints, validate, optionally export mapped view.
-- Existing DWG repair: inspect first, ground ambiguous observations, propose a
-  repair plan, validate and dry-run, then execute only with modification
-  permission.
-- New precise drawing: create/open drawing, set layers/styles/layout context,
-  build a CADPlan from high-level operations, validate and dry-run, execute,
-  rescan, validate, and export.
+- Existing DWG inspection: scan, build CAD-IR, summarize, infer domain, detect
+  semantics, bind dimensions, extract/check constraints, validate, then export
+  mapped views when visual evidence matters.
+- Existing DWG repair: inspect first, ground ambiguous visual observations,
+  propose a validation or constraint repair plan, validate and dry-run, then
+  execute only with modification permission.
+- New precise drawing: create/open a drawing, set layers/styles/layout context,
+  load the needed assembly standard module, build a CADPlan, validate and
+  dry-run, execute, rescan, validate, and export.
 - One-off edit with a known handle: call `explain_entity(handle)`, run the
-  specific handle-based edit tool, rescan or query the affected handle, then
-  validate if geometry changed.
-- Visual/VLM review: export a mapped view with overlay, ground pixel regions to
-  handles, explain candidates, then repair by plan or direct edit.
+  precise handle-based edit tool, rescan/query the handle, then validate if
+  geometry changed.
+- Visual/VLM review: export a mapped clean image plus overlay and sidecar JSON,
+  ground pixel bboxes or overlay IDs to handles, explain candidates, then
+  repair by plan or direct handle edit.
 
 ## Existing Drawing Understanding
 
@@ -63,56 +76,50 @@ Use this sequence before editing an existing drawing:
 1. `open_drawing` only when the user provides a DWG path to open.
 2. `scan_all_entities(clear_db=True, detail_level="minimal", topology_detail="summary")`.
 3. `build_drawing_ir`.
-4. `summarize_drawing(level="normal")`; use `level="deep"` when full IR detail
-   is needed in the response.
-5. `detect_semantic_objects(domain="mechanical")` for assemblies; use
-   `generic`, `architecture`, or `electrical` when evidence points elsewhere.
-6. `extract_drawing_constraints`.
+4. `summarize_drawing(level="normal")`; use `level="deep"` only when full IR
+   detail is needed.
+5. `analyze_drawing_intent` and `detect_semantic_objects(domain="mechanical")`
+   for assemblies; choose another domain only when evidence supports it.
+6. `bind_all_dimensions`, then `extract_drawing_constraints` and
+   `check_drawing_constraints`.
 7. `validate_geometry`.
-8. `export_view_image_with_mapping(include_overlay=True)` when visual review,
-   VLM review, or grounding is useful.
-9. `explain_entity(handle)` before precise edits to ambiguous or important
-   handles.
+8. `export_view_image_with_mapping(include_overlay=True)` when visual review or
+   grounding is useful.
+9. `explain_entity(handle)` before editing ambiguous or important handles.
 
-Use `scan_all_entities(topology_detail="full")` only when primitive/relation
-topology is needed for selected geometry. The default summary topology is the
-large-drawing-safe survey mode.
+Use `scan_all_entities(topology_detail="full")` only for selected geometry that
+needs primitive/relation topology. Summary topology is the safe default for
+large drawings.
 
-## CAD Understanding Tools
+## Core Tool Groups
 
-- `build_drawing_ir`: return a stable CAD intermediate representation with
-  native handles, layers, blocks, topology, semantic objects, constraints,
-  validation, and view snapshots.
-- `summarize_drawing`: return drawing/domain/entity/layer/block summaries and
-  recommended next tools.
-- `find_entities_by_description`: search type, layer, block/text content,
-  annotations, bbox position, and simple geometric terms.
-- `explain_entity`: inspect one handle, related topology, nearby entities,
-  annotations, dimensions, and semantic guess.
-- `analyze_drawing_intent`: infer mechanical, architecture, electrical,
-  structural, or generic domain from evidence.
-- `detect_semantic_objects`: write rule-based semantic objects to SQLite only.
-- `get_semantic_graph` / `find_semantic_objects`: recover semantic object IDs,
-  handles, evidence, confidence, and relations.
-- `extract_drawing_constraints`, `check_drawing_constraints`,
-  `get_drawing_constraints`: manage radius, diameter, distance, parallel,
-  perpendicular, concentric, coincident endpoint, closed profile, repeated
-  pattern, and scanned dimension constraints. Keep uncertain dimension binding
-  as `status="unknown"`.
-- `validate_geometry` / `get_validation_report`: produce structured issues
-  with severity, handles, evidence, repair hints, and suggested tools.
-- `propose_repair_plan`: create a non-executing plan from validation issue IDs.
-- `list_cad_resources` / `get_cad_resource`: retrieve current summary, IR,
-  topology, semantic graph, constraints, validation report, and tool guide.
+- CAD-IR/resources: `build_drawing_ir`, `summarize_drawing`,
+  `list_cad_resources`, and `get_cad_resource`.
+- Search/explain: `find_entities_by_description`, `explain_entity`,
+  `get_visible_entities_in_view`, and document/entity statistics tools.
+- Semantics: `analyze_drawing_intent`, `detect_semantic_objects`,
+  `get_semantic_graph`, and `find_semantic_objects`.
+- Dimensions and constraints: `bind_dimension_to_geometry`,
+  `bind_all_dimensions`, `infer_geometric_constraints`,
+  `extract_drawing_constraints`, `check_drawing_constraints`,
+  `get_drawing_constraints`, and `propose_constraint_repair_plan`.
+- Validation and repair: `validate_geometry`, `get_validation_report`, and
+  `propose_repair_plan`.
+- View grounding: `export_view_image_with_mapping`, `map_pixel_to_world`,
+  `map_pixel_region_to_world_bbox`, `ground_vlm_region`, and
+  `ground_vlm_overlay_id`.
+- Model-private memory: `add_spatial_annotation`, `list_spatial_annotations`,
+  and `clear_spatial_annotations`.
 
 ## CADPlan Workflow
 
 Use a `CADPlan` for multi-step generation or repair, especially when more than
-one entity will be changed.
+one entity changes.
 
 Required sequence:
 
-1. Build a plan with high-level operations and explicit args.
+1. Build a plan with high-level operations, explicit args, variables when
+   needed, dependencies, and postconditions for critical handles.
 2. `validate_cad_plan(plan)`.
 3. `dry_run_cad_plan(plan)`.
 4. Ask for explicit modification permission when the user has not already
@@ -120,8 +127,7 @@ Required sequence:
 5. `execute_cad_plan(plan, allow_modify=True)`.
 6. `scan_all_entities`.
 7. `validate_geometry`.
-8. `export_view_image_with_mapping` for visual confirmation when layout or
-   geometry matters.
+8. `export_view_image_with_mapping` when layout or geometry needs visual proof.
 
 Plan shape:
 
@@ -132,22 +138,25 @@ Plan shape:
   "units": "drawing_units",
   "risk_level": "low|medium|high",
   "requires_confirmation": true,
+  "variables": {"origin": [0, 0, 0]},
   "steps": [
     {
-      "step_id": "s1",
-      "op": "draw_rectangle",
-      "args": {"corner1": [0, 0, 0], "corner2": [100, 50, 0], "layer": "M-PART"},
+      "step_id": "outer",
+      "op": "draw_circle",
+      "args": {"center": "$origin", "radius": 25, "layer": "M-PART"},
       "writes": true,
-      "depends_on": []
+      "save_as": "$outer_circle",
+      "depends_on": [],
+      "postconditions": [{"type": "exists", "target": "$outer_circle"}]
     }
   ],
   "constraints": [
-    {"type": "distance", "handles": ["H1", "H2"], "expected": 25.0}
+    {"type": "concentric", "handles": ["$outer_circle", "$inner_circle"]}
   ]
 }
 ```
 
-Currently executable CADPlan operations are:
+Executable CADPlan operations include:
 
 ```text
 draw_line, draw_circle, draw_rectangle, draw_polyline, draw_polygon,
@@ -156,23 +165,26 @@ delete_entity, delete_entities, scale_entity, mirror_entity, offset_entity,
 array_rectangular, array_polar, set_entity_properties, create_layer,
 set_current_layer, add_linear_dimension, add_radial_dimension,
 add_diametric_dimension, add_hatch, hatch_add_boundary, create_block,
-insert_block
+insert_block, set_dimension_text_override
 ```
 
-Use direct MCP tools for valid CAD operations that are not yet in the CADPlan
-executor, such as `draw_donut`, `draw_spline`, `draw_box`, `draw_cylinder`,
+Use direct MCP tools for valid CAD operations that are not yet executable in
+CADPlan, such as `draw_donut`, `draw_spline`, `draw_box`, `draw_cylinder`,
 `solid_boolean`, `trim_entity`, `extend_entity`, `fillet_entities`,
-`chamfer_entities`, `add_table`, `edit_table_cell`, `add_mleader`, and layout
-or plotting tools.
+`chamfer_entities`, `add_table`, `edit_table_cell`, `add_mleader`, layout
+tools, plotting/export tools, and save/open tools.
 
 Plan rules:
 
 - Unknown operations must fail validation.
 - `send_command`, SQL mutation, purge, and audit are disallowed by default.
 - Dry-run is static and must not call AutoCAD.
-- Execution must route through existing safe MCP tool implementations.
-- After execution, rescan before relying on new handles, topology, semantics, or
-  validation results.
+- Execution must route through safe MCP tool implementations and transactional
+  undo grouping where available.
+- `save_as` captures created handles for later `$variable` references.
+- Postconditions should protect critical generated or edited handles.
+- After execution, rescan before relying on new handles, topology, semantics,
+  constraints, or validation results.
 
 ## VLM Grounding
 
@@ -180,49 +192,29 @@ Plan rules:
 2. Give the clean export, overlay export, and sidecar JSON to the VLM.
 3. Require VLM output with pixel bbox or overlay ID, issue type, confidence,
    evidence, and any claimed handle.
-4. Call `ground_vlm_region(snapshot_id, bbox)` for each VLM bbox.
-5. Call `explain_entity` on top candidates before proposing edits.
-6. Convert confirmed issues into `propose_repair_plan`, a CADPlan, or a direct
-   handle-based edit.
+4. Call `ground_vlm_overlay_id(snapshot_id, overlay_id)` for overlay IDs or
+   `ground_vlm_region(snapshot_id, bbox)` for each VLM bbox.
+5. Call `map_pixel_region_to_world_bbox(snapshot_id, bbox)` when world extents
+   are needed for selection or repair planning.
+6. Call `explain_entity` on top candidates before proposing edits.
+7. Convert confirmed issues into `propose_repair_plan`,
+   `propose_constraint_repair_plan`, a CADPlan, or a direct handle-based edit.
 
-The first view mapper is most reliable for top/plan views. For twisted, UCS, or
-3D views, keep warnings in the reasoning and avoid claiming exact grounding
-beyond returned confidence.
+Top/plan views are the most reliable for exact grounding. For twisted, UCS, or
+3D views, carry returned warnings forward and avoid stronger precision claims
+than confidence supports.
 
-## Spatial Annotations And Resources
+## Assembly Drafting
 
-- Use `add_spatial_annotation` for model-private labels, remembered points,
-  part names, face/edge hints, or VLM-derived observations. These annotations
-  belong in SQLite only.
-- Use `list_spatial_annotations` before relying on remembered labels from
-  earlier turns.
-- Use `clear_spatial_annotations` only for annotations known to be temporary.
-- Use `list_cad_resources` to discover current CAD-IR, summary, topology,
-  semantic graph, constraints, validation report, and tool guide resources.
-- Use `get_cad_resource(uri)` instead of rebuilding expensive context when a
-  current resource already exists.
+Do not keep assembly-standard rules in this SKILL file. Load
+`references/assembly/index.md`, select the applicable standard module, and then
+use best-cad-mcp tools for the actual geometry, dimensions, BOM, balloons,
+sections, hatches, blocks, arrays, and exports.
 
-## Assembly Drafting Rules
-
-- Plates and rectangular parts: `draw_rectangle`.
-- Regular nuts/forms: `draw_polygon`.
-- Washers/gaskets/rings: `draw_donut`.
-- Repeated parts: `create_block`, `insert_block`, `array_rectangular`,
-  `array_polar`, or `insert_minsert_block`.
-- 3D forms: `draw_box`, `draw_cylinder`, `draw_torus`, `add_region`,
-  `extrude_region`, `revolve_region`, `solid_boolean`.
-- Sections: `add_hatch`, `hatch_add_boundary`, `hatch_add_inner_loop`,
-  `hatch_set_properties`; avoid gradient hatches by default.
-- Edits by handle: `move_entity`, `rotate_entity`, `offset_entity`,
-  `mirror_entity`, `trim_entity`, `extend_entity`, `fillet_entities`,
-  `chamfer_entities`.
-- Dimensions: use real dimension entities such as `add_linear_dimension`,
-  `add_radial_dimension`, `add_diametric_dimension`, `add_angular_dimension`,
-  and `add_qdim`; never fake dimensions with text and lines.
-- BOMs: create the parts list with `add_table`, fill it with
-  `edit_table_cell`, and ensure every balloon maps to one BOM row.
-- Balloons/leaders: prefer `add_mleader`. If circular balloons are required,
-  create one consistent circle/text/leader unit and block or group it.
+When standards conflict, apply the user's project/company/customer/national
+standard first, then the selected module, then generic mechanical practice.
+State unresolved assumptions in the response and in notes only when the drawing
+deliverable needs visible assumptions.
 
 ## Verification Checklist
 
@@ -232,10 +224,13 @@ Before reporting completion:
 - Existing drawing scanned and summarized when applicable.
 - CAD-IR built without leaking scoped internal keys.
 - Semantic objects detected for mechanical assemblies when applicable.
-- Constraints extracted and checked; uncertain dimensions called out.
+- Dimensions bound; constraints extracted/checked; uncertain dimension binding
+  called out.
 - Validation report generated and important issues handled or reported.
 - VLM/export grounding used when visual confirmation matters.
 - Intended edits executed by handle or CADPlan and followed by rescan.
+- Assembly standard module loaded for BOM, balloons, dimensions, sections, and
+  notes.
 - BOM quantities match visible repeated parts, blocks, arrays, or patterns.
 - Balloons match BOM item numbers.
 - Final export path, layout, key handles, validation evidence, and unresolved

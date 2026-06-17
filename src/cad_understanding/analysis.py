@@ -18,12 +18,15 @@ from .common import (
     bbox_from_row,
     bbox_union,
     clean_row,
+    current_scope,
     decode_json,
+    ensure_understanding_schema,
     entity_geometry,
     entity_text,
     entity_type,
     get_db,
     get_entity,
+    latest_validation_report,
     line_length,
     point_distance,
     topology_for_handle,
@@ -325,6 +328,102 @@ def _direction_bonus(query_terms: List[str], entity: Dict[str, Any],
     return score, reasons
 
 
+def _semantic_matches_by_handle(database: CADDatabase,
+                                terms: List[str]) -> Dict[str, Tuple[float, List[str]]]:
+    if not terms:
+        return {}
+    ensure_understanding_schema(database)
+    scope = current_scope(database)
+    result: Dict[str, Tuple[float, List[str]]] = {}
+    with database._conn() as conn:
+        rows = conn.execute('''
+            SELECT object_type, label, source, confidence, entity_handles, properties
+            FROM cad_semantic_objects
+            WHERE workspace_id = ? AND drawing_id = ?
+              AND conversation_id = ? AND thread_id = ?
+        ''', (
+            scope["workspace_id"], scope["drawing_id"],
+            scope["conversation_id"], scope["thread_id"],
+        )).fetchall()
+    for row in rows:
+        haystack = " ".join([
+            str(row["object_type"] or ""),
+            str(row["label"] or ""),
+            str(row["source"] or ""),
+            str(row["properties"] or ""),
+        ]).lower()
+        matched = [term for term in terms if term in haystack]
+        if not matched:
+            continue
+        confidence = float(row["confidence"] or 0.0)
+        score = min(0.35, 0.12 * len(matched) + 0.18 * confidence)
+        handles = decode_json(row["entity_handles"], [])
+        for handle in handles if isinstance(handles, list) else []:
+            old_score, reasons = result.get(str(handle), (0.0, []))
+            result[str(handle)] = (old_score + score, reasons + [f"semantic:{','.join(matched[:3])}"])
+    return result
+
+
+def _validation_matches_by_handle(database: CADDatabase,
+                                  terms: List[str]) -> Dict[str, Tuple[float, List[str]]]:
+    report = latest_validation_report(database)
+    result: Dict[str, Tuple[float, List[str]]] = {}
+    if not report:
+        return result
+    for issue in report.get("issues", []):
+        haystack = " ".join([
+            str(issue.get("issue_type", "")),
+            str(issue.get("message", "")),
+            str(issue.get("severity", "")),
+        ]).lower()
+        matched = [term for term in terms if term in haystack]
+        if not matched and not any(term in {"issue", "problem", "error", "violated"} for term in terms):
+            continue
+        for handle in issue.get("handles", []):
+            old_score, reasons = result.get(str(handle), (0.0, []))
+            result[str(handle)] = (
+                old_score + 0.22,
+                reasons + [f"validation:{issue.get('issue_type')}"],
+            )
+    return result
+
+
+def _constraint_matches_by_handle(database: CADDatabase,
+                                  terms: List[str]) -> Dict[str, Tuple[float, List[str]]]:
+    if not terms:
+        return {}
+    ensure_understanding_schema(database)
+    scope = current_scope(database)
+    result: Dict[str, Tuple[float, List[str]]] = {}
+    with database._conn() as conn:
+        rows = conn.execute('''
+            SELECT constraint_type, status, target_handles, evidence
+            FROM cad_constraints
+            WHERE workspace_id = ? AND drawing_id = ?
+              AND conversation_id = ? AND thread_id = ?
+        ''', (
+            scope["workspace_id"], scope["drawing_id"],
+            scope["conversation_id"], scope["thread_id"],
+        )).fetchall()
+    for row in rows:
+        haystack = " ".join([
+            str(row["constraint_type"] or ""),
+            str(row["status"] or ""),
+            str(row["evidence"] or ""),
+        ]).lower()
+        matched = [term for term in terms if term in haystack]
+        if not matched and not any(term in {"constraint", "dimension", "violated"} for term in terms):
+            continue
+        handles = decode_json(row["target_handles"], [])
+        for handle in handles if isinstance(handles, list) else []:
+            old_score, reasons = result.get(str(handle), (0.0, []))
+            result[str(handle)] = (
+                old_score + 0.2,
+                reasons + [f"constraint:{row['constraint_type']}:{row['status']}"],
+            )
+    return result
+
+
 def find_entities_by_description(query: str,
                                  top_k: int = 20,
                                  database: Optional[CADDatabase] = None) -> ToolResult:
@@ -332,11 +431,15 @@ def find_entities_by_description(query: str,
     entities = all_entities(db)
     terms = _query_keywords(query)
     extents = bbox_union(bbox_from_row(entity) for entity in entities)
+    semantic_scores = _semantic_matches_by_handle(db, terms)
+    validation_scores = _validation_matches_by_handle(db, terms)
+    constraint_scores = _constraint_matches_by_handle(db, terms)
     candidates = []
     for entity in entities:
         text = entity_text(entity)
         etype = entity_type(entity)
         geom = entity_geometry(entity)
+        handle = str(entity.get("handle") or "")
         score = 0.0
         reasons: List[str] = []
         for term in terms:
@@ -348,6 +451,13 @@ def find_entities_by_description(query: str,
                 "text": ["text", "mtext"],
                 "block": ["block"],
                 "hatch": ["hatch"],
+                "outer": ["outer", "profile", "outline"],
+                "inner": ["inner", "inside"],
+                "wall": ["wall"],
+                "wire": ["wire", "cable", "conduit"],
+                "title": ["title", "title_block"],
+                "bom": ["bom", "parts list"],
+                "violated": ["violated", "mismatch"],
             }.get(term, [term])
             if any(alias in text or alias in etype for alias in aliases):
                 score += 0.25
@@ -367,6 +477,20 @@ def find_entities_by_description(query: str,
         bonus, direction_reasons = _direction_bonus(terms, entity, extents)
         score += bonus
         reasons.extend(direction_reasons)
+        if extents and "center" in terms:
+            center = bbox_center(bbox_from_row(entity))
+            if center:
+                min_x, min_y, max_x, max_y = extents
+                drawing_center = [(min_x + max_x) / 2.0, (min_y + max_y) / 2.0]
+                diag = max(point_distance([min_x, min_y], [max_x, max_y]), 1e-9)
+                center_score = max(0.0, 1.0 - point_distance(center, drawing_center) / diag)
+                score += center_score * 0.2
+                reasons.append("center position")
+        for extra_scores in (semantic_scores, validation_scores, constraint_scores):
+            if handle in extra_scores:
+                extra_score, extra_reasons = extra_scores[handle]
+                score += extra_score
+                reasons.extend(extra_reasons)
         area = bbox_area(bbox_from_row(entity))
         radius = geom.get("radius")
         sort_metric = float(radius) if radius is not None else area

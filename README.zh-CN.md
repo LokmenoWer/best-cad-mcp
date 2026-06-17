@@ -407,3 +407,45 @@ COM 会话。
 ## 许可证
 
 MIT。参见 [LICENSE](LICENSE)。
+
+## 生产级 CAD Agent 工作流
+
+既有 DWG 审阅建议流程：
+
+1. 需要打开文件时先调用 `open_drawing`。
+2. 调用 `scan_all_entities(topology_detail="full")`。
+3. 调用 `build_drawing_ir`。
+4. 调用 `summarize_drawing(level="deep")`。
+5. 按领域调用 `detect_semantic_objects(domain=...)`。
+6. 调用 `extract_drawing_constraints` 和 `bind_all_dimensions`。
+7. 调用 `check_drawing_constraints` 与 `validate_geometry`。
+8. 调用 `export_view_image_with_mapping(include_overlay=True)`，把 clean image、overlay image、sidecar JSON 交给 VLM 审阅。
+9. 使用 `ground_vlm_region` 或 `ground_vlm_overlay_id` 把 VLM 发现定位回 handle/primitive。
+10. 修改前调用 `explain_entity`，再使用 `propose_repair_plan` 或 `propose_constraint_repair_plan`。
+11. 任何修改都必须先 `validate_cad_plan`、再 `dry_run_cad_plan`，最后仅在明确授权后调用 `execute_cad_plan(allow_modify=True, transactional=True)`。
+12. 执行后重新扫描、重新验证并导出最终复核产物。
+
+新图绘制建议流程：
+
+1. `create_new_drawing`。
+2. 生成带 `variables`、`save_as`、依赖、`expect` 和 `postconditions` 的 CADPlan。
+3. `validate_cad_plan`。
+4. `dry_run_cad_plan`。
+5. `execute_cad_plan(allow_modify=True, transactional=True)`。
+6. `scan_all_entities`、`build_drawing_ir`、`validate_geometry`、`export_view_image_with_mapping`。
+
+### 能力与限制
+
+- 顶视/平面模型空间的 world/pixel 映射支持 view twist；当视图上下文提供 UCS 轴时会纳入计算。
+- 非平面 3D 视图和复杂布局视口会返回 `limitations`、`warnings` 和较低 confidence，不应宣称精确 grounding。
+- VLM overlay 是外部产物，不会向 DWG 写入辅助图层、XData、标签或几何。
+- 尺寸绑定会把径向、直径、线性尺寸关联到候选圆/弧/线，并给出证据和 confidence；歧义尺寸保持 `unknown`。
+- 语义图是确定性规则和证据优先设计，低置信度复杂对象会标记为 candidate。
+- CADPlan 支持变量、`save_as`、输出 handle 捕获、postconditions、事务 undo group 和失败 rollback 尝试。
+- 修复工具只生成计划，永不自动执行；危险编辑必须显式 `allow_modify=True`。
+
+真实 AutoCAD COM 工作流冒烟测试：
+
+```powershell
+python scripts\verify_cad_understanding_workflow.py
+```
