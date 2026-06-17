@@ -20,7 +20,8 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Scientific/Engineering :: Computer Aided Design (CAD)",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Visualization",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 
@@ -30,6 +31,11 @@ dependencies = [
     "comtypes>=1.4.0",
     "pyautocad>=0.2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/LokmenoWer/best-cad-mcp"
+Repository = "https://github.com/LokmenoWer/best-cad-mcp"
+Issues = "https://github.com/LokmenoWer/best-cad-mcp/issues"
 
 [project.optional-dependencies]
 dev = [

@@ -1,5 +1,7 @@
 # best-cad-mcp
 
+<!-- mcp-name: io.github.LokmenoWer/best-cad-mcp -->
+
 `best-cad-mcp` 是一个面向真实 AutoCAD 工作流的 Windows MCP 服务。它让
 agent 不只是调用几个绘图 primitive，而是可以扫描图纸、理解图纸、按 handle
 精确编辑、验证几何、把视觉发现映射回 AutoCAD 实体，并导出交付文件。

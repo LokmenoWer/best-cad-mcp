@@ -1,0 +1,155 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test package
+    if: github.event_name == 'workflow_dispatch' || (!github.event.release.draft && !github.event.release.prerelease)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install build and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade build twine jsonschema
+          python -m pip install -e ".[dev]"
+
+      - name: Check release version
+        id: version
+        shell: pwsh
+        run: |
+          $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          "package_version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          if ("${{ github.event_name }}" -eq "release") {
+            $tag = "${{ github.event.release.tag_name }}"
+            $normalizedTag = $tag -replace '^v', ''
+            if ($normalizedTag -ne $version) {
+              throw "Release tag '$tag' does not match pyproject.toml version '$version'."
+            }
+          }
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Check distributions
+        run: python -m twine check dist/*
+
+      - name: Validate MCP registry metadata
+        shell: pwsh
+        run: |
+          @'
+          import json
+          import os
+          import urllib.request
+          from jsonschema import Draft7Validator
+
+          version = os.environ["PACKAGE_VERSION"]
+          with open("server.json", encoding="utf-8") as f:
+              server = json.load(f)
+
+          server["version"] = version
+          for package in server.get("packages", []):
+              if package.get("identifier") == "best-cad-mcp":
+                  package["version"] = version
+
+          with open("server.json", "w", encoding="utf-8") as f:
+              json.dump(server, f, indent=2)
+              f.write("\n")
+
+          schema_url = server["$schema"]
+          with urllib.request.urlopen(schema_url) as response:
+              schema = json.load(response)
+
+          errors = sorted(Draft7Validator(schema).iter_errors(server), key=lambda e: list(e.path))
+          if errors:
+              for error in errors:
+                  path = ".".join(str(part) for part in error.path) or "<root>"
+                  print(f"{path}: {error.message}")
+              raise SystemExit(1)
+          '@ | python -
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+
+      - name: Upload MCP metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-server-metadata
+          path: server.json
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish package to PyPI
+    needs: build
+    if: github.event_name == 'release' && !github.event.release.draft && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/best-cad-mcp/
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-mcp-registry:
+    name: Publish server to MCP Registry
+    needs: publish-pypi
+    if: github.event_name == 'release' && !github.event.release.draft && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download MCP metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: mcp-server-metadata
+          path: .
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server to MCP Registry
+        run: ./mcp-publisher publish

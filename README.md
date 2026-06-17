@@ -1,5 +1,7 @@
 # best-cad-mcp
 
+<!-- mcp-name: io.github.LokmenoWer/best-cad-mcp -->
+
 `best-cad-mcp` is a Windows AutoCAD MCP server for agents that need to work on
 real drawings: scan them, understand them, edit by handle, validate geometry,
 ground visual findings, and export deliverables.
