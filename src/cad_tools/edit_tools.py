@@ -104,8 +104,19 @@ def delete_entities(handles: List[str]) -> str:
     r = ctrl.delete_entities(handles)
     for h in r.get("deleted", []):
         db.delete_entity(h)
-    return f"✓ 已删除 {len(r.get('deleted',[]))} 个实体" + \
-           (f"，{len(r.get('failed',[]))} 个失败" if r.get("failed") else "")
+    deleted = len(r.get("deleted", []))
+    failed = r.get("failed", [])
+    if not failed:
+        return format_success("已删除实体", count=deleted)
+    details = [
+        f"{item.get('handle')}: {item.get('message')}"
+        if isinstance(item, dict) else str(item)
+        for item in failed[:10]
+    ]
+    return (
+        f"PARTIAL: 已删除 {deleted} 个实体，{len(failed)} 个失败。\n"
+        + "\n".join(details)
+    )
 
 
 def mirror_entity(handle: str, line_start: List[float],

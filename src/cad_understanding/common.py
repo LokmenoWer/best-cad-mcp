@@ -423,7 +423,12 @@ def line_length(entity: Dict[str, Any]) -> Optional[float]:
     geometry = entity_geometry(entity)
     if geometry.get("length") is not None:
         try:
-            return float(geometry.get("length"))
+            measured = float(geometry.get("length"))
+            points = line_points(entity)
+            if measured > 1e-9 or not points:
+                return measured
+            derived = point_distance(points[0], points[1])
+            return derived if derived > measured else measured
         except Exception:
             pass
     points = line_points(entity)
@@ -444,16 +449,23 @@ def circle_center_radius(entity: Dict[str, Any]) -> Optional[Tuple[List[float], 
     geometry = entity_geometry(entity)
     center = point3(geometry.get("center"))
     radius = geometry.get("radius")
+    bbox = bbox_from_row(entity)
     if center is None:
-        bbox = bbox_from_row(entity)
         if bbox:
             center = [(bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0, 0.0]
-    if radius is None:
-        bbox = bbox_from_row(entity)
-        if bbox:
-            radius = min(abs(bbox[2] - bbox[0]), abs(bbox[3] - bbox[1])) / 2.0
     try:
-        return (center, float(radius)) if center is not None and radius is not None else None
+        numeric_radius = float(radius) if radius is not None else None
+    except Exception:
+        numeric_radius = None
+    if (numeric_radius is None or numeric_radius <= 1e-9) and bbox:
+        derived_radius = min(abs(bbox[2] - bbox[0]), abs(bbox[3] - bbox[1])) / 2.0
+        if derived_radius > 1e-9:
+            numeric_radius = derived_radius
+    if numeric_radius is None:
+        if bbox:
+            numeric_radius = min(abs(bbox[2] - bbox[0]), abs(bbox[3] - bbox[1])) / 2.0
+    try:
+        return (center, float(numeric_radius)) if center is not None and numeric_radius is not None else None
     except Exception:
         return None
 

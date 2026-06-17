@@ -16,6 +16,7 @@ import pythoncom
 import math
 import logging
 import os
+import shutil
 import time
 from typing import Optional, List, Tuple, Dict, Any, Union
 from contextlib import contextmanager
@@ -116,6 +117,15 @@ class CADController:
             except Exception:
                 self.acad = None
                 self.doc = None
+                self.connect()
+
+    def _refresh_active_document(self) -> None:
+        try:
+            self.acad = win32com.client.GetActiveObject("AutoCAD.Application")
+            if self.acad.Documents.Count > 0:
+                self.doc = self.acad.ActiveDocument
+        except Exception:
+            pass
 
     @property
     def is_connected(self) -> bool:
@@ -136,6 +146,189 @@ class CADController:
         except Exception:
             return False
 
+    def _default_template_candidates(self) -> List[str]:
+        """Find local AutoCAD templates for Documents.Add fallbacks."""
+        candidates: List[str] = []
+        try:
+            files = getattr(getattr(self.acad, "Preferences", None), "Files", None)
+            for attr in ("QNewTemplateFile", "DefaultTemplateFile", "TemplateDwgPath"):
+                value = com_get(files, attr, "") if files is not None else ""
+                if isinstance(value, str) and value.lower().endswith(".dwt"):
+                    candidates.append(value)
+        except Exception:
+            pass
+
+        roots: List[str] = []
+        for env_name in ("LOCALAPPDATA", "APPDATA", "PROGRAMDATA"):
+            value = os.environ.get(env_name)
+            if value:
+                roots.append(os.path.join(value, "Autodesk"))
+        for root in roots:
+            if not os.path.isdir(root):
+                continue
+            try:
+                for dirpath, dirnames, filenames in os.walk(root):
+                    if "template" not in dirpath.lower():
+                        continue
+                    name_map = {name.lower(): name for name in filenames}
+                    for preferred in (
+                        "acadiso.dwt",
+                        "acad.dwt",
+                        "acadiso -named plot styles.dwt",
+                        "acad -named plot styles.dwt",
+                    ):
+                        actual = name_map.get(preferred)
+                        if actual:
+                            candidates.append(os.path.join(dirpath, actual))
+                    if len(candidates) >= 16:
+                        break
+                    dirnames[:] = [
+                        name for name in dirnames
+                        if name.lower() not in {"webdepot", "help", "sample", "samples"}
+                    ]
+            except Exception:
+                continue
+
+        existing: List[str] = []
+        for path in candidates:
+            try:
+                if path and os.path.isfile(path):
+                    existing.append(os.path.abspath(path))
+            except Exception:
+                pass
+        return list(dict.fromkeys(existing))
+
+    def _created_document_result(self,
+                                 doc: Any,
+                                 template_used: Optional[str],
+                                 attempts: List[Dict[str, str]]) -> Dict[str, Any]:
+        self.doc = doc
+        self._wait_quiescent(timeout=4.0)
+        self._refresh_active_document()
+        try:
+            name = self.doc.Name
+        except Exception:
+            try:
+                self.doc = self.acad.ActiveDocument
+                name = self.doc.Name
+            except Exception:
+                name = ""
+        result: Dict[str, Any] = {
+            "success": True,
+            "message": "Created new drawing",
+            "name": name,
+        }
+        if template_used:
+            result["template"] = template_used
+        if attempts:
+            result["fallback_attempts"] = attempts
+        return result
+
+    def _set_file_dialog_vars(self, value: int = 0) -> Dict[str, Any]:
+        old_vars = {}
+        if self.doc is None:
+            try:
+                self.doc = self.acad.ActiveDocument
+            except Exception:
+                return old_vars
+        for name in ("FILEDIA", "CMDDIA"):
+            try:
+                old_vars[name] = self.doc.GetVariable(name)
+                self.doc.SetVariable(name, value)
+            except Exception:
+                pass
+        return old_vars
+
+    def _restore_vars(self, values: Dict[str, Any]) -> None:
+        if self.doc is None:
+            return
+        for name, value in values.items():
+            try:
+                self.doc.SetVariable(name, value)
+            except Exception:
+                pass
+
+    def _prepare_application_for_file_operation(self) -> None:
+        """Best-effort activation before AutoCAD document file operations."""
+        try:
+            self.acad.Visible = True
+        except Exception:
+            pass
+        try:
+            self.acad.WindowState = 3
+        except Exception:
+            pass
+        try:
+            self.acad.Update()
+        except Exception:
+            pass
+        self._wait_quiescent(timeout=2.0)
+
+    def _open_copied_template_drawing(self, template_path: str) -> Dict[str, Any]:
+        if not template_path or not os.path.isfile(template_path):
+            raise FileNotFoundError(template_path)
+        out_dir = os.path.join(os.getcwd(), ".cad_mcp", "generated_drawings")
+        os.makedirs(out_dir, exist_ok=True)
+        stem = os.path.splitext(os.path.basename(template_path))[0] or "template"
+        safe_stem = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in stem)
+        dwg_path = os.path.abspath(
+            os.path.join(out_dir, f"{safe_stem}_{int(time.time() * 1000)}.dwg")
+        )
+        shutil.copyfile(template_path, dwg_path)
+        old_vars = self._set_file_dialog_vars(0)
+        try:
+            self._prepare_application_for_file_operation()
+            self._wait_quiescent(timeout=2.0)
+            doc = self.acad.Documents.Open(dwg_path)
+            result = self._created_document_result(doc, template_path, [])
+            result["message"] = "Created new drawing from copied template"
+            result["fallback_method"] = "open_copied_template"
+            result["path"] = dwg_path
+            return result
+        finally:
+            self._restore_vars(old_vars)
+
+    def _create_drawing_with_qnew(self) -> Dict[str, Any]:
+        """Last-resort new drawing path for AutoCAD profiles where Documents.Add fails."""
+        if self.doc is None:
+            try:
+                self.doc = self.acad.ActiveDocument
+            except Exception as exc:
+                raise RuntimeError(f"No active document for QNEW fallback: {exc}") from exc
+        before_count = int(com_get(self.acad.Documents, "Count", 0) or 0)
+        before_name = str(com_get(self.doc, "Name", "") or "")
+        before_full_name = str(com_get(self.doc, "FullName", "") or "")
+        old_vars = {}
+        for name, value in {"FILEDIA": 0, "CMDDIA": 0}.items():
+            try:
+                old_vars[name] = self.doc.GetVariable(name)
+                self.doc.SetVariable(name, value)
+            except Exception:
+                pass
+        try:
+            self.doc.SendCommand("_.QNEW\n")
+            self._wait_quiescent(timeout=8.0)
+            self.doc = self.acad.ActiveDocument
+            after_count = int(com_get(self.acad.Documents, "Count", 0) or 0)
+            after_name = str(com_get(self.doc, "Name", "") or "")
+            after_full_name = str(com_get(self.doc, "FullName", "") or "")
+            if (
+                after_count > before_count
+                or after_name != before_name
+                or after_full_name != before_full_name
+            ):
+                result = self._created_document_result(self.doc, None, [])
+                result["message"] = "Created new drawing with QNEW fallback"
+                result["fallback_method"] = "qnew_command"
+                return result
+            raise RuntimeError("QNEW command completed without activating a new document")
+        finally:
+            for name, value in old_vars.items():
+                try:
+                    self.doc.SetVariable(name, value)
+                except Exception:
+                    pass
+
     # ── File Operations ──────────────────────────────────────
 
     def create_drawing(self, template: Optional[str] = None) -> Dict[str, Any]:
@@ -143,23 +336,68 @@ class CADController:
         if self.acad is None:
             return {"success": False,
                     "message": "Unable to connect to AutoCAD. Please make sure AutoCAD is running."}
+        attempts: List[Dict[str, str]] = []
+        candidates: List[Optional[str]]
+        if template:
+            candidates = [template]
+        else:
+            candidates = [None] + self._default_template_candidates() + [""]
+
+        old_vars = self._set_file_dialog_vars(0)
         try:
-            if template:
-                doc = self.acad.Documents.Add(template)
-            else:
-                doc = self.acad.Documents.Add()
-            self.doc = doc
-            try:
-                name = doc.Name
-            except Exception:
+            for candidate in candidates:
+                label = "<default>" if candidate is None else (candidate or "<empty-template>")
                 try:
-                    self.doc = self.acad.ActiveDocument
-                    name = self.doc.Name
-                except Exception:
-                    name = ""
-            return {"success": True, "message": "Created new drawing", "name": name}
+                    self._prepare_application_for_file_operation()
+                    self._wait_quiescent(timeout=2.0)
+                    if candidate is not None:
+                        doc = self.acad.Documents.Add(candidate)
+                    else:
+                        doc = self.acad.Documents.Add()
+                    return self._created_document_result(
+                        doc,
+                        candidate,
+                        [attempt for attempt in attempts if attempt.get("error")],
+                    )
+                except Exception as e:
+                    attempts.append({"template": label, "error": str(e)})
+        finally:
+            self._restore_vars(old_vars)
+
+        for candidate in [path for path in candidates if path]:
+            try:
+                self._wait_quiescent(timeout=2.0)
+                result = self._open_copied_template_drawing(candidate)
+                if attempts:
+                    result["fallback_attempts"] = [attempt for attempt in attempts if attempt.get("error")]
+                return result
+            except Exception as e:
+                attempts.append({
+                    "template": str(candidate),
+                    "method": "open_copied_template",
+                    "error": str(e),
+                })
+
+        try:
+            result = self._create_drawing_with_qnew()
+            if attempts:
+                result["fallback_attempts"] = [attempt for attempt in attempts if attempt.get("error")]
+            return result
         except Exception as e:
-            return {"success": False, "message": f"Create failed: {e}"}
+            attempts.append({
+                "template": "<qnew>",
+                "method": "qnew_command",
+                "error": str(e),
+            })
+
+        errors = "; ".join(
+            f"{item['template']}: {item['error']}" for item in attempts[-5:]
+        )
+        return {
+            "success": False,
+            "message": f"Create failed after {len(attempts)} attempt(s): {errors}",
+            "attempts": attempts,
+        }
 
     def open_drawing(self, filepath: str, password: Optional[str] = None) -> Dict[str, Any]:
         """Open a drawing even when AutoCAD is only showing the Start tab."""
@@ -167,7 +405,10 @@ class CADController:
         if self.acad is None:
             return {"success": False,
                     "message": "Unable to connect to AutoCAD. Please make sure AutoCAD is running."}
+        old_vars: Dict[str, Any] = {}
         try:
+            old_vars = self._set_file_dialog_vars(0)
+            self._prepare_application_for_file_operation()
             if password:
                 doc = self.acad.Documents.Open(filepath, password)
             else:
@@ -176,17 +417,67 @@ class CADController:
             return {"success": True, "message": f"已打开: {filepath}", "name": doc.Name}
         except Exception as e:
             return {"success": False, "message": f"打开失败: {e}"}
+        finally:
+            try:
+                self._restore_vars(old_vars)
+            except Exception:
+                pass
+
+    def _save_drawing_with_retries(self, filepath: Optional[str] = None) -> Dict[str, Any]:
+        old_vars: Dict[str, Any] = {}
+        attempts: List[str] = []
+        target = os.path.abspath(os.fspath(filepath)) if filepath else None
+        try:
+            if target:
+                self._ensure_export_parent(target)
+            old_vars = self._set_file_dialog_vars(0)
+            self._prepare_application_for_file_operation()
+            for attempt in range(5):
+                try:
+                    self._refresh_active_document()
+                    self._wait_quiescent(timeout=3.0)
+                    if target:
+                        self.doc.SaveAs(target)
+                    else:
+                        self.doc.Save()
+                    self._wait_quiescent(timeout=5.0)
+                    self._refresh_active_document()
+                    name = com_get(
+                        self.doc,
+                        "Name",
+                        os.path.basename(target) if target else "",
+                    )
+                    result = {
+                        "success": True,
+                        "message": f"Saved: {name}",
+                        "name": name,
+                    }
+                    if target:
+                        result["path"] = target
+                    if attempts:
+                        result["retry_attempts"] = attempts
+                    return result
+                except Exception as e:
+                    attempts.append(str(e))
+                    if attempt >= 4:
+                        raise
+                    self._refresh_active_document()
+                    time.sleep(0.5 + (attempt * 0.5))
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Save failed: {e}",
+                "attempts": attempts,
+            }
+        finally:
+            try:
+                self._restore_vars(old_vars)
+            except Exception:
+                pass
 
     @require_document
     def save_drawing(self, filepath: Optional[str] = None) -> Dict[str, Any]:
-        try:
-            if filepath:
-                self.doc.SaveAs(filepath)
-            else:
-                self.doc.Save()
-            return {"success": True, "message": f"已保存: {self.doc.Name}"}
-        except Exception as e:
-            return {"success": False, "message": f"保存失败: {e}"}
+        return self._save_drawing_with_retries(filepath)
 
     @require_document
     def export_drawing(self, filepath: str, format_type: str = "PDF") -> Dict[str, Any]:
@@ -212,6 +503,7 @@ class CADController:
             return {"success": False, "message": f"导出失败: {e}"}
 
     def _export_pdf(self, filepath: str) -> None:
+        self._ensure_export_parent(filepath)
         plotters = [
             "DWG To PDF.pc3",
             "AutoCAD PDF (General Documentation).pc3",
@@ -238,27 +530,30 @@ class CADController:
         last_error = None
         try:
             for plotter in plotters:
-                try:
-                    if layout is not None:
+                for mode in ("plotter_arg", "active_layout"):
+                    try:
+                        if layout is not None:
+                            try:
+                                layout.ConfigName = plotter
+                                layout.RefreshPlotDeviceInfo()
+                            except Exception:
+                                pass
                         try:
-                            layout.ConfigName = plotter
+                            if os.path.exists(filepath):
+                                os.remove(filepath)
                         except Exception:
                             pass
-                    try:
-                        if os.path.exists(filepath):
-                            os.remove(filepath)
-                    except Exception:
-                        pass
-                    ok = self.doc.Plot.PlotToFile(filepath, plotter)
-                    if ok is False:
-                        raise RuntimeError(f"PlotToFile returned False for {plotter}")
-                    for _ in range(10):
-                        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
-                            return
-                        time.sleep(0.2)
-                    return
-                except Exception as e:
-                    last_error = e
+                        if mode == "plotter_arg":
+                            ok = self.doc.Plot.PlotToFile(filepath, plotter)
+                        else:
+                            ok = self.doc.Plot.PlotToFile(filepath)
+                        if ok is False:
+                            raise RuntimeError(f"PlotToFile returned False for {plotter} ({mode})")
+                        self._wait_for_export_file(filepath, "PDF")
+                        self._wait_quiescent(timeout=5.0)
+                        return
+                    except Exception as e:
+                        last_error = e
             raise RuntimeError(last_error or "no PDF plotter available")
         finally:
             for name, value in old_vars.items():
@@ -1282,6 +1577,27 @@ class CADController:
 
     # ── TrueColor / Transparency / PlotStyle ──────────────
 
+    def _create_ac_cm_color(self):
+        candidates = []
+        try:
+            version = str(com_get(self.acad, "Version", ""))
+            major = int(float(version.split()[0]))
+            candidates.extend([
+                f"AutoCAD.AcCmColor.{major}",
+                f"AutoCAD.AcCmColor.{major - 1}",
+            ])
+        except Exception:
+            pass
+        candidates.extend([f"AutoCAD.AcCmColor.{n}" for n in range(30, 15, -1)])
+        candidates.append("AutoCAD.AcCmColor")
+        last_error = None
+        for prog_id in dict.fromkeys(candidates):
+            try:
+                return self.acad.GetInterfaceObject(prog_id)
+            except Exception as e:
+                last_error = e
+        raise last_error or RuntimeError("Unable to create AcCmColor object")
+
     @require_document
     def set_entity_truecolor(self, handle: str, red: int, green: int,
                               blue: int) -> Dict[str, Any]:
@@ -1290,28 +1606,7 @@ class CADController:
         if ent is None:
             return {"success": False, "message": f"未找到实体: {handle}"}
         try:
-            tc = None
-            candidates = []
-            try:
-                version = str(com_get(self.acad, "Version", ""))
-                major = int(float(version.split()[0]))
-                candidates.extend([
-                    f"AutoCAD.AcCmColor.{major}",
-                    f"AutoCAD.AcCmColor.{major - 1}",
-                ])
-            except Exception:
-                pass
-            candidates.extend([f"AutoCAD.AcCmColor.{n}" for n in range(30, 15, -1)])
-            candidates.append("AutoCAD.AcCmColor")
-            last_error = None
-            for prog_id in dict.fromkeys(candidates):
-                try:
-                    tc = self.acad.GetInterfaceObject(prog_id)
-                    break
-                except Exception as e:
-                    last_error = e
-            if tc is None:
-                raise last_error or RuntimeError("Unable to create AcCmColor object")
+            tc = self._create_ac_cm_color()
             tc.SetRGB(red, green, blue)
             com_set(ent, "TrueColor", tc)
             return {"success": True,
@@ -1498,10 +1793,32 @@ class CADController:
             self._ensure_connected()
         if self.doc is None:
             return None
-        try:
-            return self.doc.HandleToObject(handle)
-        except Exception:
+        normalized = str(handle or "").strip()
+        if not normalized:
             return None
+        for candidate in dict.fromkeys([normalized, normalized.upper(), normalized.lower()]):
+            try:
+                return self.doc.HandleToObject(candidate)
+            except Exception:
+                pass
+        target = normalized.upper()
+        for space_name in ("ModelSpace", "PaperSpace"):
+            space = com_get(self.doc, space_name, None)
+            if space is None:
+                continue
+            try:
+                count = int(com_get(space, "Count", 0) or 0)
+            except Exception:
+                count = 0
+            for index in range(count):
+                try:
+                    ent = space.Item(index)
+                    ent_handle = str(com_get(ent, "Handle", "") or "").strip().upper()
+                    if ent_handle == target:
+                        return ent
+                except Exception:
+                    continue
+        return None
 
     @require_document
     def move_entity(self, handle: str, from_pt: List[float],
@@ -1543,15 +1860,32 @@ class CADController:
 
     @require_document
     def delete_entities(self, handles: List[str]) -> Dict[str, Any]:
-        deleted, failed = [], []
-        for h in handles:
+        deleted: List[str] = []
+        failed: List[Dict[str, str]] = []
+        seen = set()
+        for raw_handle in handles or []:
+            h = str(raw_handle or "").strip()
+            if not h:
+                continue
+            key = h.upper()
+            if key in seen:
+                continue
+            seen.add(key)
             r = self.delete_entity(h)
-            if r["success"]:
+            if r.get("success"):
                 deleted.append(h)
             else:
-                failed.append(h)
-        return {"success": True, "deleted": deleted, "failed": failed,
-                "message": f"已删除 {len(deleted)} 个实体，{len(failed)} 个失败"}
+                failed.append({"handle": h, "message": str(r.get("message", ""))})
+        try:
+            self.doc.Regen(0)
+        except Exception:
+            pass
+        return {
+            "success": not failed,
+            "deleted": deleted,
+            "failed": failed,
+            "message": f"Deleted {len(deleted)} entities; {len(failed)} failed",
+        }
 
     @require_document
     def mirror_entity(self, handle: str, pt1: List[float],
@@ -2205,7 +2539,34 @@ class CADController:
             except Exception as e:
                 last_error = e
 
-        return False, str(last_error)
+        try:
+            true_color = self._create_ac_cm_color()
+            if not com_set(true_color, "ColorIndex", color_idx):
+                aci_rgb = {
+                    0: (0, 0, 0),
+                    1: (255, 0, 0),
+                    2: (255, 255, 0),
+                    3: (0, 255, 0),
+                    4: (0, 255, 255),
+                    5: (0, 0, 255),
+                    6: (255, 0, 255),
+                    7: (255, 255, 255),
+                    8: (128, 128, 128),
+                    9: (192, 192, 192),
+                }
+                rgb = aci_rgb.get(color_idx)
+                if rgb is None:
+                    raise RuntimeError(
+                        f"ColorIndex property was not writable for ACI {color_idx}"
+                    )
+                true_color.SetRGB(*rgb)
+            if com_set(layer, "TrueColor", true_color):
+                return True, None
+            raise RuntimeError("Layer.TrueColor property was not writable")
+        except Exception as e:
+            if last_error:
+                return False, f"{last_error}; TrueColor fallback failed: {e}"
+            return False, str(e)
 
     @require_document
     def create_layer(self, name: str, color_idx: int = 7,
@@ -2519,36 +2880,75 @@ class CADController:
 
     # ── View Operations ────────────────────────────────────
 
+    def _sysvar(self, name: str, default: Any = None) -> Any:
+        try:
+            return self.doc.GetVariable(name)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _point_list(value: Any,
+                    default: Optional[List[float]] = None,
+                    dimensions: int = 3) -> List[float]:
+        fallback = list(default or [0.0, 0.0, 0.0])[:dimensions]
+        while len(fallback) < dimensions:
+            fallback.append(0.0)
+        try:
+            items = list(value)
+            result = [float(items[index]) for index in range(min(len(items), dimensions))]
+            while len(result) < dimensions:
+                result.append(0.0)
+            return result
+        except Exception:
+            return fallback
+
+    def _after_view_change(self) -> None:
+        self._wait_quiescent(timeout=2.0)
+        try:
+            self.doc.Regen(0)
+        except Exception:
+            pass
+        try:
+            self.acad.Update()
+        except Exception:
+            pass
+
     @require_document
     def zoom_extents(self) -> Dict[str, Any]:
         self.doc.Application.ZoomExtents()
+        self._after_view_change()
         return {"success": True, "message": "已缩放到全部范围"}
 
     @require_document
     def zoom_window(self, pt1: List[float], pt2: List[float]) -> Dict[str, Any]:
         self.doc.Application.ZoomWindow(
             to_variant_point(*pt1), to_variant_point(*pt2))
+        self._after_view_change()
         return {"success": True, "message": "已缩放窗口"}
 
     @require_document
     def zoom_center(self, cx: float, cy: float, height: float) -> Dict[str, Any]:
         self.doc.Application.ZoomCenter(
             to_variant_point(cx, cy, 0), height)
+        self._after_view_change()
         return {"success": True, "message": f"已居中缩放到 ({cx}, {cy})"}
 
     @require_document
     def zoom_scale(self, scale: float) -> Dict[str, Any]:
         self.doc.Application.ZoomScaled(scale, 0)
+        self._after_view_change()
         return {"success": True, "message": f"已缩放 {scale}x"}
 
     @require_document
     def zoom_previous(self) -> Dict[str, Any]:
         self.doc.Application.ZoomPrevious()
+        self._after_view_change()
         return {"success": True, "message": "已恢复前一视图"}
 
     @require_document
     def zoom_all(self) -> Dict[str, Any]:
         self.doc.Application.ZoomAll()
+        self._after_view_change()
         return {"success": True, "message": "已缩放到全部"}
 
     @require_document
@@ -2566,6 +2966,7 @@ class CADController:
             height = com_get(current_view, "Height", 100)
             self.doc.Application.ZoomCenter(
                 to_variant_point(new_x, new_y, 0), height)
+            self._after_view_change()
             return {"success": True, "message": f"已平移 ({dx}, {dy})"}
         except Exception as e:
             return {"success": False, "message": f"平移失败: {e}"}
@@ -2576,14 +2977,47 @@ class CADController:
             view = com_get(self.doc, "ActiveViewport", None)
             if view is None:
                 view = com_get(self.doc, "ActiveView", None)
-            if view is None:
-                return {"error": "No active view or viewport is available"}
+
+            raw_center = self._sysvar("VIEWCTR", None)
+            raw_target = self._sysvar("TARGET", None)
+            raw_direction = self._sysvar("VIEWDIR", None)
+            raw_height = self._sysvar("VIEWSIZE", None)
+            raw_screensize = self._sysvar("SCREENSIZE", None)
+            center = self._point_list(raw_center, dimensions=2)
+            target = self._point_list(raw_target, [0.0, 0.0, 0.0])
+            direction = self._point_list(raw_direction, [0.0, 0.0, 1.0])
+            height = raw_height
+            twist = self._sysvar("VIEWTWIST", 0.0)
+            screensize = self._point_list(raw_screensize, [16.0, 10.0], dimensions=2)
+
+            fallback_used = False
+            if raw_center is None:
+                raw_center = com_get(view, "Center", None) if view is not None else None
+                center = self._point_list(raw_center, center, dimensions=2)
+                fallback_used = True
+            try:
+                height = float(height)
+            except Exception:
+                height = float(com_get(view, "Height", 100.0) if view is not None else 100.0)
+                fallback_used = True
+            aspect = max(float(screensize[0]), 1.0) / max(float(screensize[1]), 1.0)
+            width = height * aspect
+            if view is not None:
+                if raw_screensize is None:
+                    width = float(com_get(view, "Width", width) or width)
+                if raw_target is None:
+                    target = self._point_list(com_get(view, "Target", None), target)
+                if raw_direction is None:
+                    direction = self._point_list(com_get(view, "Direction", None), direction)
+
             return {
-                "center": list(com_get(view, "Center", [])),
-                "height": com_get(view, "Height", None),
-                "width": com_get(view, "Width", None),
-                "target": list(com_get(view, "Target", [])),
-                "direction": list(com_get(view, "Direction", [])),
+                "center": [center[0], center[1], 0.0],
+                "height": height,
+                "width": width,
+                "target": target,
+                "direction": direction,
+                "twist": float(twist or 0.0),
+                "source": "system_variables_with_viewport_fallback" if fallback_used else "system_variables",
             }
         except Exception as e:
             return {"error": str(e)}
@@ -2720,11 +3154,10 @@ class CADController:
                         info["bbox"] = bbox
                 if read_geometry:
                     typed_ent = ent
-                    if level == DetailLevel.FULL:
-                        try:
-                            typed_ent = win32com.client.Dispatch(ent)
-                        except Exception:
-                            pass
+                    try:
+                        typed_ent = win32com.client.Dispatch(ent)
+                    except Exception:
+                        pass
                     if obj_name == "AcDbLine":
                         start = self._scan_point(com_get(typed_ent, "StartPoint", None))
                         end = self._scan_point(com_get(typed_ent, "EndPoint", None))
@@ -2827,16 +3260,13 @@ class CADController:
         """Block until AutoCAD is idle (no command in progress), or timeout."""
         import time
         deadline = time.time() + timeout
-        try:
-            state = self.acad.GetAcadState()
-        except Exception:
-            time.sleep(0.2)
-            return True
         while time.time() < deadline:
             try:
-                if state.IsQuiescent:
+                state = self.acad.GetAcadState()
+                if bool(com_get(state, "IsQuiescent", True)):
                     return True
             except Exception:
+                time.sleep(0.2)
                 return True
             time.sleep(0.05)
         return False
@@ -3774,8 +4204,10 @@ class CADController:
         self._ensure_connected()
         try:
             state = self.acad.GetAcadState()
-            return {"is_quiescent": state.IsQuiescent,
-                    "is_loaded": state.IsApplicationLoaded}
+            return {
+                "is_quiescent": bool(com_get(state, "IsQuiescent", True)),
+                "is_loaded": bool(com_get(state, "IsApplicationLoaded", True)),
+            }
         except Exception as e:
             return {"error": str(e)}
 

@@ -114,8 +114,9 @@ class CADDatabase:
 
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or _get_default_db_path()
+        self._active_context = _default_context()
         self._context_var: contextvars.ContextVar[CADWorkspaceContext] = (
-            contextvars.ContextVar("cad_workspace_context", default=_default_context())
+            contextvars.ContextVar("cad_workspace_context")
         )
         self._init_schema()
         with self._conn() as conn:
@@ -148,7 +149,10 @@ class CADDatabase:
         conn.create_function("cad_current_thread_id", 0, lambda: ctx.thread_id)
 
     def get_context(self) -> CADWorkspaceContext:
-        return self._context_var.get()
+        try:
+            return self._context_var.get()
+        except LookupError:
+            return self._active_context
 
     def get_context_dict(self) -> Dict[str, Any]:
         data = asdict(self.get_context())
@@ -182,6 +186,7 @@ class CADDatabase:
             drawing_name=new_drawing_name or "active",
             drawing_path=new_drawing_path or "",
         )
+        self._active_context = ctx
         self._context_var.set(ctx)
         with self._conn() as conn:
             self._ensure_context_rows(conn, ctx)
@@ -422,6 +427,11 @@ class CADDatabase:
             ON CONFLICT(workspace_id, conversation_id, thread_id) DO UPDATE SET
                 updated_at=CURRENT_TIMESTAMP
         ''', (ctx.workspace_id, ctx.conversation_id, ctx.thread_id))
+        conn.execute('''
+            UPDATE cad_drawings
+            SET active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE workspace_id = ? AND drawing_id <> ?
+        ''', (ctx.workspace_id, ctx.drawing_id))
         conn.execute('''
             INSERT INTO cad_drawings
                 (workspace_id, drawing_id, drawing_name, drawing_path, active)

@@ -1,3 +1,4 @@
+import contextvars
 import json
 
 from src.cad_database import CADDatabase
@@ -48,3 +49,30 @@ def test_build_drawing_ir_exposes_native_handles_not_scoped_keys(tmp_path):
     assert "drawing_id" not in entity
     assert drawing_ir["topology"]["primitives"]
     json.dumps(drawing_ir)
+
+
+def test_database_context_survives_fresh_async_task_context(tmp_path):
+    db = CADDatabase(str(tmp_path / "cad.db"))
+    db.upsert_entity(
+        "OLD",
+        "OldLine",
+        "AcDbLine",
+        geometry={"start": [0, 0, 0], "end": [1, 0, 0]},
+        bbox=(0, 0, 1, 0),
+    )
+
+    db.activate_drawing("Drawing4.dwg", r"C:\Users\qxqxx\Documents")
+    db.upsert_entity(
+        "NEW",
+        "NewLine",
+        "AcDbLine",
+        geometry={"start": [10, 0, 0], "end": [20, 0, 0]},
+        bbox=(10, 0, 20, 0),
+    )
+
+    fresh_task = contextvars.Context()
+    drawing_ir = fresh_task.run(lambda: build_drawing_ir(database=db))
+
+    assert drawing_ir["drawing_name"] == "Drawing4.dwg"
+    assert drawing_ir["entity_count"] == 1
+    assert [entity["handle"] for entity in drawing_ir["entities"]] == ["NEW"]

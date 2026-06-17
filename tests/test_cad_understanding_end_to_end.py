@@ -111,6 +111,7 @@ def test_understanding_layer_end_to_end_without_autocad(tmp_path, monkeypatch):
     assert snapshot_result["ok"]
     assert Path(snapshot["context_json_path"]).exists()
     assert Path(snapshot["overlay_image_path"]).exists()
+    assert snapshot["mapping_view_source"] == "scanned_entity_extent_for_wmf_export"
     assert snapshot["overlay_items"][0]["overlay_id"].startswith("E")
     assert visible["ok"]
     assert grounded["ok"]

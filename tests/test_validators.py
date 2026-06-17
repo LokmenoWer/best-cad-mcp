@@ -45,6 +45,39 @@ def test_validate_geometry_detects_basic_issues(tmp_path):
     assert {"zero_length_lines", "duplicate_entities", "unclosed_polylines"}.issubset(types)
 
 
+def test_validate_geometry_uses_bbox_when_scanned_geometry_has_zero_placeholders(tmp_path):
+    db = make_db(tmp_path)
+    db.upsert_entity(
+        "L1",
+        "Line",
+        "AcDbLine",
+        geometry={"length": 0.0},
+        bbox=(0, 20, 140, 20),
+    )
+    db.upsert_entity(
+        "C1",
+        "Circle",
+        "AcDbCircle",
+        geometry={"radius": 0.0},
+        bbox=(50, -95, 90, -55),
+    )
+    db.upsert_entity(
+        "C2",
+        "Circle",
+        "AcDbCircle",
+        geometry={"radius": 0.0},
+        bbox=(60, -85, 80, -65),
+    )
+
+    result = validate_geometry(
+        checks=["zero_length_lines", "duplicate_entities"],
+        database=db,
+    )
+    issues = result["data"]["validation_report"]["issues"]
+
+    assert issues == []
+
+
 def test_proposed_repair_plan_can_be_validated_and_dry_run(tmp_path):
     db = make_db(tmp_path)
     db.upsert_entity(

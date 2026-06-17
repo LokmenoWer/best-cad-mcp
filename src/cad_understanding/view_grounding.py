@@ -17,6 +17,7 @@ from .common import (
     bbox_from_row,
     bbox_intersects,
     bbox_iou,
+    bbox_union,
     current_scope,
     decode_json,
     ensure_understanding_schema,
@@ -491,6 +492,36 @@ def _visible_entity_bboxes(database: CADDatabase,
     return visible, screen_bboxes
 
 
+def _scanned_entity_extent(database: CADDatabase) -> Optional[BBox]:
+    return bbox_union(bbox_from_row(entity) for entity in all_entities(database))
+
+
+def _view_from_extent(extent: BBox,
+                      image_width: int,
+                      image_height: int,
+                      padding_ratio: float = 0.08) -> Dict[str, Any]:
+    min_x, min_y, max_x, max_y = extent
+    width = max(max_x - min_x, 1.0)
+    height = max(max_y - min_y, 1.0)
+    padding = max(width, height, 1.0) * max(float(padding_ratio), 0.0)
+    width += padding * 2.0
+    height += padding * 2.0
+    aspect = max(float(image_width), 1.0) / max(float(image_height), 1.0)
+    if width / max(height, 1e-9) > aspect:
+        height = width / aspect
+    else:
+        width = height * aspect
+    return {
+        "center": [(min_x + max_x) / 2.0, (min_y + max_y) / 2.0, 0.0],
+        "target": [(min_x + max_x) / 2.0, (min_y + max_y) / 2.0, 0.0],
+        "height": height,
+        "width": width,
+        "direction": [0.0, 0.0, 1.0],
+        "view_direction": [0.0, 0.0, 1.0],
+        "twist": 0.0,
+    }
+
+
 def get_current_view_context(filepath: Optional[str] = None,
                              image_size: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
     """Read the current AutoCAD view through tool/controller layers when available."""
@@ -574,6 +605,14 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     image_width, image_height = _image_size(str(path))
     context = get_current_view_context(str(path), (image_width, image_height))
     warnings.extend(context.get("warnings", []))
+    scanned_extent = _scanned_entity_extent(db)
+    mapping_view_source = "current_autocad_view"
+    if path.suffix.lower() == ".wmf" and scanned_extent:
+        context["view"] = _view_from_extent(scanned_extent, image_width, image_height)
+        mapping_view_source = "scanned_entity_extent_for_wmf_export"
+        warnings.append(
+            "WMF export uses AutoCAD selection-set extents; mapping was derived from scanned entity extents."
+        )
     transform = compute_view_transform(
         context["view"],
         image_width,
@@ -588,6 +627,22 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
         visible_handles, entity_screen_bboxes = _visible_entity_bboxes(
             db, transform["world_extent"], transform["world_to_pixel"]
         )
+        if not visible_handles and scanned_extent:
+            context["view"] = _view_from_extent(scanned_extent, image_width, image_height)
+            transform = compute_view_transform(
+                context["view"],
+                image_width,
+                image_height,
+                ucs=context.get("ucs"),
+                viewport=context.get("viewport"),
+            )
+            visible_handles, entity_screen_bboxes = _visible_entity_bboxes(
+                db, transform["world_extent"], transform["world_to_pixel"]
+            )
+            mapping_view_source = "scanned_entity_extent_fallback"
+            warnings.append(
+                "Current AutoCAD view contained no scanned entities; mapping fell back to scanned entity extents."
+            )
 
     overlay_items = _build_overlay_items(db, visible_handles, entity_screen_bboxes)
     overlay_path = ""
@@ -621,6 +676,8 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
         "transform_chain": transform["transform_chain"],
         "confidence": transform["confidence"],
         "limitations": transform["limitations"],
+        "mapping_view_source": mapping_view_source,
+        "scanned_entity_extent": bbox_dict(scanned_extent),
         "visible_handles": visible_handles,
         "entity_screen_bboxes": entity_screen_bboxes,
         "export_message": export_message,

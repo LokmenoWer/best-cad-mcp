@@ -1482,7 +1482,121 @@ class TestActiveXCallShapes(unittest.TestCase):
         self.assertIs(controller.doc, active_doc)
         self.assertEqual(result["name"], "Drawing1.dwg")
 
-    def test_create_layer_succeeds_when_color_property_is_incompatible(self):
+    def test_create_drawing_falls_back_to_discovered_template(self):
+        from src.cad_controller import CADController
+
+        template = r"C:\Users\me\AppData\Local\Autodesk\AutoCAD 2020\Template\acadiso.dwt"
+        new_doc = MagicMock()
+        new_doc.Name = "Drawing2.dwg"
+
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.Documents.Count = 0
+        controller.acad.Documents.Add.side_effect = [Exception("file handler"), new_doc]
+        controller.doc = None
+
+        with patch.object(controller, "_ensure_connected") as ensure, \
+             patch.object(controller, "_default_template_candidates", return_value=[template]):
+            result = controller.create_drawing()
+
+        ensure.assert_called_once_with()
+        self.assertTrue(result["success"], result)
+        controller.acad.Documents.Add.assert_any_call()
+        controller.acad.Documents.Add.assert_any_call(template)
+        self.assertEqual(result["template"], template)
+        self.assertEqual(result["fallback_attempts"][0]["template"], "<default>")
+
+    def test_create_drawing_opens_copied_template_when_add_fails(self):
+        from src.cad_controller import CADController
+
+        template = r"C:\Templates\acadiso.dwt"
+        opened_doc = MagicMock()
+        opened_doc.Name = "acadiso_123.dwg"
+
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.Documents.Count = 0
+        controller.acad.Documents.Add.side_effect = Exception("file handler")
+        controller.acad.Documents.Open.return_value = opened_doc
+        controller.doc = None
+
+        with patch.object(controller, "_ensure_connected") as ensure, \
+             patch.object(controller, "_default_template_candidates", return_value=[template]), \
+             patch("src.cad_controller.os.path.isfile", return_value=True), \
+             patch("src.cad_controller.os.makedirs") as makedirs, \
+             patch("src.cad_controller.shutil.copyfile") as copyfile, \
+             patch("src.cad_controller.time.time", return_value=123.456):
+            result = controller.create_drawing()
+
+        ensure.assert_called_once_with()
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["fallback_method"], "open_copied_template")
+        copyfile.assert_called_once()
+        makedirs.assert_called_once()
+        controller.acad.Documents.Open.assert_called_once()
+        self.assertIn("acadiso_123456.dwg", controller.acad.Documents.Open.call_args.args[0])
+
+    def test_create_drawing_uses_qnew_after_template_fallbacks_fail(self):
+        from src.cad_controller import CADController
+
+        template = r"C:\Templates\acadiso.dwt"
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.Documents.Count = 1
+        controller.acad.Documents.Add.side_effect = Exception("file handler")
+        controller.doc = MagicMock()
+        qnew_result = {
+            "success": True,
+            "message": "Created new drawing with QNEW fallback",
+            "name": "Drawing2.dwg",
+            "fallback_method": "qnew_command",
+        }
+
+        with patch.object(controller, "_ensure_connected") as ensure, \
+             patch.object(controller, "_default_template_candidates", return_value=[template]), \
+             patch.object(controller, "_open_copied_template_drawing", side_effect=Exception("invalid context")), \
+             patch.object(controller, "_create_drawing_with_qnew", return_value=qnew_result) as qnew:
+            result = controller.create_drawing()
+
+        ensure.assert_called_once_with()
+        qnew.assert_called_once_with()
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["fallback_method"], "qnew_command")
+        self.assertEqual(result["fallback_attempts"][-1]["method"], "open_copied_template")
+
+    def test_create_layer_uses_truecolor_when_color_property_is_incompatible(self):
+        class FakeAcCmColor:
+            def __init__(self):
+                self.ColorIndex = None
+
+        class ColorIncompatibleLayer:
+            def __init__(self):
+                self.Linetype = None
+                self.TrueColor = None
+
+            def __setattr__(self, name, value):
+                if name == "Color":
+                    raise Exception("Color property incompatible")
+                super().__setattr__(name, value)
+
+        doc = MagicMock()
+        layer = ColorIncompatibleLayer()
+        true_color = FakeAcCmColor()
+        doc.Layers.Item.side_effect = Exception("not found")
+        doc.Layers.Add.return_value = layer
+        controller = self._controller_with_doc(doc)
+        controller.acad.GetInterfaceObject.return_value = true_color
+
+        result = controller.create_layer("A-WALL", color_idx=1)
+
+        self.assertTrue(result["success"], result)
+        self.assertFalse(result["existing"])
+        self.assertTrue(result["color_set"], result)
+        self.assertIs(layer.TrueColor, true_color)
+        self.assertEqual(true_color.ColorIndex, 1)
+        doc.Layers.Add.assert_called_once_with("A-WALL")
+
+    def test_create_layer_warns_when_all_color_paths_fail(self):
         class ColorIncompatibleLayer:
             def __init__(self):
                 self.Linetype = None
@@ -1497,14 +1611,37 @@ class TestActiveXCallShapes(unittest.TestCase):
         doc.Layers.Item.side_effect = Exception("not found")
         doc.Layers.Add.return_value = layer
         controller = self._controller_with_doc(doc)
+        controller.acad.GetInterfaceObject.side_effect = Exception("no AcCmColor")
 
         result = controller.create_layer("A-WALL", color_idx=1)
 
         self.assertTrue(result["success"], result)
-        self.assertFalse(result["existing"])
         self.assertFalse(result["color_set"])
         self.assertIn("Color property incompatible", result["color_warning"])
+        self.assertIn("TrueColor fallback failed", result["color_warning"])
         doc.Layers.Add.assert_called_once_with("A-WALL")
+
+    @patch("src.cad_controller.time.sleep", return_value=None)
+    def test_save_drawing_retries_after_callee_rejected(self, _sleep):
+        doc = MagicMock()
+        doc.Name = "retry.dwg"
+        doc.SaveAs.side_effect = [Exception("callee rejected"), None]
+        controller = self._controller_with_doc(doc)
+        controller._set_file_dialog_vars = MagicMock(return_value={"FILEDIA": 1})
+        controller._restore_vars = MagicMock()
+        controller._prepare_application_for_file_operation = MagicMock()
+        controller._wait_quiescent = MagicMock(return_value=True)
+        controller._refresh_active_document = MagicMock()
+        controller._ensure_export_parent = MagicMock()
+
+        result = controller.save_drawing(r"C:\tmp\retry.dwg")
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(doc.SaveAs.call_count, 2)
+        self.assertEqual(result["path"], r"C:\tmp\retry.dwg")
+        self.assertEqual(result["retry_attempts"], ["callee rejected"])
+        controller._ensure_export_parent.assert_called_once_with(r"C:\tmp\retry.dwg")
+        controller._restore_vars.assert_called_once_with({"FILEDIA": 1})
 
     def test_array_rectangular_uses_six_activex_arguments(self):
         doc = MagicMock()
@@ -1538,6 +1675,21 @@ class TestActiveXCallShapes(unittest.TestCase):
         )
         doc.Export.assert_not_called()
 
+    def test_export_pdf_falls_back_to_active_layout_plot(self):
+        doc = MagicMock()
+        doc.ActiveLayout = MagicMock()
+        doc.Plot.PlotToFile.side_effect = [False, True]
+        controller = self._controller_with_doc(doc)
+
+        with patch("src.cad_controller.os.path.exists", return_value=True), \
+             patch("src.cad_controller.os.path.getsize", return_value=1):
+            result = controller.export_drawing(r"C:\tmp\out.pdf", "PDF")
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(doc.Plot.PlotToFile.call_args_list[0].args, (r"C:\tmp\out.pdf", "DWG To PDF.pc3"))
+        self.assertEqual(doc.Plot.PlotToFile.call_args_list[1].args, (r"C:\tmp\out.pdf",))
+        doc.Export.assert_not_called()
+
     def test_export_dwf_uses_active_layout_plot_config_with_single_arg_plot(self):
         doc = MagicMock()
         doc.ActiveLayout = MagicMock()
@@ -1566,6 +1718,81 @@ class TestActiveXCallShapes(unittest.TestCase):
         self.assertTrue(result["success"], result)
         doc.Export.assert_called_once_with(r"C:\tmp\out", "DXF", selection_set)
         selection_set.Delete.assert_called_once()
+
+    def test_delete_entities_reports_failed_handles_and_falls_back_to_space_scan(self):
+        class FakeEntity:
+            Handle = "A1"
+
+            def __init__(self):
+                self.deleted = False
+
+            def Delete(self):
+                self.deleted = True
+
+        class FakeSpace:
+            def __init__(self, items):
+                self.items = items
+                self.Count = len(items)
+
+            def Item(self, index):
+                return self.items[index]
+
+        entity = FakeEntity()
+        doc = MagicMock()
+        doc.HandleToObject.side_effect = Exception("HandleToObject failed")
+        doc.ModelSpace = FakeSpace([entity])
+        doc.PaperSpace = FakeSpace([])
+        controller = self._controller_with_doc(doc)
+
+        result = controller.delete_entities(["a1", "A1", "missing"])
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(result["deleted"], ["a1"])
+        self.assertTrue(entity.deleted)
+        self.assertEqual(result["failed"][0]["handle"], "missing")
+        doc.Regen.assert_called_once_with(0)
+
+    def test_get_current_view_prefers_system_variables(self):
+        doc = MagicMock()
+        stale_view = MagicMock()
+        stale_view.Center = [9999, 9999]
+        stale_view.Height = 9999
+        stale_view.Width = 9999
+        doc.ActiveViewport = stale_view
+        values = {
+            "VIEWCTR": [10.0, 20.0],
+            "TARGET": [0.0, 0.0, 0.0],
+            "VIEWDIR": [0.0, 0.0, 1.0],
+            "VIEWSIZE": 50.0,
+            "SCREENSIZE": [1600.0, 1000.0],
+            "VIEWTWIST": 0.25,
+        }
+        doc.GetVariable.side_effect = lambda name: values[name]
+        controller = self._controller_with_doc(doc)
+
+        view = controller.get_current_view()
+
+        self.assertEqual(view["center"], [10.0, 20.0, 0.0])
+        self.assertEqual(view["height"], 50.0)
+        self.assertEqual(view["width"], 80.0)
+        self.assertEqual(view["twist"], 0.25)
+        self.assertEqual(view["source"], "system_variables")
+
+    def test_get_acad_state_tolerates_missing_loaded_property(self):
+        from src.cad_controller import CADController
+
+        class State:
+            IsQuiescent = True
+
+        controller = CADController()
+        controller.acad = MagicMock()
+        controller.acad.GetAcadState.return_value = State()
+
+        with patch.object(controller, "_ensure_connected") as ensure:
+            result = controller.get_acad_state()
+
+        ensure.assert_called_once_with()
+        self.assertEqual(result, {"is_quiescent": True, "is_loaded": True})
 
     def test_export_wmf_supplies_all_modelspace_entities(self):
         doc = MagicMock()
@@ -2218,6 +2445,45 @@ class TestScanToolBugs(unittest.TestCase):
         self.assertEqual(entity["bbox"], [0.0, 0.0, 10.0, 1.0])
         self.assertNotIn("color", entity)
         self.assertNotIn("start", entity)
+
+    def test_standard_scan_dispatches_for_geometry_properties(self):
+        class FakeEntity:
+            ObjectName = "AcDbLine"
+            Handle = "H1"
+            Layer = "WALL"
+            Color = 256
+            Linetype = "ByLayer"
+
+            def GetBoundingBox(self):
+                return ((0, 0, 0), (10, 0, 0))
+
+        class FakeTypedLine:
+            StartPoint = (0, 0, 0)
+            EndPoint = (10, 0, 0)
+            Length = 10
+
+        class FakeModelSpace:
+            Count = 1
+
+            def Item(self, index):
+                return FakeEntity()
+
+        doc = MagicMock()
+        doc.ModelSpace = FakeModelSpace()
+        controller = self._controller_with_doc(doc)
+
+        with patch("src.cad_controller.win32com.client.Dispatch", return_value=FakeTypedLine()) as dispatch:
+            result = controller.scan_model_space(
+                max_entities=1,
+                detail_level="standard",
+                include_bounding_boxes=True,
+            )
+
+        dispatch.assert_called_once()
+        entity = result["entities"][0]
+        self.assertEqual(entity["start"], [0.0, 0.0, 0.0])
+        self.assertEqual(entity["end"], [10.0, 0.0, 0.0])
+        self.assertEqual(entity["length"], 10.0)
 
     def test_scan_all_entities_uses_lightweight_scan_and_batch_write(self):
         with patch.object(query_tools, "ctrl") as mock_ctrl, \
