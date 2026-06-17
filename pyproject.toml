@@ -30,6 +30,7 @@ dependencies = [
     "pywin32>=306",
     "comtypes>=1.4.0",
     "pyautocad>=0.2.0",
+    "typing_extensions>=4.12.0",
 ]
 
 [project.urls]

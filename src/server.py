@@ -55,7 +55,8 @@ if _project_root not in sys.path:
 
 from mcp.server.fastmcp import FastMCP, Context
 from mcp.types import ToolAnnotations
-from typing import Optional, List, Tuple, Dict, Any, Union, TypedDict
+from typing import Optional, List, Tuple, Dict, Any, Union
+from typing_extensions import TypedDict
 
 # 日志文件存储在 Agent 的工作目录（MCP 客户端的 cwd）
 logging.basicConfig(
