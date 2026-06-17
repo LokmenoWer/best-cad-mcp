@@ -2,35 +2,46 @@
 
 <!-- mcp-name: io.github.LokmenoWer/best-cad-mcp -->
 
-`best-cad-mcp` 是一个面向真实 DWG 项目的 Windows AutoCAD MCP 服务。它通过
-Model Context Protocol 暴露 AutoCAD 绘图、编辑、检查、元数据、验证、导出、视觉定位和规划工具，让 agent 可以按真实 AutoCAD handle 安全地理解和修改图纸。
+`best-cad-mcp` 是一个面向真实 DWG 图纸的 Windows AutoCAD MCP 服务。它在本机运行，通过 Windows COM 连接 AutoCAD，并通过 Model Context Protocol 为 agent 提供检查、理解、修改、验证和导出 CAD 图纸的能力。
 
 [English README](README.md)
 
-## 项目能做什么
+## 项目状态
 
-很多 CAD 自动化示例只停留在绘制基础图元。`best-cad-mcp` 面向更接近生产环境的 agent 工作流：
+本项目处于 beta 阶段。核心架构、命令行入口、工作区数据库和主要 CAD 工作流已经就位，但工具表面仍在演进。请把它当成面向受控本地工作流的 CAD 自动化基础设施，而不是无需审阅的全自动制图机器人。
 
-- 修改图纸前先检查现有 DWG；
-- 将实体、图层、块、拓扑、尺寸和布局扫描到本地 SQLite 工作区数据库；
-- 解释并编辑 AutoCAD 返回的精确 handle；
-- 构建 CAD-IR、语义图、约束、验证报告和可复用 MCP 资源；
-- 导出干净视图和带标号 overlay 的审阅图；
-- 将 VLM 的像素框或 overlay ID 定位回候选 AutoCAD handle；
-- 对多步骤 CADPlan 进行校验、静态 dry-run，并在明确授权后执行。
+## 为什么需要它
 
-服务在本机运行，通过 Windows COM 连接 AutoCAD。agent 的上下文和私有标注写入工作区数据库，不会为了记忆而往 DWG 里塞隐藏图层、辅助文字或临时几何。
+很多 CAD 自动化示例只会画线、画圆或画矩形。真实的 agent 工作流需要更多东西：
 
-## 核心特性
+- 修改已有 DWG 前先检查图纸；
+- 用 AutoCAD 返回的精确 handle 定位实体，而不是靠文字或截图猜；
+- 在多轮对话中保留图纸理解、验证报告和审阅上下文；
+- 多步骤修改先 dry-run，再实际写入图纸；
+- 导出视觉证据，并把 VLM 发现映射回候选实体；
+- 把 agent 的私有标注保存在数据库里，而不是塞进 DWG。
 
-- **290+ 个 MCP 工具**：覆盖绘图、编辑、图层、块、属性、填充、尺寸、表格、布局、打印、三维实体、查询、元数据和工作流指导。
-- **handle 优先的编辑方式**：先扫描，再查询结构化元数据，最后编辑 AutoCAD 返回的准确 handle。
-- **CAD 理解层**：提供 CAD-IR、图纸摘要、语义对象、语义图、尺寸绑定、约束、验证报告和 MCP resources。
-- **视觉定位**：将导出视图中的像素坐标、世界坐标或 overlay ID 映射回可能的 AutoCAD handle。
-- **受保护的 CADPlan 流程**：支持校验、静态 dry-run、变量、`save_as` handle 捕获、依赖、后置条件、事务式执行和回滚尝试。
-- **工作区级 SQLite 记忆**：支持多图纸、多轮对话和多线程 agent 会话。
-- **模型私有空间标注**：标注存储在 SQLite 中，不写入隐藏 DWG 图层、XData、块、标签或可见标记。
-- **提示词和技能资产**：包含图纸理解、精确绘图、VLM 审阅、修复规划，以及模块化装配图规范。
+`best-cad-mcp` 就是围绕这些要求设计的。它把较完整的 AutoCAD 工具表面、本地 SQLite 工作区数据库、CAD 理解产物、视觉定位、提示词资产和受保护的 CADPlan 执行路径组合在一起。
+
+## 能力概览
+
+| 领域 | 能力 |
+| --- | --- |
+| AutoCAD 操作 | 绘图、编辑、图层、块、属性、尺寸、表格、填充、布局、打印、视图控制、三维实体、文件导出、查询、选择和实用工具。 |
+| handle 优先检查 | 将图纸扫描到 SQLite，查询结构化元数据，解释实体，并按 AutoCAD handle 精确编辑。 |
+| CAD 理解 | CAD-IR、图纸摘要、语义对象、语义图、尺寸绑定、约束提取、验证报告和 MCP resources。 |
+| 视觉审阅 | 导出干净视图、可选数字 overlay，以及用于像素/世界坐标/实体映射的 sidecar JSON。 |
+| CADPlan | 对多步骤绘图或修复计划进行校验、dry-run 和显式执行，支持变量、依赖、handle 捕获、后置条件、事务式执行和回滚尝试。 |
+| agent 记忆 | 将工作区上下文和模型私有空间标注存入 SQLite，不在 DWG 中隐藏辅助几何、XData、标签或标记。 |
+| 提示词与技能资产 | 提供图纸理解、精确绘图、VLM 审阅和修复提示词；提供面向装配图的规范化技能参考。 |
+
+服务当前注册了数百个 MCP 工具入口。推荐工作方式不是随机调用基础图元直到图纸看起来差不多，而是扫描、理解、规划、按 handle 修改、验证，再进行视觉确认。
+
+## 边界
+
+`best-cad-mcp` 不包含 AutoCAD，不替代 AutoCAD 授权，也不是云端 CAD 渲染器。它假设运行 MCP 服务的同一 Windows 用户已经安装并可以正常自动化 AutoCAD。
+
+项目也不承诺仅凭截图就能完美解释几何。视觉定位工具会返回候选项、置信度和警告；重要修改前，agent 应使用 `explain_entity` 和结构化元数据确认目标。
 
 ## 环境要求
 
@@ -40,64 +51,67 @@ Model Context Protocol 暴露 AutoCAD 绘图、编辑、检查、元数据、验
 - 支持 MCP 的客户端，例如 Codex 或 Claude Code
 - 本机 AutoCAD 可以通过 Windows COM 自动化访问
 
-AutoCAD 必须安装、授权，并能在运行 MCP 服务的同一 Windows 用户下正常启动。
+可选视觉审阅能力可以使用 ImageMagick、Inkscape、librsvg、Chrome、Edge 等系统渲染器，也可以安装 `visual` extra 中的 Python 依赖。
 
 ## 安装
 
-克隆仓库并安装依赖：
+### 从源码安装
 
 ```powershell
 git clone https://github.com/LokmenoWer/best-cad-mcp.git
 cd best-cad-mcp
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-可选的 Python 视觉审阅辅助依赖可以这样安装：
+安装可选视觉审阅依赖：
 
 ```powershell
 python -m pip install -e ".[visual]"
 ```
 
-从源码运行：
+安装开发依赖：
 
 ```powershell
-python -m src.server
+python -m pip install -e ".[dev]"
 ```
 
-或运行安装后的命令：
+### 已发布包
+
+使用已发布版本时，可以直接安装包：
+
+```powershell
+python -m pip install best-cad-mcp
+```
+
+安装后的命令行入口：
 
 ```powershell
 cad-mcp
+cad-mcp-doctor
 ```
 
-这个服务是一个 MCP stdio 进程。正常使用时，MCP 客户端会根据配置自动启动它。
+服务本身是一个 MCP stdio 进程。正常使用时，MCP 客户端会根据配置启动它，而不是由用户手动在终端里长期运行。
 
 ## 运行时预检
 
-安装后可以先运行 doctor 命令：
+真实 CAD 工作前，先检查运行环境：
 
 ```powershell
 cad-mcp-doctor --check-autocad
 ```
 
-同样的检查也暴露为 MCP 工具，建议在真实 CAD 工作前调用：
+同样的检查也暴露为 MCP 工具：
 
 ```text
 check_runtime_environment(check_autocad=true, require_visual_export=false)
 ```
 
-预检会报告 Windows、Python、Python 包、工作区可写性、可选视觉审阅渲染器，以及
-`check_autocad=true` 时的实时 AutoCAD COM 连接状态。Agent 应把 `ok=false`
-视为阻塞问题，先修复环境再绘图或编辑。
+预检会报告 Windows、Python、依赖包、工作区可写性、可选视觉渲染器支持，以及 `check_autocad=true` 时的 AutoCAD COM 连接状态。`ok=false` 应视为绘图或编辑前的阻塞问题。
 
-多步骤修改现在是 fail-fast：如果 CADPlan 绑定的任何工具抛异常、返回
-`ok=false`/`success=false`，或返回可识别的错误文本，`execute_cad_plan`
-会停止并尝试回滚，不会继续生成半成品图纸。
-
-需要服务启动时强制预检的部署，可以启用严格启动模式：
+如果部署要求服务启动时必须通过检查，可以启用严格启动模式：
 
 ```powershell
 $env:CAD_MCP_STRICT_PREFLIGHT = "1"
@@ -106,20 +120,17 @@ $env:CAD_MCP_PREFLIGHT_REQUIRE_VISUAL = "0"
 cad-mcp
 ```
 
-`CAD_MCP_PREFLIGHT_REQUIRE_VISUAL=1` 会要求存在受支持的系统渲染器
-（ImageMagick/Inkscape/librsvg/Chrome/Edge 等），或已安装 `.[visual]`
-中的 Python 视觉依赖。
+当视觉导出是硬性要求时，将 `CAD_MCP_PREFLIGHT_REQUIRE_VISUAL=1`。
 
 ## MCP 客户端配置
 
-建议从目标工作区启动 MCP 客户端。运行时数据默认写入该工作区；也可以通过
-`CAD_MCP_WORKSPACE_ROOT` 指定。
+建议从目标工作区启动 MCP 客户端。运行时数据默认写入该工作区；也可以通过 `CAD_MCP_WORKSPACE_ROOT` 指定。
 
 ### Codex
 
-仓库内置 `.codex/config.toml`，用于项目级 Codex 配置。信任项目后，Codex 可以直接从当前 checkout 启动服务。
+仓库内置 `.codex/config.toml`，用于项目级 Codex 配置。信任项目后，Codex 可以直接启动当前 checkout。
 
-如果执行过 `pip install -e .`，也可以把下面的配置加入用户级 `~/.codex/config.toml`：
+执行 `pip install -e .` 或安装已发布包后，可以使用用户级配置：
 
 ```toml
 [mcp_servers.best-cad-mcp]
@@ -131,7 +142,7 @@ tool_timeout_sec = 120
 default_tools_approval_mode = "approve"
 ```
 
-如果要从虚拟环境里的源码 checkout 启动：
+从 checkout 虚拟环境启动的配置：
 
 ```toml
 [mcp_servers.best-cad-mcp]
@@ -182,8 +193,8 @@ approval_mode = "prompt"
 
 仓库内置：
 
-- `.mcp.json`：把本地 stdio 服务注册为 `best-cad-mcp`。
-- `.claude/settings.json`：启用该服务，并对原生命令或破坏性工具保持确认。
+- `.mcp.json`：将本地 stdio 服务注册为 `best-cad-mcp`。
+- `.claude/settings.json`：启用服务，并对原生命令和破坏性工具保持确认。
 
 内置 `.mcp.json` 使用 `CLAUDE_PROJECT_DIR`：
 
@@ -208,20 +219,20 @@ approval_mode = "prompt"
 "C:/path/to/best-cad-mcp/.venv/Scripts/python.exe"
 ```
 
-可以用 `claude mcp list` 或 Claude Code 内的 `/mcp` 确认服务是否已连接。
+使用 `claude mcp list` 或 Claude Code 内的 `/mcp` 确认服务已连接。
 
-## 首次使用流程
+## 推荐工作流
 
-### 检查并修复已有 DWG
+### 检查或修复已有 DWG
 
-1. 用户提供 DWG 路径时调用 `open_drawing`。
-2. 调用 `scan_all_entities(clear_db=True, detail_level="minimal", topology_detail="summary")`。
-3. 调用 `build_drawing_ir`。
-4. 调用 `summarize_drawing`。
+1. `check_runtime_environment(check_autocad=true)`。
+2. 用户提供 DWG 路径时调用 `open_drawing`。
+3. `scan_all_entities(clear_db=true, detail_level="minimal", topology_detail="summary")`。
+4. `build_drawing_ir`，然后 `summarize_drawing`。
 5. 根据领域调用 `detect_semantic_objects(domain="mechanical")` 或其他合适 domain。
-6. 调用 `bind_all_dimensions`、`extract_drawing_constraints` 和 `check_drawing_constraints`。
-7. 调用 `validate_geometry`。
-8. 需要视觉证据时调用 `export_view_image_with_mapping(include_overlay=True)`。
+6. `bind_all_dimensions`、`extract_drawing_constraints` 和 `check_drawing_constraints`。
+7. `validate_geometry`。
+8. 需要视觉证据时调用 `export_view_image_with_mapping(include_overlay=true)`。
 9. 对 VLM 发现调用 `ground_vlm_region` 或 `ground_vlm_overlay_id`。
 10. 修改前对目标调用 `explain_entity(handle)`。
 11. 通过 handle 精确编辑，或通过已校验、已 dry-run 的 CADPlan 编辑。
@@ -229,13 +240,22 @@ approval_mode = "prompt"
 
 ### 创建新图纸
 
-1. 调用 `create_new_drawing`。
-2. 设置图层、文字样式、尺寸样式、布局和单位。
-3. 使用高层 CAD 操作构建 CADPlan，并加入依赖、`save_as` 变量和后置条件。
-4. 调用 `validate_cad_plan`，再调用 `dry_run_cad_plan`。
-5. 只有在明确允许修改后，调用 `execute_cad_plan(..., allow_modify=True)`。
-6. 调用 `scan_all_entities`、`build_drawing_ir`、`validate_geometry`，并导出审阅图。
-7. 保存或导出最终 DWG/PDF/DXF/DWF 交付文件。
+1. `check_runtime_environment(check_autocad=true)`。
+2. `create_new_drawing`。
+3. 设置单位、图层、文字样式、尺寸样式、布局和视图状态。
+4. 使用高层 CAD 操作构建 CADPlan，并加入依赖、`save_as` 变量和后置条件。
+5. `validate_cad_plan`，然后 `dry_run_cad_plan`。
+6. 只有在明确允许修改后，调用 `execute_cad_plan(..., allow_modify=true)`。
+7. `scan_all_entities`、`build_drawing_ir`、`validate_geometry`，并导出审阅图。
+8. 保存或导出最终 DWG、PDF、DXF 或 DWF 交付文件。
+
+### 视觉审阅
+
+1. `export_view_image_with_mapping(include_overlay=true)`。
+2. 审阅干净图、overlay 图和 sidecar mapping JSON。
+3. 对 overlay ID 使用 `ground_vlm_overlay_id`，对像素框使用 `ground_vlm_region`。
+4. 用 `explain_entity` 确认候选实体。
+5. 对选中的问题使用 `propose_repair_plan` 或 `propose_constraint_repair_plan`。
 
 ## 核心概念
 
@@ -249,7 +269,11 @@ approval_mode = "prompt"
 
 数据库按 workspace、drawing、conversation 和 thread 隔离数据，避免不同图纸中的相同 handle 冲突，也让并行 agent 会话拥有独立的私有标注和查询历史。
 
-`execute_query` 暴露的是只读、按 scope 隔离、带限制的 SQL。请使用 `cad_entities` 等公开表名；直接访问 `main.<table>` 会被拒绝，避免绕过 scoped view 读取其他工作区数据。结果默认限制为 1000 行、5 秒、约 1 MB JSON，可通过工具参数或 `CAD_MCP_SQL_MAX_ROWS`、`CAD_MCP_SQL_TIMEOUT_MS`、`CAD_MCP_SQL_MAX_RESULT_BYTES` 调整。
+`execute_query` 是只读、按 scope 隔离、带限制的 SQL。请使用 `cad_entities` 等公开表名；直接访问 `main.<table>` 会被拒绝，避免绕过 scoped view。结果默认限制为 1000 行、5 秒、约 1 MB JSON。可以通过工具参数或以下环境变量调整：
+
+- `CAD_MCP_SQL_MAX_ROWS`
+- `CAD_MCP_SQL_TIMEOUT_MS`
+- `CAD_MCP_SQL_MAX_RESULT_BYTES`
 
 常用工作区工具：
 
@@ -262,9 +286,9 @@ approval_mode = "prompt"
 - `clear_understanding_cache`
 - `get_legacy_database_status`
 
-### CAD 理解层
+### ToolResult
 
-理解类工具返回统一的 `ToolResult` 结构：
+CAD 理解类工具返回统一的 `ToolResult` 结构：
 
 ```json
 {
@@ -279,9 +303,9 @@ approval_mode = "prompt"
 
 只读理解工具不会修改 DWG。语义对象、约束、验证报告、视图快照和 VLM 映射信息会存入工作区数据库。
 
-`scan_all_entities(clear_db=True)` 默认会清空当前 thread 的旧语义对象、约束、验证报告和视图快照，避免重新扫描后混入过期理解缓存。只有确实要跨扫描保留缓存时才传 `clear_understanding=False`。
+`scan_all_entities(clear_db=true)` 默认会清空当前 thread 的旧语义对象、约束、验证报告和视图快照。只有确实要跨扫描保留缓存时才传 `clear_understanding=false`。
 
-关键工具包括：
+关键理解工具包括：
 
 - `build_drawing_ir` 和 `export_drawing_ir`
 - `summarize_drawing`
@@ -305,15 +329,23 @@ CADPlan 是多步骤绘图或修复的受保护路径，适合一次修改多个
   "units": "mm",
   "risk_level": "low",
   "requires_confirmation": true,
-  "variables": {"origin": [0, 0, 0]},
+  "variables": {
+    "origin": [0, 0, 0]
+  },
   "steps": [
     {
       "step_id": "plate",
       "op": "draw_rectangle",
-      "args": {"corner1": "$origin", "corner2": [120, 80, 0], "layer": "M-PART"},
+      "args": {
+        "corner1": "$origin",
+        "corner2": [120, 80, 0],
+        "layer": "M-PART"
+      },
       "writes": true,
       "save_as": "$plate",
-      "postconditions": [{"type": "exists", "target": "$plate"}]
+      "postconditions": [
+        {"type": "exists", "target": "$plate"}
+      ]
     }
   ],
   "constraints": [
@@ -324,21 +356,19 @@ CADPlan 是多步骤绘图或修复的受保护路径，适合一次修改多个
 
 CADPlan 当前可执行常见绘图、编辑、图层、尺寸、填充和块操作。尚未绑定到 CADPlan 的合法 CAD 操作仍可直接调用对应 MCP 工具。
 
-`send_command`、SQL mutation、purge 和 audit 默认不能通过 CADPlan 校验。
+CADPlan 校验默认禁止原始 `send_command`、SQL mutation、purge 和 audit 操作。执行过程中，如果绑定工具失败、返回 `ok=false`、返回 `success=false`，或返回可识别的错误文本，计划会停止，并在启用回滚时尝试回滚。
 
 ### 视觉定位
 
-`export_view_image_with_mapping(include_overlay=True)` 会生成：
+`export_view_image_with_mapping(include_overlay=true)` 会生成：
 
 - 干净视图导出图；
 - 带数字 ID 的可选 overlay 图；
 - 记录视图参数、可见 handle、像素框和映射数据的 sidecar JSON。
 
-VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；返回 overlay ID 时使用
-`ground_vlm_overlay_id(snapshot_id, overlay_id)`。编辑前应对最可能的候选实体调用
-`explain_entity`。
+VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；返回 overlay ID 时使用 `ground_vlm_overlay_id(snapshot_id, overlay_id)`。编辑前应对最可能的候选实体调用 `explain_entity`。
 
-顶视/平面模型空间视图最可靠。带 twist、UCS、三维视图或复杂布局视口的场景会返回警告或较低置信度，不应超出工具返回的信息声称精确定位。
+顶视或平面模型空间视图最可靠。带 twist、UCS、三维视图或复杂布局视口的场景会返回警告或较低置信度。
 
 ### 提示词与装配图技能
 
@@ -357,9 +387,10 @@ VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；返回 ove
 
 ## 安全模型
 
+- 真实 CAD 工作前先运行预检。
 - 先扫描和理解，再修改。
-- 优先使用高层 CAD 工具，而不是拼低层 primitive。
-- 使用 AutoCAD 返回的 handle，不只凭文字猜测编辑目标。
+- 优先使用具名高层 CAD 工具，而不是拼低层 primitive。
+- 使用扫描或查询工具返回的 AutoCAD handle，不只凭文字猜测编辑目标。
 - 破坏性工具和原始 `send_command` 保持人工确认。
 - 多步骤编辑先走 CADPlan 校验和 dry-run。
 - agent 记忆写入 SQLite，不写入隐藏 DWG 实体。
@@ -379,7 +410,15 @@ VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；返回 ove
 
 当前数据库是 `.cad_mcp/workspace.db`。如果旧版本留下根目录 `autocad_data.db`，`check_runtime_environment` 和 `get_legacy_database_status` 会以 warning 报告；确认没有旧 MCP 进程继续使用后，可以归档或删除。
 
-日志使用 UTF-8 并按大小轮转。可通过 `CAD_MCP_LOG_PATH`、`CAD_MCP_LOG_MAX_BYTES`、`CAD_MCP_LOG_BACKUP_COUNT`、`CAD_MCP_LOG_LEVEL`、`CAD_MCP_MCP_LOG_LEVEL` 配置。每行日志包含 workspace、drawing 和 thread ID，便于关联排查。
+日志使用 UTF-8 并按大小轮转。可通过以下环境变量配置：
+
+- `CAD_MCP_LOG_PATH`
+- `CAD_MCP_LOG_MAX_BYTES`
+- `CAD_MCP_LOG_BACKUP_COUNT`
+- `CAD_MCP_LOG_LEVEL`
+- `CAD_MCP_MCP_LOG_LEVEL`
+
+每行日志包含 workspace、drawing 和 thread ID，便于关联排查。
 
 ## 仓库结构
 
@@ -396,17 +435,18 @@ tests/                      mock COM 依赖的单元测试
 .agents/skills/             agent 技能说明和装配图规范
 .codex/                     项目级 Codex MCP 配置
 .claude/ 和 .mcp.json       Claude Code MCP 配置
+server.json                 MCP registry 元数据
 ```
 
 ## 开发
 
-安装开发依赖：
+运行不需要 AutoCAD 的单元测试：
 
 ```powershell
-python -m pip install -e .[dev]
+python -m pytest -q -m "not autocad_com"
 ```
 
-运行单元测试：
+运行当前环境可执行的完整测试：
 
 ```powershell
 python -m pytest
@@ -426,12 +466,15 @@ python scripts\verify_cad_understanding_workflow.py
 
 单元测试会 mock COM 相关行为，不需要安装 AutoCAD。真实冒烟验证需要本机 AutoCAD COM 会话。
 
+发布 workflow 会在 Windows 上构建分发包、运行非 AutoCAD 测试、校验 `server.json`，并在 tagged release 中发布到 PyPI 和 MCP Registry。
+
 ## 常见问题
 
 - **服务启动了但工具调用失败**：确认 AutoCAD 已安装、已授权，并能在同一 Windows 用户下正常打开。
 - **MCP 客户端无法导入 `src`**：把服务 `cwd` 设置为仓库根目录，或将 `PYTHONPATH` 指向仓库根目录。
 - **工作区数据写到了错误目录**：从目标工作区启动 MCP 客户端，或设置 `CAD_MCP_WORKSPACE_ROOT`。
-- **需要的绘图行为没有工具**：应把能力补成 best-cad-mcp 工具，而不是在 agent 侧写临时 COM 脚本。
+- **视觉导出不可用**：安装 `visual` extra，或安装 ImageMagick、Inkscape、librsvg、Chrome、Edge 等受支持渲染器。
+- **需要的绘图行为没有工具**：应把能力补成 `best-cad-mcp` 工具，而不是依赖 agent 侧临时 COM 脚本。
 - **视觉定位不确定**：查看 warnings，优先使用 overlay ID，并用 `explain_entity` 确认候选 handle。
 
 ## 贡献
@@ -441,9 +484,10 @@ python scripts\verify_cad_understanding_workflow.py
 - `src/cad_tools/` 或 `src/cad_understanding/` 中聚焦的工具实现；
 - 需要暴露给 MCP 时，在 `src/server.py` 增加 wrapper；
 - 不依赖 AutoCAD 的单元测试，方便普通 CI 运行；
-- 工作流变化对应的文档或 prompt 更新。
+- 工作流变化对应的文档或 prompt 更新；
+- 不提交运行时产物。
 
-请不要提交运行时产物，例如 `.cad_mcp/`、日志、导出的审阅图、本地数据库、虚拟环境或 AutoCAD 冒烟测试输出。
+请避免提交 `.cad_mcp/`、日志、导出的审阅图、本地数据库、虚拟环境、构建输出或 AutoCAD 冒烟测试产物。
 
 ## 致谢
 

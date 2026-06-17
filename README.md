@@ -2,123 +2,138 @@
 
 <!-- mcp-name: io.github.LokmenoWer/best-cad-mcp -->
 
-`best-cad-mcp` is a Windows AutoCAD MCP server for agents that need to work with
-real DWG projects. It exposes AutoCAD drawing, editing, inspection, metadata,
-validation, export, visual grounding, and planning tools through the Model
-Context Protocol, with a handle-first workflow designed for safe CAD automation.
+`best-cad-mcp` is a Windows AutoCAD MCP server for agents that need to inspect,
+reason about, modify, validate, and export real DWG drawings. It runs locally,
+talks to AutoCAD through Windows COM, and exposes a handle-first CAD automation
+workflow through the Model Context Protocol.
 
 [Chinese README](README.zh-CN.md)
 
-## What It Does
+## Project Status
 
-Most CAD automation examples stop at drawing primitives. `best-cad-mcp` is built
-for production-style agent workflows:
+This project is in beta. The main architecture, command-line entry points,
+workspace database, and core CAD workflows are in place, but the tool surface is
+still evolving. Treat it as production-oriented infrastructure for controlled
+local workflows, not as a fire-and-forget CAD robot.
 
-- inspect an existing drawing before changing it,
-- scan entities, layers, blocks, topology, dimensions, and layouts into a local
-  SQLite workspace database,
-- explain and edit exact AutoCAD handles,
-- build CAD-IR, semantic graphs, constraints, validation reports, and reusable
-  resources,
-- export clean and annotated views for visual review,
-- ground VLM findings from pixels or overlay IDs back to candidate handles, and
-- validate, dry-run, and explicitly execute multi-step CADPlans.
+## Why This Exists
 
-The server runs locally, talks to AutoCAD through Windows COM, and stores agent
-metadata in the workspace instead of writing hidden helper geometry into the
-DWG.
+Most CAD automation demos can draw a line, a circle, or a rectangle. Real agent
+workflows need more:
 
-## Highlights
+- inspect an existing DWG before touching it,
+- identify exact AutoCAD handles instead of guessing from labels or screenshots,
+- keep drawing understanding, validation reports, and review context across
+  turns,
+- dry-run multi-step edits before they modify the drawing,
+- export visual evidence and map VLM findings back to candidate entities, and
+- keep private agent annotations out of the DWG itself.
 
-- **290+ MCP tools** for drawing, editing, layers, blocks, attributes, hatches,
-  dimensions, tables, layouts, plotting, 3D solids, queries, metadata, and
-  workflow guidance.
-- **Handle-first editing**: scan first, query structured metadata, then edit the
-  precise handles returned by AutoCAD.
-- **CAD Understanding Layer** with CAD-IR, drawing summaries, semantic objects,
-  semantic graphs, dimension binding, constraints, validation reports, and MCP
-  resources.
-- **Visual grounding** from exported view pixels, world coordinates, or overlay
-  IDs back to likely AutoCAD handles.
-- **Guarded CADPlan workflow** with validation, static dry-run, variables,
-  `save_as` handle capture, dependencies, postconditions, transactional
-  execution, and rollback attempts.
-- **Workspace-scoped SQLite memory** for multi-drawing, multi-turn, and
-  multi-thread sessions.
-- **Model-private annotations** stored in SQLite, not in hidden DWG layers,
-  XData, blocks, labels, or marks.
-- **Prompt and skill assets** for repeatable drawing understanding, precise
-  generation, visual review, repair, and modular assembly drawing standards.
+`best-cad-mcp` is built around those requirements. The server combines broad
+AutoCAD tool coverage with a local SQLite workspace database, CAD understanding
+artifacts, visual grounding, prompt assets, and a guarded CADPlan execution
+path.
+
+## What It Provides
+
+| Area | Capabilities |
+| --- | --- |
+| AutoCAD operations | Drawing primitives, editing, layers, blocks, attributes, dimensions, tables, hatches, layouts, plotting, view control, 3D solids, file export, queries, selection, and utility tools. |
+| Handle-first inspection | Scan a drawing into SQLite, query structured metadata, explain entities, and edit by the handles returned by AutoCAD. |
+| CAD understanding | CAD-IR, drawing summaries, semantic objects, semantic graphs, dimension binding, extracted constraints, validation reports, and MCP resources. |
+| Visual review | Export clean view images, optional numeric overlays, and sidecar mapping data for pixel/world/entity grounding. |
+| CADPlan | Validate, dry-run, and explicitly execute multi-step drawing or repair plans with variables, dependencies, captured handles, postconditions, transactional execution, and rollback attempts. |
+| Agent memory | Store workspace context and model-private spatial annotations in SQLite instead of hiding helper geometry, XData, labels, or marks inside the DWG. |
+| Prompt and skill assets | Prompt files for understanding, precise drawing, VLM review, and repair; assembly drawing skill references for standards-aware workflows. |
+
+The server currently registers hundreds of MCP tool entry points. The intended
+workflow is not to call random primitives until a drawing looks right; it is to
+scan, understand, plan, modify by handle, validate, and visually confirm.
+
+## Boundaries
+
+`best-cad-mcp` does not include AutoCAD, replace an AutoCAD license, or provide
+a cloud CAD renderer. It assumes AutoCAD is installed and can be automated on
+the same Windows account that runs the MCP server.
+
+The project also does not promise perfect geometric interpretation from a
+screenshot. Visual grounding tools return candidates, confidence, and warnings;
+agents should confirm important targets with `explain_entity` and structured
+metadata before editing.
 
 ## Requirements
 
 - Windows
 - AutoCAD 2020 or newer recommended
 - Python 3.11 or newer
-- An MCP-compatible client, such as Codex or Claude Code
+- An MCP-compatible client such as Codex or Claude Code
 - A local AutoCAD installation available through Windows COM automation
 
-AutoCAD must be installed, licensed, and able to start on the same Windows
-machine where the MCP server runs.
+Optional visual-review helpers can use system renderers such as ImageMagick,
+Inkscape, librsvg, Chrome, or Edge, or the Python dependencies installed through
+the `visual` extra.
 
 ## Installation
 
-Clone the repository and install dependencies:
+### From Source
 
 ```powershell
 git clone https://github.com/LokmenoWer/best-cad-mcp.git
 cd best-cad-mcp
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-Optional Python visual-review helpers can be installed with:
+Install optional visual-review dependencies:
 
 ```powershell
 python -m pip install -e ".[visual]"
 ```
 
-Run the server from source:
+Install development dependencies:
 
 ```powershell
-python -m src.server
+python -m pip install -e ".[dev]"
 ```
 
-Or run the installed console command:
+### Published Package
+
+For published releases, install the package directly:
+
+```powershell
+python -m pip install best-cad-mcp
+```
+
+The installed console commands are:
 
 ```powershell
 cad-mcp
+cad-mcp-doctor
 ```
 
 The server is an MCP stdio process. In normal use, your MCP client starts it
-automatically from its configuration.
+from configuration rather than from an interactive terminal.
 
 ## Runtime Preflight
 
-After installation, run the doctor command:
+Before live CAD work, verify the runtime:
 
 ```powershell
 cad-mcp-doctor --check-autocad
 ```
 
-The same check is also available as the MCP tool `check_runtime_environment`
-before live CAD work:
+The same check is available as an MCP tool:
 
 ```text
 check_runtime_environment(check_autocad=true, require_visual_export=false)
 ```
 
-The preflight reports required Windows/Python/package/workspace checks, optional
-visual-review renderer availability, and live AutoCAD COM connectivity when
-`check_autocad=true`. Agents should treat `ok=false` as a blocker and fix the
-reported environment issue before drawing or editing.
-
-For multi-step changes, CADPlan execution is fail-fast: if any bound tool raises,
-returns `ok=false`/`success=false`, or returns a recognizable error message,
-`execute_cad_plan` stops and attempts rollback instead of continuing with a
-partial drawing.
+The preflight reports Windows, Python, package availability, workspace
+writability, optional visual renderer support, and AutoCAD COM connectivity
+when `check_autocad=true`. Treat `ok=false` as a blocker before drawing or
+editing.
 
 Strict startup mode is available for deployments that should refuse to start
 when required checks fail:
@@ -130,21 +145,21 @@ $env:CAD_MCP_PREFLIGHT_REQUIRE_VISUAL = "0"
 cad-mcp
 ```
 
-`CAD_MCP_PREFLIGHT_REQUIRE_VISUAL=1` requires either a supported system renderer
-such as ImageMagick/Inkscape/librsvg/Chrome/Edge or the optional Python visual
-dependencies from `.[visual]`.
+Set `CAD_MCP_PREFLIGHT_REQUIRE_VISUAL=1` when visual export support is a hard
+runtime requirement.
 
 ## MCP Client Configuration
 
-Start the MCP client from the workspace whose metadata should be used. Runtime
-data is stored under that workspace unless `CAD_MCP_WORKSPACE_ROOT` is set.
+Start the MCP client from the workspace whose CAD metadata should be used.
+Runtime data is stored under that workspace unless `CAD_MCP_WORKSPACE_ROOT` is
+set.
 
 ### Codex
 
 This repository includes `.codex/config.toml` for project-scoped Codex usage.
-After trusting the project, Codex can start the server from the checkout.
+After trusting the project, Codex can start the local checkout.
 
-For a user-level Codex configuration after `pip install -e .`, add:
+User-level configuration after `pip install -e .` or package installation:
 
 ```toml
 [mcp_servers.best-cad-mcp]
@@ -156,7 +171,7 @@ tool_timeout_sec = 120
 default_tools_approval_mode = "approve"
 ```
 
-From a virtual environment checkout:
+Configuration that runs from a checkout virtual environment:
 
 ```toml
 [mcp_servers.best-cad-mcp]
@@ -169,7 +184,7 @@ tool_timeout_sec = 120
 default_tools_approval_mode = "approve"
 ```
 
-Keep raw or destructive tools on manual approval:
+Keep raw or destructive tools interactive:
 
 ```toml
 [mcp_servers.best-cad-mcp.tools.send_command]
@@ -228,30 +243,28 @@ The checked-in `.mcp.json` uses `CLAUDE_PROJECT_DIR`:
 }
 ```
 
-If dependencies are installed only in the project virtual environment, change
-`command` to:
+If dependencies live only in the project virtual environment, change `command`
+to:
 
 ```json
 "C:/path/to/best-cad-mcp/.venv/Scripts/python.exe"
 ```
 
-Use `claude mcp list` or `/mcp` inside Claude Code to confirm the server is
-connected.
+Use `claude mcp list` or `/mcp` inside Claude Code to confirm that the server
+is connected.
 
-## First Workflows
+## Recommended Workflows
 
-### Inspect And Repair An Existing DWG
+### Inspect Or Repair An Existing DWG
 
-1. `open_drawing` when the user supplies a DWG path.
-2. `scan_all_entities(clear_db=True, detail_level="minimal", topology_detail="summary")`.
-3. `build_drawing_ir`.
-4. `summarize_drawing`.
+1. `check_runtime_environment(check_autocad=true)`.
+2. `open_drawing` when the user supplies a DWG path.
+3. `scan_all_entities(clear_db=true, detail_level="minimal", topology_detail="summary")`.
+4. `build_drawing_ir`, then `summarize_drawing`.
 5. `detect_semantic_objects(domain="mechanical")` or another suitable domain.
-6. `bind_all_dimensions`, `extract_drawing_constraints`, and
-   `check_drawing_constraints`.
+6. `bind_all_dimensions`, `extract_drawing_constraints`, and `check_drawing_constraints`.
 7. `validate_geometry`.
-8. `export_view_image_with_mapping(include_overlay=True)` when visual evidence
-   matters.
+8. `export_view_image_with_mapping(include_overlay=true)` when visual evidence matters.
 9. `ground_vlm_region` or `ground_vlm_overlay_id` for VLM findings.
 10. `explain_entity(handle)` before editing.
 11. Edit by handle or through a validated, dry-run CADPlan.
@@ -259,16 +272,23 @@ connected.
 
 ### Create A New Drawing
 
-1. `create_new_drawing`.
-2. Set layers, text styles, dimension styles, layout, and units.
-3. Build a CADPlan with high-level operations, dependencies, `save_as`
+1. `check_runtime_environment(check_autocad=true)`.
+2. `create_new_drawing`.
+3. Set units, layers, text styles, dimension styles, layout, and view state.
+4. Build a CADPlan with high-level operations, dependencies, `save_as`
    variables, and postconditions.
-4. `validate_cad_plan`, then `dry_run_cad_plan`.
-5. `execute_cad_plan(..., allow_modify=True)` only after modification is
-   authorized.
-6. `scan_all_entities`, `build_drawing_ir`, `validate_geometry`, and export a
-   review image.
-7. Save or export the final DWG/PDF/DXF/DWF deliverable.
+5. `validate_cad_plan`, then `dry_run_cad_plan`.
+6. `execute_cad_plan(..., allow_modify=true)` only after modification is authorized.
+7. `scan_all_entities`, `build_drawing_ir`, `validate_geometry`, and export a review image.
+8. Save or export the final DWG, PDF, DXF, or DWF deliverable.
+
+### Review With Vision
+
+1. `export_view_image_with_mapping(include_overlay=true)`.
+2. Review the clean image, overlay image, and sidecar mapping JSON.
+3. Use `ground_vlm_overlay_id` for overlay IDs or `ground_vlm_region` for pixel boxes.
+4. Confirm candidates with `explain_entity`.
+5. Use `propose_repair_plan` or `propose_constraint_repair_plan` for selected issues.
 
 ## Core Concepts
 
@@ -284,12 +304,14 @@ The database scopes data by workspace, drawing, conversation, and thread. This
 keeps identical handles in different drawings from colliding and lets parallel
 agent sessions keep private annotations and query history separate.
 
-SQL exposed through `execute_query` is read-only, scoped, and bounded. Use
-public table names such as `cad_entities`; direct `main.<table>` access is
-blocked so one workspace cannot bypass the scoped views. Result sets default to
-1,000 rows, 5 seconds, and about 1 MB of JSON. Tune with the tool parameters or
-`CAD_MCP_SQL_MAX_ROWS`, `CAD_MCP_SQL_TIMEOUT_MS`, and
-`CAD_MCP_SQL_MAX_RESULT_BYTES`.
+`execute_query` is read-only, scoped, and bounded. Use public table names such
+as `cad_entities`; direct `main.<table>` access is blocked so one workspace
+cannot bypass scoped views. Result sets default to 1,000 rows, 5 seconds, and
+about 1 MB of JSON. Tune with tool parameters or:
+
+- `CAD_MCP_SQL_MAX_ROWS`
+- `CAD_MCP_SQL_TIMEOUT_MS`
+- `CAD_MCP_SQL_MAX_RESULT_BYTES`
 
 Useful workspace tools:
 
@@ -302,9 +324,9 @@ Useful workspace tools:
 - `clear_understanding_cache`
 - `get_legacy_database_status`
 
-### CAD Understanding Layer
+### ToolResult
 
-Understanding tools return structured `ToolResult` dictionaries:
+CAD understanding tools return structured `ToolResult` dictionaries:
 
 ```json
 {
@@ -321,12 +343,12 @@ Read-only understanding tools do not modify the DWG. Semantic objects,
 constraints, validation reports, view snapshots, and VLM mappings are stored in
 the workspace database.
 
-`scan_all_entities(clear_db=True)` clears stale semantic objects, constraints,
+`scan_all_entities(clear_db=true)` clears stale semantic objects, constraints,
 validation reports, and view snapshots for the active thread by default. Pass
-`clear_understanding=False` only when you intentionally want to keep cached
-understanding artifacts across a rescan.
+`clear_understanding=false` only when cached understanding artifacts should
+survive a rescan.
 
-Key tools include:
+Key understanding tools include:
 
 - `build_drawing_ir` and `export_drawing_ir`
 - `summarize_drawing`
@@ -334,8 +356,7 @@ Key tools include:
 - `explain_entity`
 - `detect_semantic_objects`, `get_semantic_graph`, and `find_semantic_objects`
 - `bind_dimension_to_geometry` and `bind_all_dimensions`
-- `extract_drawing_constraints`, `check_drawing_constraints`, and
-  `get_drawing_constraints`
+- `extract_drawing_constraints`, `check_drawing_constraints`, and `get_drawing_constraints`
 - `validate_geometry` and `get_validation_report`
 - `propose_repair_plan` and `propose_constraint_repair_plan`
 - `list_cad_resources` and `get_cad_resource`
@@ -353,15 +374,23 @@ dry-run before execution.
   "units": "mm",
   "risk_level": "low",
   "requires_confirmation": true,
-  "variables": {"origin": [0, 0, 0]},
+  "variables": {
+    "origin": [0, 0, 0]
+  },
   "steps": [
     {
       "step_id": "plate",
       "op": "draw_rectangle",
-      "args": {"corner1": "$origin", "corner2": [120, 80, 0], "layer": "M-PART"},
+      "args": {
+        "corner1": "$origin",
+        "corner2": [120, 80, 0],
+        "layer": "M-PART"
+      },
       "writes": true,
       "save_as": "$plate",
-      "postconditions": [{"type": "exists", "target": "$plate"}]
+      "postconditions": [
+        {"type": "exists", "target": "$plate"}
+      ]
     }
   ],
   "constraints": [
@@ -374,15 +403,17 @@ Executable CADPlan operations include common drawing, editing, layer,
 dimension, hatch, and block operations. Valid CAD actions that are not yet bound
 inside CADPlan can still be called through their direct MCP tools.
 
-`send_command`, SQL mutation, purge, and audit are disallowed by default in
-CADPlan validation.
+CADPlan validation disallows raw `send_command`, SQL mutation, purge, and audit
+operations by default. During execution, a bound tool failure, `ok=false`,
+`success=false`, or recognizable error text stops the plan and triggers rollback
+attempts when rollback is enabled.
 
 ### Visual Grounding
 
-`export_view_image_with_mapping(include_overlay=True)` creates:
+`export_view_image_with_mapping(include_overlay=true)` creates:
 
 - a clean view export,
-- an optional overlay image with numeric IDs,
+- an optional overlay image with numeric IDs, and
 - a sidecar JSON file with view parameters, visible handles, pixel boxes, and
   mapping data.
 
@@ -390,9 +421,9 @@ Use `ground_vlm_region(snapshot_id, bbox)` for VLM pixel boxes and
 `ground_vlm_overlay_id(snapshot_id, overlay_id)` for overlay IDs. Call
 `explain_entity` on top candidates before editing.
 
-Top/plan modelspace views are the most reliable. Twisted, UCS, 3D, and complex
-layout viewport cases return warnings or lower confidence when exact grounding
-is not available.
+Top/plan modelspace views are the most reliable. Twisted views, UCS changes, 3D
+views, and complex layout viewport cases can return warnings or lower
+confidence.
 
 ### Prompts And Assembly Skills
 
@@ -400,7 +431,7 @@ The `prompts/` directory contains MCP prompt source files for:
 
 - understanding existing drawings,
 - precise drawing from a specification,
-- VLM drawing review,
+- VLM drawing review, and
 - repair planning.
 
 The `.agents/skills/draw-assembly-diagrams` skill provides agent-facing
@@ -414,9 +445,11 @@ assembly drawing workflows. Assembly rules are modular:
 
 ## Safety Model
 
+- Run preflight before live CAD work.
 - Scan and understand before editing.
-- Prefer high-level CAD tools over raw primitives.
-- Use handles returned by AutoCAD; do not guess edit targets from text alone.
+- Prefer named high-level CAD tools over reconstructed low-level primitives.
+- Use AutoCAD handles returned by scan/query tools; do not infer edit targets
+  from prose alone.
 - Keep destructive tools and raw `send_command` behind manual approval.
 - Use CADPlan validation and dry-run before multi-step edits.
 - Store agent memory in SQLite, not in hidden DWG entities.
@@ -439,10 +472,15 @@ The active database is `.cad_mcp/workspace.db`. If a retired root-level
 `get_legacy_database_status` report it as a warning. Archive or delete it after
 confirming no old MCP process still uses it.
 
-Logs are UTF-8 and rotate by size. Configure with `CAD_MCP_LOG_PATH`,
-`CAD_MCP_LOG_MAX_BYTES`, `CAD_MCP_LOG_BACKUP_COUNT`, `CAD_MCP_LOG_LEVEL`, and
-`CAD_MCP_MCP_LOG_LEVEL`. Each log line includes workspace, drawing, and thread
-IDs for correlation.
+Logs are UTF-8 and rotate by size. Configure with:
+
+- `CAD_MCP_LOG_PATH`
+- `CAD_MCP_LOG_MAX_BYTES`
+- `CAD_MCP_LOG_BACKUP_COUNT`
+- `CAD_MCP_LOG_LEVEL`
+- `CAD_MCP_MCP_LOG_LEVEL`
+
+Each log line includes workspace, drawing, and thread IDs for correlation.
 
 ## Repository Layout
 
@@ -459,17 +497,18 @@ tests/                      Unit tests that mock COM-dependent behavior
 .agents/skills/             Agent skill guidance and assembly standards
 .codex/                     Project-scoped Codex MCP config
 .claude/ and .mcp.json      Claude Code MCP config
+server.json                 MCP registry metadata
 ```
 
 ## Development
 
-Install development dependencies:
+Run unit tests that do not require AutoCAD:
 
 ```powershell
-python -m pip install -e .[dev]
+python -m pytest -q -m "not autocad_com"
 ```
 
-Run unit tests:
+Run the full test suite available in the current environment:
 
 ```powershell
 python -m pytest
@@ -490,6 +529,10 @@ python scripts\verify_cad_understanding_workflow.py
 Unit tests mock COM-dependent behavior and do not require AutoCAD. Smoke
 verification requires a local AutoCAD COM session.
 
+The release workflow builds distributions, runs non-AutoCAD tests on Windows,
+validates `server.json`, publishes to PyPI, and publishes MCP registry metadata
+for tagged releases.
+
 ## Troubleshooting
 
 - **The server starts but tools fail**: make sure AutoCAD is installed,
@@ -498,8 +541,10 @@ verification requires a local AutoCAD COM session.
   root or set `PYTHONPATH` to the repository root.
 - **Workspace data appears in the wrong folder**: start the MCP client from the
   intended workspace or set `CAD_MCP_WORKSPACE_ROOT`.
-- **A drawing operation needs a tool that is missing**: add the behavior as a
-  best-cad-mcp tool instead of using an agent-side COM script.
+- **Visual export is unavailable**: install the `visual` extra or a supported
+  renderer such as ImageMagick, Inkscape, librsvg, Chrome, or Edge.
+- **A drawing operation needs a missing tool**: add the behavior as a
+  `best-cad-mcp` tool instead of relying on an agent-side temporary COM script.
 - **Visual grounding is uncertain**: inspect warnings, use overlay IDs where
   possible, and confirm candidate handles with `explain_entity`.
 
@@ -511,11 +556,11 @@ Contributions are welcome. Good changes usually include:
   `src/cad_understanding/`,
 - an MCP wrapper in `src/server.py` when a new capability should be exposed,
 - tests that do not require AutoCAD for ordinary CI,
-- docs or prompt updates when workflows change.
+- documentation or prompt updates when workflows change, and
+- no committed runtime artifacts.
 
-Please avoid committing runtime artifacts such as `.cad_mcp/`, logs, exported
-review images, local databases, virtual environments, or AutoCAD smoke-test
-outputs.
+Avoid committing `.cad_mcp/`, logs, exported review images, local databases,
+virtual environments, build outputs, or AutoCAD smoke-test artifacts.
 
 ## Acknowledgements
 
