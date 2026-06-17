@@ -42,6 +42,12 @@ SAFE_PLAN_OPS = {
 DANGEROUS_OPS = {"send_command", "execute_sql_query", "execute_query", "purge_drawing", "audit_drawing"}
 VARIABLE_RE = re.compile(r"^\$[A-Za-z_][A-Za-z0-9_]*$")
 HANDLE_RE = re.compile(r"(?:handle(?:s)?\s*[:=]?\s*)([A-Za-z0-9_.:-]+)", re.IGNORECASE)
+FAILURE_TEXT_RE = re.compile(
+    r"(^\s*ERROR\b|\bfailed\b|\bfailure\b|\bexception\b|unable to connect|"
+    r"no drawing|invalid literal|refused|\u5931\u8d25|\u9519\u8bef|"
+    r"\u62d2\u7edd|\u6fb6\u8fab\u89e6)",
+    re.IGNORECASE,
+)
 
 
 def _tool_dispatch() -> Dict[str, Callable[..., Any]]:
@@ -312,6 +318,35 @@ def parse_tool_result_handles(result: Any) -> List[str]:
     return sorted(dict.fromkeys(handle for handle in handles if handle))
 
 
+def tool_result_failure_message(result: Any) -> Optional[str]:
+    """Return a compact failure message when a CAD tool result is unsuccessful."""
+    if isinstance(result, dict):
+        if result.get("ok") is False:
+            return str(result.get("message") or result.get("error") or "ok=false")
+        if result.get("success") is False:
+            return str(result.get("message") or result.get("error") or "success=false")
+        for key in ("message", "error", "result"):
+            value = result.get(key)
+            if isinstance(value, str) and FAILURE_TEXT_RE.search(value):
+                return value
+        data = result.get("data")
+        if isinstance(data, dict):
+            nested = tool_result_failure_message(data)
+            if nested:
+                return nested
+        return None
+    if isinstance(result, str) and FAILURE_TEXT_RE.search(result):
+        return result
+    return None
+
+
+def _compact_failure_message(message: str, limit: int = 500) -> str:
+    text = " ".join(str(message or "").split())
+    if len(text) <= limit:
+        return text
+    return text[:limit - 15] + "...[truncated]"
+
+
 def _save_step_outputs(step: Dict[str, Any],
                        result: Any,
                        state: Dict[str, Any],
@@ -410,6 +445,7 @@ def execute_cad_plan(plan: Dict[str, Any],
     if transactional and not transaction_status.get("ok"):
         transaction_status["warning"] = "Execution will continue without a confirmed AutoCAD undo mark."
     failed_step = None
+    failed_result = None
     rollback_status: Optional[Dict[str, Any]] = None
     try:
         for index, step in enumerate(normalized["steps"]):
@@ -421,6 +457,12 @@ def execute_cad_plan(plan: Dict[str, Any],
             if unresolved:
                 raise RuntimeError(f"Unresolved variables at step {step.get('step_id')}: {unresolved}")
             result = fn(**args)
+            failure_message = tool_result_failure_message(result)
+            if failure_message:
+                failed_result = result
+                raise RuntimeError(
+                    f"{op} returned failure: {_compact_failure_message(failure_message)}"
+                )
             output = _save_step_outputs(step, result, state, handles)
             step_postconditions = [
                 _check_postcondition(postcondition, state, output["handles"])
@@ -447,6 +489,7 @@ def execute_cad_plan(plan: Dict[str, Any],
                 "plan_id": normalized["plan_id"],
                 "completed_steps": results,
                 "failed_step": failed_step,
+                "failed_result": failed_result,
                 "rollback_status": rollback_status,
                 "transaction_status": transaction_status,
                 "postconditions": postcondition_results,
@@ -497,4 +540,3 @@ def execute_cad_plan(plan: Dict[str, Any],
         ],
         next_tools=["scan_all_entities", "validate_geometry", "export_view_image_with_mapping"],
     )
-

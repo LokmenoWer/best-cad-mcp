@@ -55,6 +55,12 @@ python -m pip install -r requirements.txt
 python -m pip install -e .
 ```
 
+可选的 Python 视觉审阅辅助依赖可以这样安装：
+
+```powershell
+python -m pip install -e ".[visual]"
+```
+
 从源码运行：
 
 ```powershell
@@ -68,6 +74,41 @@ cad-mcp
 ```
 
 这个服务是一个 MCP stdio 进程。正常使用时，MCP 客户端会根据配置自动启动它。
+
+## 运行时预检
+
+安装后可以先运行 doctor 命令：
+
+```powershell
+cad-mcp-doctor --check-autocad
+```
+
+同样的检查也暴露为 MCP 工具，建议在真实 CAD 工作前调用：
+
+```text
+check_runtime_environment(check_autocad=true, require_visual_export=false)
+```
+
+预检会报告 Windows、Python、Python 包、工作区可写性、可选视觉审阅渲染器，以及
+`check_autocad=true` 时的实时 AutoCAD COM 连接状态。Agent 应把 `ok=false`
+视为阻塞问题，先修复环境再绘图或编辑。
+
+多步骤修改现在是 fail-fast：如果 CADPlan 绑定的任何工具抛异常、返回
+`ok=false`/`success=false`，或返回可识别的错误文本，`execute_cad_plan`
+会停止并尝试回滚，不会继续生成半成品图纸。
+
+需要服务启动时强制预检的部署，可以启用严格启动模式：
+
+```powershell
+$env:CAD_MCP_STRICT_PREFLIGHT = "1"
+$env:CAD_MCP_PREFLIGHT_CHECK_AUTOCAD = "1"
+$env:CAD_MCP_PREFLIGHT_REQUIRE_VISUAL = "0"
+cad-mcp
+```
+
+`CAD_MCP_PREFLIGHT_REQUIRE_VISUAL=1` 会要求存在受支持的系统渲染器
+（ImageMagick/Inkscape/librsvg/Chrome/Edge 等），或已安装 `.[visual]`
+中的 Python 视觉依赖。
 
 ## MCP 客户端配置
 

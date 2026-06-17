@@ -118,3 +118,51 @@ def test_execute_rolls_back_on_failure(monkeypatch):
     assert result["ok"] is False
     assert rollback_calls == [True]
     assert result["data"]["failed_step"]["step_id"] == "s1"
+
+
+def test_execute_rolls_back_on_failure_text(monkeypatch):
+    rollback_calls = []
+
+    def failing_tool(**kwargs):
+        return "ERROR: create_layer failed: invalid literal for int()"
+
+    monkeypatch.setattr(plan_module, "_tool_dispatch", lambda: {"draw_line": failing_tool})
+    monkeypatch.setattr(plan_module, "_transaction_begin", lambda enabled: {"enabled": enabled, "ok": True})
+    monkeypatch.setattr(plan_module, "_transaction_rollback", lambda enabled: rollback_calls.append(enabled) or {"enabled": enabled, "ok": True})
+
+    result = execute_cad_plan(
+        {"plan_id": "p1", "steps": [{"step_id": "s1", "op": "draw_line", "args": {}}]},
+        allow_modify=True,
+        transactional=True,
+        rollback_on_error=True,
+        validate_after_plan=False,
+    )
+
+    assert result["ok"] is False
+    assert "returned failure" in result["message"]
+    assert result["data"]["failed_result"] == "ERROR: create_layer failed: invalid literal for int()"
+    assert rollback_calls == [True]
+
+
+def test_execute_rolls_back_on_structured_failure(monkeypatch):
+    rollback_calls = []
+
+    def failing_tool(**kwargs):
+        return {"ok": False, "message": "tool refused unsafe edit"}
+
+    monkeypatch.setattr(plan_module, "_tool_dispatch", lambda: {"draw_line": failing_tool})
+    monkeypatch.setattr(plan_module, "_transaction_begin", lambda enabled: {"enabled": enabled, "ok": True})
+    monkeypatch.setattr(plan_module, "_transaction_rollback", lambda enabled: rollback_calls.append(enabled) or {"enabled": enabled, "ok": True})
+
+    result = execute_cad_plan(
+        {"plan_id": "p1", "steps": [{"step_id": "s1", "op": "draw_line", "args": {}}]},
+        allow_modify=True,
+        transactional=True,
+        rollback_on_error=True,
+        validate_after_plan=False,
+    )
+
+    assert result["ok"] is False
+    assert "tool refused unsafe edit" in result["message"]
+    assert result["data"]["failed_result"] == {"ok": False, "message": "tool refused unsafe edit"}
+    assert rollback_calls == [True]

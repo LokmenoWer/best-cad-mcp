@@ -1,11 +1,17 @@
 """CAD MCP Tools — Database query, groups, styles, and utilities."""
 from typing import Optional, List, Dict, Any
+import importlib.util
 import json
 import os
+from pathlib import Path
+import platform
+import shutil
+import sys
 import threading
 from src.cad_controller import get_controller
 from src.cad_database import get_database
 from src.cad_utils import format_success, resolve_color, com_get as _com_get, com_set as _com_set
+from src.cad_understanding.result import ToolResult, error_result, ok_result
 
 ctrl = get_controller()
 db = get_database()
@@ -115,6 +121,173 @@ def list_workspace_drawings(limit: int = 100) -> str:
     """List drawings known to the current workspace metadata database."""
     rows = db.list_workspace_drawings(limit)
     return json.dumps(rows, indent=2, ensure_ascii=False, default=str)
+
+
+def _preflight_check(name: str,
+                     ok: bool,
+                     required: bool,
+                     detail: str,
+                     remediation: str = "") -> Dict[str, Any]:
+    return {
+        "name": name,
+        "ok": bool(ok),
+        "required": bool(required),
+        "detail": str(detail),
+        "remediation": str(remediation or ""),
+    }
+
+
+def _module_available(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except Exception:
+        return False
+
+
+def _first_existing_path(paths: List[str]) -> str:
+    for path in paths:
+        if Path(path).exists():
+            return path
+    return ""
+
+
+def check_runtime_environment(check_autocad: bool = False,
+                              require_visual_export: bool = False) -> ToolResult:
+    """Run a read-only runtime preflight before CAD work.
+
+    Args:
+        check_autocad: Also try to connect to a live AutoCAD COM instance.
+        require_visual_export: Treat missing raster/SVG render helpers as a
+            blocking issue instead of a warning.
+    """
+    checks: List[Dict[str, Any]] = []
+    checks.append(_preflight_check(
+        "windows_host",
+        platform.system().lower() == "windows",
+        True,
+        f"platform={platform.platform()}",
+        "Run best-cad-mcp on Windows because AutoCAD COM is Windows-only.",
+    ))
+    checks.append(_preflight_check(
+        "python_version",
+        sys.version_info >= (3, 11),
+        True,
+        f"python={sys.version.split()[0]} executable={sys.executable}",
+        "Use Python 3.11 or newer.",
+    ))
+
+    python_shim = "WindowsApps" in sys.executable
+    checks.append(_preflight_check(
+        "python_executable",
+        not python_shim,
+        False,
+        sys.executable,
+        "Point the MCP client at the project .venv/Scripts/python.exe or installed cad-mcp command.",
+    ))
+
+    for module_name in ["mcp", "win32com.client", "pythoncom", "comtypes", "pyautocad"]:
+        checks.append(_preflight_check(
+            f"python_module:{module_name}",
+            _module_available(module_name),
+            True,
+            module_name,
+            "Install with `python -m pip install -r requirements.txt && python -m pip install -e .`.",
+        ))
+
+    workspace = Path(os.environ.get("CAD_MCP_WORKSPACE_ROOT") or os.getcwd())
+    checks.append(_preflight_check(
+        "workspace_root",
+        workspace.exists() and os.access(str(workspace), os.W_OK),
+        True,
+        str(workspace),
+        "Start the MCP server from a writable workspace or set CAD_MCP_WORKSPACE_ROOT.",
+    ))
+
+    autocad_required = bool(check_autocad)
+    if check_autocad:
+        try:
+            autocad_ok = bool(ctrl.connect(visible=True))
+            detail = "connected" if autocad_ok else "AutoCAD COM connection failed"
+        except Exception as exc:
+            autocad_ok = False
+            detail = f"{type(exc).__name__}: {exc}"
+    else:
+        autocad_ok = True
+        detail = "skipped; pass check_autocad=True before live drawing/editing"
+    checks.append(_preflight_check(
+        "autocad_com_live",
+        autocad_ok,
+        autocad_required,
+        detail,
+        "Start and license AutoCAD under this Windows user, then retry.",
+    ))
+
+    python_visual_renderer = ""
+    if _module_available("cairosvg") and _module_available("PIL"):
+        python_visual_renderer = "python:cairosvg+Pillow"
+    elif _module_available("cairosvg"):
+        python_visual_renderer = "python:cairosvg"
+
+    converter = (
+        shutil.which("magick")
+        or shutil.which("inkscape")
+        or shutil.which("rsvg-convert")
+        or python_visual_renderer
+        or _first_existing_path([
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        ])
+    )
+    checks.append(_preflight_check(
+        "visual_review_renderer",
+        bool(converter),
+        bool(require_visual_export),
+        converter or "not found",
+        "Install ImageMagick/Inkscape/librsvg, or make Chrome/Edge available for SVG/PDF visual review.",
+    ))
+
+    blockers = [check for check in checks if check["required"] and not check["ok"]]
+    warnings = [
+        f"{check['name']}: {check['detail']}"
+        for check in checks
+        if not check["required"] and not check["ok"]
+    ]
+    data = {
+        "ready": not blockers,
+        "checks": checks,
+        "policy": {
+            "before_live_cad_work": [
+                "check_runtime_environment(check_autocad=True)",
+                "create_new_drawing or open_drawing",
+                "scan_all_entities before editing existing drawings",
+            ],
+            "before_multi_step_modify": [
+                "validate_cad_plan",
+                "dry_run_cad_plan",
+                "execute_cad_plan only with allow_modify=True",
+            ],
+            "after_modify": [
+                "scan_all_entities",
+                "validate_geometry",
+                "export_view_image_with_mapping when visual evidence matters",
+            ],
+        },
+    }
+    if blockers:
+        return error_result(
+            "Runtime preflight failed; required CAD environment checks are not satisfied.",
+            data={**data, "blockers": blockers},
+            warnings=warnings,
+            next_tools=["check_runtime_environment"],
+        )
+    return ok_result(
+        "Runtime preflight passed.",
+        data=data,
+        warnings=warnings,
+        next_tools=["create_new_drawing", "open_drawing", "recommend_cad_tools"],
+    )
 
 
 def get_entity_topology(handle: str) -> str:
@@ -656,6 +829,13 @@ TOOL_ROUTING_CATALOG = [
         "use": "Remove hidden SQLite-only labels without touching the AutoCAD drawing.",
         "avoid": "Do not erase DWG geometry when only model-private context should be cleared.",
         "keywords": ["clear annotations", "delete marks", "remove labels", "spatial marks"],
+    },
+    {
+        "category": "System",
+        "tool": "check_runtime_environment",
+        "use": "Run a preflight that reports required Python, Windows, AutoCAD COM, workspace, and visual review capabilities.",
+        "avoid": "Do not start live CAD edits when required preflight checks are failing.",
+        "keywords": ["preflight", "doctor", "environment", "runtime", "dependencies", "autocad com", "install check"],
     },
     {
         "category": "System",

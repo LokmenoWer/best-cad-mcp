@@ -1,6 +1,6 @@
 [project]
 name = "best-cad-mcp"
-version = "1.4.2"
+version = "1.4.3"
 description = "Comprehensive Windows AutoCAD MCP server with 260+ specialized tools for drawing, editing, annotation, layouts, plotting, visual verification, metadata indexing, 3D solids, and CAD workflow guidance."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,6 +39,10 @@ Repository = "https://github.com/LokmenoWer/best-cad-mcp"
 Issues = "https://github.com/LokmenoWer/best-cad-mcp/issues"
 
 [project.optional-dependencies]
+visual = [
+    "cairosvg>=2.7.1",
+    "Pillow>=10.0",
+]
 dev = [
     "pyinstaller>=6.0",
     "pytest>=8.0",
@@ -47,6 +51,7 @@ dev = [
 
 [project.scripts]
 cad-mcp = "src.server:main"
+cad-mcp-doctor = "src.doctor:main"
 
 [tool.pytest.ini_options]
 markers = [

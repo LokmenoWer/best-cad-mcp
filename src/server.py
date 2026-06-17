@@ -74,6 +74,9 @@ This AutoCAD MCP exposes 251 specialized CAD tools. Always choose the most
 specific tool for the CAD intent before composing low-level primitives.
 
 Tool-choice rules:
+- Before live CAD work, call check_runtime_environment(check_autocad=True) so
+  missing Python modules, workspace issues, AutoCAD COM availability, and visual
+  review helpers are reported explicitly.
 - For rectangles, polygons, splines, donuts, mlines, arrays, blocks, hatches,
   dimensions, leaders, 3D solids, trims, fillets, chamfers, offsets, and
   transforms, use the named tool. Do not rebuild them from draw_line,
@@ -256,6 +259,12 @@ TOOL_DESCRIPTIONS = {
         "and it returns the named tools to use, anti-patterns to avoid, and a "
         "safe workflow. Use this before composing primitives when unsure."
     ),
+    "check_runtime_environment": (
+        "Read-only preflight for this CAD MCP runtime. Checks Windows/Python, "
+        "required Python modules, workspace writability, optional live AutoCAD "
+        "COM connectivity, and visual review helpers. Call this before live "
+        "CAD work so environment gaps become explicit instead of ad hoc."
+    ),
     "restart_mcp": (
         "Request a soft MCP restart after this tool response is returned. "
         "Use this after updating the server code so the MCP host can launch a "
@@ -435,6 +444,33 @@ db = get_database()
 
 logger.info("启动 CAD MCP 服务器")
 logger.info("配置文件加载成功")
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _run_strict_startup_preflight() -> Optional[Dict[str, Any]]:
+    if not _env_flag("CAD_MCP_STRICT_PREFLIGHT"):
+        return None
+    result = utility_tools.check_runtime_environment(
+        check_autocad=_env_flag("CAD_MCP_PREFLIGHT_CHECK_AUTOCAD", True),
+        require_visual_export=_env_flag("CAD_MCP_PREFLIGHT_REQUIRE_VISUAL", False),
+    )
+    if not result.get("ok"):
+        blockers = result.get("data", {}).get("blockers", [])
+        details = "; ".join(
+            f"{item.get('name')}: {item.get('detail')}" for item in blockers
+        )
+        raise RuntimeError(f"CAD MCP strict preflight failed: {details}")
+    logger.info("CAD MCP strict startup preflight passed")
+    return result
+
+
+_run_strict_startup_preflight()
 
 PointListInput = Union[List[float], List[List[float]]]
 
@@ -3170,6 +3206,25 @@ def get_tool_help(ctx: Context, tool_name: Optional[str] = None) -> str:
 
 
 @mcp.tool(
+    description=TOOL_DESCRIPTIONS["check_runtime_environment"],
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def check_runtime_environment(ctx: Context,
+                              check_autocad: bool = False,
+                              require_visual_export: bool = False) -> Dict[str, Any]:
+    """Run runtime preflight checks before live CAD work.
+
+    Args:
+        check_autocad: Try to connect to a live AutoCAD COM instance.
+        require_visual_export: Fail if no local raster/SVG review renderer is available.
+    """
+    return utility_tools.check_runtime_environment(
+        check_autocad=check_autocad,
+        require_visual_export=require_visual_export,
+    )
+
+
+@mcp.tool(
     description=TOOL_DESCRIPTIONS["restart_mcp"],
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
@@ -4818,6 +4873,8 @@ def cad_workflow_guide() -> str:
     return f"""{TOOL_SELECTION_INSTRUCTIONS.strip()}
 
 ## Recommended workflow
+0. Preflight: call check_runtime_environment(check_autocad=True) before live
+   CAD work; fix required blockers before drawing or editing.
 1. Open or create: create_new_drawing/open_drawing.
 2. Existing drawing: scan_all_entities, then get_entity_statistics or execute_query.
 3. Plan layers before drawing: create_layer and draw with color="bylayer".

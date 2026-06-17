@@ -236,6 +236,7 @@ class TestModuleImports(unittest.TestCase):
             'delete_selection_set', 'erase_selection_entities',
             'clear_selection_set',
             'recommend_cad_tools', 'get_tool_help',
+            'check_runtime_environment',
             'restart_mcp',
             'get_entity_topology', 'get_topology_summary',
             'add_spatial_annotation', 'list_spatial_annotations',
@@ -671,6 +672,18 @@ class TestMCPToolSchemas(unittest.TestCase):
 
         schedule.assert_called_once_with(0.1, 0)
         self.assertIn("MCP restart requested", result)
+
+    def test_check_runtime_environment_registered_and_structured(self):
+        schema = self._get_input_schema("check_runtime_environment")
+        self.assertIn("check_autocad", schema["properties"])
+        self.assertIn("require_visual_export", schema["properties"])
+
+        with patch.object(utility_tools.ctrl, "connect") as connect:
+            result = utility_tools.check_runtime_environment(check_autocad=False)
+
+        connect.assert_not_called()
+        self.assertIn("checks", result["data"])
+        self.assertIn("policy", result["data"])
 
     def test_get_dimension_styles_formats_normal_style_list(self):
         with patch.object(dimension_tools, "ctrl") as mock_ctrl:
@@ -1413,7 +1426,7 @@ class TestToolWiring(unittest.TestCase):
             '_default_tool_description', '_wrap_tool_errors',
             '_safe_mcp_tool', '_registered_tools', '_tool_category',
             '_first_description_line', '_build_registered_tool_help',
-            '_load_prompt_file',
+            '_load_prompt_file', '_env_flag',
             'cad_tool_selection_resource',
             'cad_registered_tools_resource', 'cad_workflow_guide',
             'cad_layer_planning', 'understand_existing_drawing',

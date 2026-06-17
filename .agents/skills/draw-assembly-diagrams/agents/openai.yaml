@@ -1,7 +1,7 @@
 interface:
   display_name: "Assembly CAD Workflows"
   short_description: "Understand, validate, ground, repair, and publish CAD"
-  default_prompt: "Use $draw-assembly-diagrams to inspect CAD-IR, semantics, dimension binding, constraints, VLM grounding, modular assembly standards, CADPlan dry-runs/execution, and safe exports with best-cad-mcp."
+  default_prompt: "Use $draw-assembly-diagrams to run best-cad-mcp preflight, inspect CAD-IR, semantics, dimension binding, constraints, VLM grounding, modular assembly standards, CADPlan dry-runs/execution, and safe exports."
 
 dependencies:
   tools:

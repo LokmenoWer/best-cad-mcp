@@ -8,9 +8,9 @@ description: >-
   pixel/world mapping, model-private spatial annotations, prompt resources,
   safe CADPlan dry-runs/execution, BOMs, balloons/item numbers, sectioned or
   exploded assemblies, dimensions, blocks, hatches, layouts, and precise
-  handle-based edits. Requires best-cad-mcp tools, scanned SQLite metadata,
-  explicit dry-run before planned modification, modular assembly-standard
-  references, and no standalone AutoCAD COM scripts.
+  handle-based edits. Requires best-cad-mcp runtime preflight, scanned SQLite
+  metadata, explicit dry-run before planned modification, modular
+  assembly-standard references, and no standalone AutoCAD COM scripts.
 ---
 
 # Draw Assembly Diagrams
@@ -36,6 +36,10 @@ Read only the references needed for the task:
 
 ## Hard Boundaries
 
+- Before live CAD work, call
+  `check_runtime_environment(check_autocad=True)`. Treat `ok=false` as a
+  blocker. For strict deployments, expect `CAD_MCP_STRICT_PREFLIGHT=1` to make
+  the server refuse startup when required checks fail.
 - Use the active best-cad-mcp AutoCAD connection. Do not launch another AutoCAD
   process.
 - Do not write standalone Python, VBA, LISP, or pywin32 COM scripts to modify
@@ -118,6 +122,9 @@ one entity changes.
 
 Required sequence:
 
+0. Confirm runtime readiness with `check_runtime_environment`; run
+   `cad-mcp-doctor --check-autocad` outside MCP when diagnosing installation or
+   COM availability.
 1. Build a plan with high-level operations, explicit args, variables when
    needed, dependencies, and postconditions for critical handles.
 2. `validate_cad_plan(plan)`.
@@ -179,6 +186,9 @@ Plan rules:
 - Unknown operations must fail validation.
 - `send_command`, SQL mutation, purge, and audit are disallowed by default.
 - Dry-run is static and must not call AutoCAD.
+- Execution is fail-fast: any bound tool exception, `ok=false`,
+  `success=false`, or recognizable error result must stop the plan and trigger
+  rollback when enabled. Do not continue from a partial plan.
 - Execution must route through safe MCP tool implementations and transactional
   undo grouping where available.
 - `save_as` captures created handles for later `$variable` references.
@@ -220,6 +230,7 @@ deliverable needs visible assumptions.
 
 Before reporting completion:
 
+- Runtime preflight passed, or any preflight blocker is explicitly reported.
 - Document info, active space, and units inspected.
 - Existing drawing scanned and summarized when applicable.
 - CAD-IR built without leaking scoped internal keys.
@@ -240,6 +251,9 @@ Before reporting completion:
 
 - If AutoCAD is busy or COM rejects calls, stop the batch, wait for idle, and
   retry only the failed MCP tool once.
+- If tools are missing or visual export/rendering is unavailable, run
+  `check_runtime_environment` or `cad-mcp-doctor --check-autocad` and report the
+  blocker instead of improvising external tools.
 - If a tool prompts for input, stop and supply complete arguments or fix the
   wrapper.
 - If VLM grounding is ambiguous, keep multiple candidate handles and ask for

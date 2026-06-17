@@ -74,6 +74,12 @@ python -m pip install -r requirements.txt
 python -m pip install -e .
 ```
 
+Optional Python visual-review helpers can be installed with:
+
+```powershell
+python -m pip install -e ".[visual]"
+```
+
 Run the server from source:
 
 ```powershell
@@ -88,6 +94,45 @@ cad-mcp
 
 The server is an MCP stdio process. In normal use, your MCP client starts it
 automatically from its configuration.
+
+## Runtime Preflight
+
+After installation, run the doctor command:
+
+```powershell
+cad-mcp-doctor --check-autocad
+```
+
+The same check is also available as the MCP tool `check_runtime_environment`
+before live CAD work:
+
+```text
+check_runtime_environment(check_autocad=true, require_visual_export=false)
+```
+
+The preflight reports required Windows/Python/package/workspace checks, optional
+visual-review renderer availability, and live AutoCAD COM connectivity when
+`check_autocad=true`. Agents should treat `ok=false` as a blocker and fix the
+reported environment issue before drawing or editing.
+
+For multi-step changes, CADPlan execution is fail-fast: if any bound tool raises,
+returns `ok=false`/`success=false`, or returns a recognizable error message,
+`execute_cad_plan` stops and attempts rollback instead of continuing with a
+partial drawing.
+
+Strict startup mode is available for deployments that should refuse to start
+when required checks fail:
+
+```powershell
+$env:CAD_MCP_STRICT_PREFLIGHT = "1"
+$env:CAD_MCP_PREFLIGHT_CHECK_AUTOCAD = "1"
+$env:CAD_MCP_PREFLIGHT_REQUIRE_VISUAL = "0"
+cad-mcp
+```
+
+`CAD_MCP_PREFLIGHT_REQUIRE_VISUAL=1` requires either a supported system renderer
+such as ImageMagick/Inkscape/librsvg/Chrome/Edge or the optional Python visual
+dependencies from `.[visual]`.
 
 ## MCP Client Configuration
 
