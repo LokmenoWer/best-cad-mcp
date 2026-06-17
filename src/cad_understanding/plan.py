@@ -40,6 +40,16 @@ SAFE_PLAN_OPS = {
 }
 
 DANGEROUS_OPS = {"send_command", "execute_sql_query", "execute_query", "purge_drawing", "audit_drawing"}
+PLAN_OP_ARG_SCHEMAS = {
+    "draw_line": {
+        "required": {"start_x", "start_y", "end_x", "end_y"},
+        "optional": {"start_z", "end_z", "layer", "color"},
+        "aliases": {
+            "start": "Use start_x/start_y/start_z fields instead of a start point array.",
+            "end": "Use end_x/end_y/end_z fields instead of an end point array.",
+        },
+    },
+}
 VARIABLE_RE = re.compile(r"^\$[A-Za-z_][A-Za-z0-9_]*$")
 HANDLE_RE = re.compile(r"(?:handle(?:s)?\s*[:=]?\s*)([A-Za-z0-9_.:-]+)", re.IGNORECASE)
 FAILURE_TEXT_RE = re.compile(
@@ -182,6 +192,37 @@ def _validate_variables(normalized: Dict[str, Any]) -> List[Dict[str, Any]]:
     return errors
 
 
+def _validate_step_args(op: str, args: Any, index: int) -> List[Dict[str, Any]]:
+    if not isinstance(args, dict):
+        return []
+    schema = PLAN_OP_ARG_SCHEMAS.get(op)
+    if not schema:
+        return []
+
+    required = set(schema.get("required", set()))
+    optional = set(schema.get("optional", set()))
+    aliases = dict(schema.get("aliases", {}))
+    allowed = required | optional
+    provided = set(args.keys())
+    errors: List[Dict[str, Any]] = []
+
+    for name in sorted(required - provided):
+        errors.append({
+            "path": f"steps[{index}].args.{name}",
+            "message": f"{op} requires argument {name}.",
+        })
+    for name in sorted(provided - allowed):
+        hint = aliases.get(name)
+        message = f"{op} does not support argument {name}."
+        if hint:
+            message = f"{message} {hint}"
+        errors.append({
+            "path": f"steps[{index}].args.{name}",
+            "message": message,
+        })
+    return errors
+
+
 def validate_cad_plan(plan: Dict[str, Any]) -> ToolResult:
     normalized = _normalize_plan(plan or {})
     errors: List[Dict[str, Any]] = []
@@ -205,6 +246,7 @@ def validate_cad_plan(plan: Dict[str, Any]) -> ToolResult:
             errors.append({"path": f"steps[{index}].op", "message": f"Unknown or unsupported operation: {op}."})
         if not isinstance(step.get("args", {}), dict):
             errors.append({"path": f"steps[{index}].args", "message": "Step args must be a dict."})
+        errors.extend(_validate_step_args(op, step.get("args", {}) or {}, index))
         for dep in step.get("depends_on", []) or []:
             if str(dep) not in declared_step_ids:
                 errors.append({"path": f"steps[{index}].depends_on", "message": f"Unknown dependency {dep}."})
