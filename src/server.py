@@ -44,9 +44,12 @@ Or via Claude Code project config:
 
 import sys
 import os
+import json
 import logging
+from logging.handlers import RotatingFileHandler
 import functools
 import inspect
+import uuid
 
 # Ensure the project root is on the path for src imports
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -58,15 +61,68 @@ from mcp.types import ToolAnnotations
 from typing import Optional, List, Tuple, Dict, Any, Union
 from typing_extensions import TypedDict
 
-# 日志文件存储在 Agent 的工作目录（MCP 客户端的 cwd）
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(os.path.join(os.getcwd(), "cad_mcp.log"), encoding="utf-8"),
+def _env_int(name: str, default: int,
+             minimum: int = 1, maximum: int = 100_000_000) -> int:
+    try:
+        value = int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
+
+
+class _CADContextLogFilter(logging.Filter):
+    @staticmethod
+    def _context_value(ctx, attr: str, env_name: str) -> str:
+        value = getattr(ctx, attr, None)
+        if not isinstance(value, str) or not value:
+            value = os.environ.get(env_name, "-")
+        return value
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        ctx = None
+        try:
+            database = globals().get("db")
+            ctx = database.get_context() if database is not None else None
+        except Exception:
+            ctx = None
+        record.cad_workspace_id = self._context_value(ctx, "workspace_id", "CAD_MCP_WORKSPACE_ID")
+        record.cad_drawing_id = self._context_value(ctx, "drawing_id", "CAD_MCP_DRAWING_ID")
+        record.cad_thread_id = self._context_value(ctx, "thread_id", "CAD_MCP_THREAD_ID")
+        return True
+
+
+def _configure_logging() -> None:
+    log_path = os.environ.get("CAD_MCP_LOG_PATH") or os.path.join(os.getcwd(), "cad_mcp.log")
+    max_bytes = _env_int("CAD_MCP_LOG_MAX_BYTES", 5_000_000, 100_000)
+    backup_count = _env_int("CAD_MCP_LOG_BACKUP_COUNT", 5, 1, 100)
+    level_name = os.environ.get("CAD_MCP_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - "
+        "ws=%(cad_workspace_id)s drawing=%(cad_drawing_id)s "
+        "thread=%(cad_thread_id)s - %(message)s"
+    )
+    context_filter = _CADContextLogFilter()
+    handlers = [
+        RotatingFileHandler(
+            log_path,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        ),
         logging.StreamHandler(),
     ]
-)
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        handler.addFilter(context_filter)
+    logging.basicConfig(level=level, handlers=handlers, force=True)
+    logging.getLogger("mcp.server.lowlevel.server").setLevel(
+        getattr(logging, os.environ.get("CAD_MCP_MCP_LOG_LEVEL", "WARNING").upper(), logging.WARNING)
+    )
+
+
+# 日志文件存储在 Agent 的工作目录（MCP 客户端的 cwd），并按大小轮转。
+_configure_logging()
 logger = logging.getLogger("mcp_cad_server")
 
 TOOL_SELECTION_INSTRUCTIONS = """
@@ -329,8 +385,9 @@ def _registration_category(name: str) -> str:
 def _default_tool_description(name: str) -> str:
     specific = {
         "execute_query": (
-            "Run a read-only SQL query over scanned CAD metadata. Use after "
-            "scan_all_entities to filter, count, and analyze drawing entities."
+            "Run a scoped, bounded read-only SQL query over scanned CAD "
+            "metadata. Use after scan_all_entities to filter, count, and "
+            "analyze drawing entities."
         ),
         "execute_sql_query": (
             "Alias for execute_query: run a read-only SQL query over scanned "
@@ -357,6 +414,43 @@ def _default_tool_description(name: str) -> str:
     )
 
 
+def _safe_log_value(value: Any) -> Any:
+    if isinstance(value, Context):
+        return "<mcp.Context>"
+    if isinstance(value, str):
+        return value if len(value) <= 160 else value[:157] + "..."
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (list, tuple)):
+        preview = [_safe_log_value(item) for item in list(value)[:5]]
+        if len(value) > 5:
+            preview.append(f"...({len(value)} items)")
+        return preview
+    if isinstance(value, dict):
+        items = list(value.items())[:10]
+        result = {str(k): _safe_log_value(v) for k, v in items}
+        if len(value) > 10:
+            result["..."] = f"{len(value)} keys"
+        return result
+    return repr(value)[:160]
+
+
+def _tool_call_log_context(fn, args, kwargs) -> str:
+    try:
+        bound = inspect.signature(fn).bind_partial(*args, **kwargs)
+        data = {
+            name: _safe_log_value(value)
+            for name, value in bound.arguments.items()
+            if name != "ctx"
+        }
+    except Exception:
+        data = {
+            "args": _safe_log_value(args),
+            "kwargs": _safe_log_value(kwargs),
+        }
+    return json.dumps(data, ensure_ascii=False, default=str)
+
+
 def _wrap_tool_errors(fn):
     if inspect.iscoroutinefunction(fn):
         @functools.wraps(fn)
@@ -364,8 +458,16 @@ def _wrap_tool_errors(fn):
             try:
                 return await fn(*args, **kwargs)
             except Exception as exc:
-                logger.exception("MCP tool %s failed", fn.__name__)
-                return f"ERROR: {fn.__name__} failed: {exc}"
+                call_id = uuid.uuid4().hex[:12]
+                logger.exception(
+                    "MCP tool failed call_id=%s tool=%s params=%s error_type=%s error=%s",
+                    call_id,
+                    fn.__name__,
+                    _tool_call_log_context(fn, args, kwargs),
+                    type(exc).__name__,
+                    exc,
+                )
+                return f"ERROR: {fn.__name__} failed: {exc} (call_id={call_id})"
 
         async_wrapper.__signature__ = inspect.signature(fn)
         return async_wrapper
@@ -375,8 +477,16 @@ def _wrap_tool_errors(fn):
         try:
             return fn(*args, **kwargs)
         except Exception as exc:
-            logger.exception("MCP tool %s failed", fn.__name__)
-            return f"ERROR: {fn.__name__} failed: {exc}"
+            call_id = uuid.uuid4().hex[:12]
+            logger.exception(
+                "MCP tool failed call_id=%s tool=%s params=%s error_type=%s error=%s",
+                call_id,
+                fn.__name__,
+                _tool_call_log_context(fn, args, kwargs),
+                type(exc).__name__,
+                exc,
+            )
+            return f"ERROR: {fn.__name__} failed: {exc} (call_id={call_id})"
 
     wrapper.__signature__ = inspect.signature(fn)
     return wrapper
@@ -2344,6 +2454,7 @@ def create_layout(ctx: Context, name: str) -> str:
 def scan_all_entities(ctx: Context, clear_db: bool = True,
                       max_entities: int = 5000,
                       clear_annotations: bool = False,
+                      clear_understanding: bool = True,
                       detail_level: str = "minimal",
                       include_bounding_boxes: bool = True,
                       derive_topology: bool = True,
@@ -2360,6 +2471,7 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         clear_db:     是否先清空数据库（默认True=重新扫描, False=追加）
         max_entities: 最大扫描实体数（默认5000，超大图纸请谨慎）
         clear_annotations: 是否同时清空模型私有空间标注（默认False=保留）
+        clear_understanding: 是否清空当前线程派生理解缓存（默认True=避免旧缓存混入新扫描）
         detail_level: minimal/standard/full。大图默认 minimal 更快。
         include_bounding_boxes: 是否读取实体包围盒，便于后续空间查询。
         derive_topology: 是否生成拓扑表。默认生成轻量摘要，便于 agent 识别。
@@ -2369,6 +2481,7 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         clear_db=clear_db,
         max_entities=max_entities,
         clear_annotations=clear_annotations,
+        clear_understanding=clear_understanding,
         detail_level=detail_level,
         include_bounding_boxes=include_bounding_boxes,
         derive_topology=derive_topology,
@@ -2720,7 +2833,10 @@ def get_table_schema(ctx: Context, table_name: str) -> str:
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
-def execute_query(ctx: Context, query: str) -> str:
+def execute_query(ctx: Context, query: str,
+                  max_rows: int = 1000,
+                  timeout_ms: int = 5000,
+                  max_result_bytes: int = 1_000_000) -> str:
     """在 CAD 元数据数据库上执行 SQL 查询。
 
     数据库包含扫描后的实体、图层、图块、文本模式等信息。
@@ -2744,20 +2860,69 @@ def execute_query(ctx: Context, query: str) -> str:
 
     Args:
         query: 只读 SQL 查询字符串（SELECT/WITH/PRAGMA/EXPLAIN）
+        max_rows: 最大返回行数（默认1000）
+        timeout_ms: 查询超时时间（默认5000ms）
+        max_result_bytes: 返回 JSON 的近似字节上限（默认1MB）
     """
-    return utility_tools.execute_query(query)
+    return utility_tools.execute_query(
+        query,
+        max_rows=max_rows,
+        timeout_ms=timeout_ms,
+        max_result_bytes=max_result_bytes,
+    )
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
-def execute_sql_query(ctx: Context, query: str) -> str:
+def execute_sql_query(ctx: Context, query: str,
+                      max_rows: int = 1000,
+                      timeout_ms: int = 5000,
+                      max_result_bytes: int = 1_000_000) -> str:
     """执行 SQL 查询（execute_query 的别名，兼容不同的命名习惯）。"""
-    return utility_tools.execute_sql_query(query)
+    return utility_tools.execute_sql_query(
+        query,
+        max_rows=max_rows,
+        timeout_ms=timeout_ms,
+        max_result_bytes=max_result_bytes,
+    )
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
 def get_workspace_context(ctx: Context) -> str:
     """Return the active workspace/conversation/thread/drawing database scope."""
     return utility_tools.get_workspace_context()
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
+def get_database_maintenance_status(ctx: Context) -> str:
+    """Return SQLite freelist, cache-table, and legacy database status."""
+    return utility_tools.get_database_maintenance_status()
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
+def maintain_database(ctx: Context,
+                      max_view_snapshots_per_scope: int = 20,
+                      max_validation_reports_per_scope: int = 20,
+                      incremental_vacuum_pages: int = 1000,
+                      vacuum: bool = False) -> str:
+    """Prune derived cache history and reclaim SQLite free pages."""
+    return utility_tools.maintain_database(
+        max_view_snapshots_per_scope=max_view_snapshots_per_scope,
+        max_validation_reports_per_scope=max_validation_reports_per_scope,
+        incremental_vacuum_pages=incremental_vacuum_pages,
+        vacuum=vacuum,
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
+def clear_understanding_cache(ctx: Context) -> str:
+    """Clear semantic/constraint/validation/view caches for the active thread."""
+    return utility_tools.clear_understanding_cache()
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
+def get_legacy_database_status(ctx: Context) -> str:
+    """Report whether retired root-level autocad_data.db is present."""
+    return utility_tools.get_legacy_database_status()
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))

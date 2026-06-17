@@ -243,6 +243,8 @@ class TestModuleImports(unittest.TestCase):
             'clear_spatial_annotations',
             'get_workspace_context', 'set_workspace_context',
             'activate_workspace_drawing', 'list_workspace_drawings',
+            'get_database_maintenance_status', 'maintain_database',
+            'clear_understanding_cache', 'get_legacy_database_status',
         ]
         for name in expected:
             with self.subTest(name=name):
@@ -654,6 +656,7 @@ class TestMCPToolSchemas(unittest.TestCase):
         self.assertIn("include_bounding_boxes", scan_schema["properties"])
         self.assertIn("derive_topology", scan_schema["properties"])
         self.assertIn("topology_detail", scan_schema["properties"])
+        self.assertIn("clear_understanding", scan_schema["properties"])
 
         recommendation = utility_tools.recommend_cad_tools(
             "visually verify drawing and mark the base plate"
@@ -1212,6 +1215,130 @@ class TestDatabase(unittest.TestCase):
         ent = self.db.get_entity("H1")
         self.assertEqual(ent["color"], 1)
 
+    def test_execute_read_only_rejects_main_table_scope_bypass(self):
+        self.db.configure_context(
+            workspace_id="scope-a",
+            conversation_id="conv",
+            thread_id="thread",
+            drawing_name="a.dwg",
+            drawing_path=r"C:\drawings\a.dwg",
+        )
+        self.db.upsert_entity("A1", "A", "AcDbLine")
+        self.db.configure_context(
+            workspace_id="scope-b",
+            conversation_id="conv",
+            thread_id="thread",
+            drawing_name="b.dwg",
+            drawing_path=r"C:\drawings\b.dwg",
+        )
+        self.db.upsert_entity("B1", "B", "AcDbLine")
+
+        scoped = self.db.execute(
+            "SELECT handle, name FROM cad_entities ORDER BY handle",
+            read_only=True,
+        )
+        self.assertEqual(scoped["rows"], [{"handle": "B1", "name": "B"}])
+        with self.assertRaises(Exception):
+            self.db.execute(
+                "SELECT native_handle, name, workspace_id FROM main.cad_entities",
+                read_only=True,
+            )
+
+    def test_execute_read_only_limits_results_and_records_history(self):
+        self.db.clear_entities()
+        for idx in range(5):
+            self.db.upsert_entity(f"H{idx}", f"Line{idx}", "AcDbLine")
+
+        result = self.db.execute(
+            "SELECT handle FROM cad_entities ORDER BY handle",
+            read_only=True,
+            max_rows=2,
+        )
+        self.assertEqual(result["count"], 2)
+        self.assertTrue(result["truncated"])
+        self.assertEqual([row["handle"] for row in result["rows"]], ["H0", "H1"])
+
+        history = self.db.execute(
+            "SELECT query, result_count, truncated FROM query_history ORDER BY id",
+            read_only=True,
+        )["rows"]
+        matching = [
+            row for row in history
+            if row["query"] == "SELECT handle FROM cad_entities ORDER BY handle"
+        ]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["result_count"], 2)
+        self.assertEqual(matching[0]["truncated"], 1)
+
+    def test_clear_entities_can_clear_understanding_cache(self):
+        from src.cad_understanding.common import ensure_understanding_schema
+
+        ensure_understanding_schema(self.db)
+        ctx = self.db.get_context()
+        with self.db._conn() as conn:
+            conn.execute('''
+                INSERT INTO cad_semantic_objects
+                    (object_id, object_type, label, source, confidence,
+                     workspace_id, drawing_id, conversation_id, thread_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                "obj-test", "part", "cached", "test", 1.0,
+                ctx.workspace_id, ctx.drawing_id,
+                ctx.conversation_id, ctx.thread_id,
+            ))
+
+        self.db.clear_entities(clear_understanding=True)
+        with self.db._conn() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM cad_semantic_objects"
+            ).fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_maintenance_prunes_cached_reports_and_snapshots(self):
+        from src.cad_understanding.common import ensure_understanding_schema
+
+        ensure_understanding_schema(self.db)
+        ctx = self.db.get_context()
+        with self.db._conn() as conn:
+            for idx in range(3):
+                conn.execute('''
+                    INSERT INTO cad_view_snapshots
+                        (snapshot_id, snapshot_data, created_at,
+                         workspace_id, drawing_id, conversation_id, thread_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    f"shot-{idx}", "{}", f"2026-01-0{idx + 1}T00:00:00",
+                    ctx.workspace_id, ctx.drawing_id,
+                    ctx.conversation_id, ctx.thread_id,
+                ))
+                conn.execute('''
+                    INSERT INTO cad_validation_reports
+                        (report_id, generated_at, issues,
+                         workspace_id, drawing_id, conversation_id, thread_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    f"report-{idx}", f"2026-01-0{idx + 1}T00:00:00", "[]",
+                    ctx.workspace_id, ctx.drawing_id,
+                    ctx.conversation_id, ctx.thread_id,
+                ))
+
+        result = self.db.maintain(
+            max_view_snapshots_per_scope=1,
+            max_validation_reports_per_scope=1,
+            incremental_vacuum_pages=1,
+        )
+        self.assertEqual(result["deleted"]["cad_view_snapshots"], 2)
+        self.assertEqual(result["deleted"]["cad_validation_reports"], 2)
+        with self.db._conn() as conn:
+            snapshots = conn.execute(
+                "SELECT snapshot_id FROM cad_view_snapshots ORDER BY snapshot_id"
+            ).fetchall()
+            reports = conn.execute(
+                "SELECT report_id FROM cad_validation_reports ORDER BY report_id"
+            ).fetchall()
+        self.assertEqual([row[0] for row in snapshots], ["shot-2"])
+        self.assertEqual([row[0] for row in reports], ["report-2"])
+
     def test_table_schema(self):
         schema = self.db.get_table_schema("cad_entities")
         self.assertGreater(len(schema), 5)
@@ -1427,6 +1554,8 @@ class TestToolWiring(unittest.TestCase):
             '_safe_mcp_tool', '_registered_tools', '_tool_category',
             '_first_description_line', '_build_registered_tool_help',
             '_load_prompt_file', '_env_flag',
+            '_env_int', '_configure_logging', '_safe_log_value',
+            '_tool_call_log_context',
             'cad_tool_selection_resource',
             'cad_registered_tools_resource', 'cad_workflow_guide',
             'cad_layer_planning', 'understand_existing_drawing',

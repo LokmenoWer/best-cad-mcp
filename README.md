@@ -284,12 +284,23 @@ The database scopes data by workspace, drawing, conversation, and thread. This
 keeps identical handles in different drawings from colliding and lets parallel
 agent sessions keep private annotations and query history separate.
 
+SQL exposed through `execute_query` is read-only, scoped, and bounded. Use
+public table names such as `cad_entities`; direct `main.<table>` access is
+blocked so one workspace cannot bypass the scoped views. Result sets default to
+1,000 rows, 5 seconds, and about 1 MB of JSON. Tune with the tool parameters or
+`CAD_MCP_SQL_MAX_ROWS`, `CAD_MCP_SQL_TIMEOUT_MS`, and
+`CAD_MCP_SQL_MAX_RESULT_BYTES`.
+
 Useful workspace tools:
 
 - `get_workspace_context`
 - `set_workspace_context`
 - `activate_workspace_drawing`
 - `list_workspace_drawings`
+- `get_database_maintenance_status`
+- `maintain_database`
+- `clear_understanding_cache`
+- `get_legacy_database_status`
 
 ### CAD Understanding Layer
 
@@ -309,6 +320,11 @@ Understanding tools return structured `ToolResult` dictionaries:
 Read-only understanding tools do not modify the DWG. Semantic objects,
 constraints, validation reports, view snapshots, and VLM mappings are stored in
 the workspace database.
+
+`scan_all_entities(clear_db=True)` clears stale semantic objects, constraints,
+validation reports, and view snapshots for the active thread by default. Pass
+`clear_understanding=False` only when you intentionally want to keep cached
+understanding artifacts across a rescan.
 
 Key tools include:
 
@@ -417,6 +433,16 @@ The server may create these files in the active workspace:
 - `cad_visual_exports/`
 
 They are runtime artifacts and should not be committed.
+
+The active database is `.cad_mcp/workspace.db`. If a retired root-level
+`autocad_data.db` exists from older versions, `check_runtime_environment` and
+`get_legacy_database_status` report it as a warning. Archive or delete it after
+confirming no old MCP process still uses it.
+
+Logs are UTF-8 and rotate by size. Configure with `CAD_MCP_LOG_PATH`,
+`CAD_MCP_LOG_MAX_BYTES`, `CAD_MCP_LOG_BACKUP_COUNT`, `CAD_MCP_LOG_LEVEL`, and
+`CAD_MCP_MCP_LOG_LEVEL`. Each log line includes workspace, drawing, and thread
+IDs for correlation.
 
 ## Repository Layout
 

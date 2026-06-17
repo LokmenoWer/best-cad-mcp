@@ -22,6 +22,7 @@ import logging
 import uuid
 import hashlib
 import contextvars
+import time
 from dataclasses import dataclass, asdict
 from typing import Optional, List, Dict, Any, Tuple, Union
 from pathlib import Path
@@ -33,6 +34,43 @@ logger = logging.getLogger(__name__)
 # 这样每个 Agent 实例的数据库互相隔离
 # 使用函数而非模块级常量，确保每次获取时都是当前 cwd
 _KEY_SEPARATOR = "\x1f"
+_DEFAULT_SQL_MAX_ROWS = 1000
+_DEFAULT_SQL_TIMEOUT_MS = 5000
+_DEFAULT_SQL_MAX_RESULT_BYTES = 1_000_000
+_MAX_SQL_MAX_ROWS = 50_000
+_MAX_SQL_TIMEOUT_MS = 60_000
+_MAX_SQL_MAX_RESULT_BYTES = 20_000_000
+
+_DRAWING_SCOPED_TABLES = {
+    "cad_entities",
+    "cad_geometry_primitives",
+    "cad_geometry_relations",
+    "cad_topology_summary",
+    "cad_layers",
+    "cad_blocks",
+    "cad_drawings",
+}
+_THREAD_SCOPED_TABLES = {
+    "cad_spatial_annotations",
+    "text_patterns",
+    "query_history",
+    "drawing_snapshots",
+    "cad_semantic_objects",
+    "cad_semantic_relations",
+    "cad_constraints",
+    "cad_validation_reports",
+    "cad_view_snapshots",
+}
+_WORKSPACE_SCOPED_TABLES = {
+    "cad_workspaces",
+    "cad_conversations",
+    "cad_threads",
+}
+_READ_ONLY_SCOPED_TABLES = (
+    _DRAWING_SCOPED_TABLES | _THREAD_SCOPED_TABLES | _WORKSPACE_SCOPED_TABLES
+)
+_READ_ONLY_SCOPED_VIEWS = set(_READ_ONLY_SCOPED_TABLES)
+_READ_ONLY_DENIED_MAIN_TABLES = _READ_ONLY_SCOPED_TABLES | {"sqlite_sequence"}
 
 
 @dataclass(frozen=True)
@@ -59,6 +97,18 @@ def _env_first(*names: str, default: str = "") -> str:
         if value:
             return value
     return default
+
+
+def _env_int(name: str, default: int,
+             minimum: int = 1, maximum: Optional[int] = None) -> int:
+    try:
+        value = int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        value = default
+    value = max(minimum, value)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
 
 
 def _get_default_workspace_root() -> str:
@@ -113,6 +163,7 @@ class CADDatabase:
     """Manages the SQLite database for CAD metadata persistence."""
 
     def __init__(self, db_path: Optional[str] = None):
+        self._using_default_db_path = db_path is None
         self.db_path = db_path or _get_default_db_path()
         self._active_context = _default_context()
         self._context_var: contextvars.ContextVar[CADWorkspaceContext] = (
@@ -122,6 +173,7 @@ class CADDatabase:
         with self._conn() as conn:
             self._migrate_workspace_schema(conn)
             self._ensure_context_rows(conn)
+        self._warn_if_legacy_database_present()
 
     @contextmanager
     def _conn(self):
@@ -131,6 +183,7 @@ class CADDatabase:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         self._register_context(conn)
         try:
             yield conn
@@ -158,6 +211,34 @@ class CADDatabase:
         data = asdict(self.get_context())
         data["db_path"] = self.db_path
         return data
+
+    def get_legacy_database_status(self) -> Dict[str, Any]:
+        legacy_path = Path(self.get_context().workspace_root) / "autocad_data.db"
+        active_path = Path(self.db_path).resolve()
+        return {
+            "legacy_path": str(legacy_path),
+            "active_db_path": str(active_path),
+            "exists": legacy_path.exists(),
+            "is_active_db": legacy_path.exists() and legacy_path.resolve() == active_path,
+            "size_bytes": legacy_path.stat().st_size if legacy_path.exists() else 0,
+            "recommendation": (
+                "Archive or delete autocad_data.db after confirming no old MCP "
+                "process still uses it; the active workspace database is "
+                ".cad_mcp/workspace.db."
+                if legacy_path.exists() and legacy_path.resolve() != active_path
+                else ""
+            ),
+        }
+
+    def _warn_if_legacy_database_present(self) -> None:
+        status = self.get_legacy_database_status()
+        if self._using_default_db_path and status["exists"] and not status["is_active_db"]:
+            logger.warning(
+                "Legacy CAD database found at %s; active database is %s. "
+                "Archive or delete the legacy file after migration checks.",
+                status["legacy_path"],
+                status["active_db_path"],
+            )
 
     def configure_context(self,
                           workspace_root: Optional[str] = None,
@@ -248,6 +329,10 @@ class CADDatabase:
             self._ensure_column(conn, table, "conversation_id", "TEXT DEFAULT ''")
             self._ensure_column(conn, table, "thread_id", "TEXT DEFAULT ''")
 
+        self._ensure_column(conn, "query_history", "duration_ms", "REAL")
+        self._ensure_column(conn, "query_history", "truncated", "INTEGER DEFAULT 0")
+        self._ensure_column(conn, "query_history", "error", "TEXT DEFAULT ''")
+
         self._ensure_column(conn, "cad_spatial_annotations",
                             "native_annotation_id", "TEXT DEFAULT ''")
         self._ensure_column(conn, "cad_spatial_annotations",
@@ -268,6 +353,13 @@ class CADDatabase:
         conn.execute('CREATE INDEX IF NOT EXISTS idx_snapshots_scope ON drawing_snapshots(workspace_id, drawing_id, conversation_id, thread_id)')
 
         self._adopt_legacy_rows(conn, ctx)
+
+    def _table_exists(self, conn: sqlite3.Connection, table: str) -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
+            (table,),
+        ).fetchone()
+        return row is not None
 
     def _adopt_legacy_rows(self, conn: sqlite3.Connection,
                            ctx: CADWorkspaceContext) -> None:
@@ -1323,7 +1415,8 @@ class CADDatabase:
             conn.execute("DELETE FROM cad_entities WHERE handle = ?", (scoped_handle,))
         return True
 
-    def clear_entities(self, clear_annotations: bool = False):
+    def clear_entities(self, clear_annotations: bool = False,
+                       clear_understanding: bool = False):
         scope_sql, scope_params = self._entity_scope_clause()
         with self._conn() as conn:
             handle_subquery = f"SELECT handle FROM cad_entities WHERE {scope_sql}"
@@ -1340,6 +1433,154 @@ class CADDatabase:
             if clear_annotations:
                 thread_sql, thread_params = self._thread_scope_clause()
                 conn.execute(f"DELETE FROM cad_spatial_annotations WHERE {thread_sql}", thread_params)
+            if clear_understanding:
+                self._clear_understanding_cache_conn(conn)
+
+    def _clear_understanding_cache_conn(self, conn: sqlite3.Connection) -> Dict[str, int]:
+        thread_sql, thread_params = self._thread_scope_clause()
+        deleted: Dict[str, int] = {}
+        for table in (
+            "cad_semantic_relations",
+            "cad_semantic_objects",
+            "cad_constraints",
+            "cad_validation_reports",
+            "cad_view_snapshots",
+        ):
+            if not self._table_exists(conn, table):
+                deleted[table] = 0
+                continue
+            cursor = conn.execute(f"DELETE FROM {table} WHERE {thread_sql}", thread_params)
+            deleted[table] = max(cursor.rowcount, 0)
+        return deleted
+
+    def clear_understanding_cache(self) -> Dict[str, int]:
+        with self._conn() as conn:
+            return self._clear_understanding_cache_conn(conn)
+
+    @staticmethod
+    def _scope_group_columns() -> str:
+        return "workspace_id, drawing_id, conversation_id, thread_id"
+
+    def _prune_scoped_cache_table(self, conn: sqlite3.Connection, table: str,
+                                  pk_column: str, order_column: str,
+                                  keep_per_scope: int) -> int:
+        if keep_per_scope < 1 or not self._table_exists(conn, table):
+            return 0
+        groups = conn.execute(
+            f"SELECT {self._scope_group_columns()} FROM {table} "
+            f"GROUP BY {self._scope_group_columns()}"
+        ).fetchall()
+        deleted = 0
+        for group in groups:
+            params = (
+                group["workspace_id"], group["drawing_id"],
+                group["conversation_id"], group["thread_id"],
+                keep_per_scope,
+            )
+            rows = conn.execute(f'''
+                SELECT {pk_column}
+                FROM {table}
+                WHERE workspace_id = ? AND drawing_id = ?
+                  AND conversation_id = ? AND thread_id = ?
+                ORDER BY {order_column} DESC, {pk_column} DESC
+                LIMIT -1 OFFSET ?
+            ''', params).fetchall()
+            ids = [row[pk_column] for row in rows]
+            for i in range(0, len(ids), 900):
+                chunk = ids[i:i + 900]
+                if not chunk:
+                    continue
+                placeholders = ",".join("?" for _ in chunk)
+                cursor = conn.execute(
+                    f"DELETE FROM {table} WHERE {pk_column} IN ({placeholders})",
+                    chunk,
+                )
+                deleted += max(cursor.rowcount, 0)
+        return deleted
+
+    def get_maintenance_status(self) -> Dict[str, Any]:
+        with self._conn() as conn:
+            page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+            page_count = conn.execute("PRAGMA page_count").fetchone()[0]
+            freelist_count = conn.execute("PRAGMA freelist_count").fetchone()[0]
+            auto_vacuum = conn.execute("PRAGMA auto_vacuum").fetchone()[0]
+            counts: Dict[str, int] = {}
+            for table in sorted(_READ_ONLY_SCOPED_TABLES):
+                if self._table_exists(conn, table):
+                    counts[table] = conn.execute(
+                        f"SELECT COUNT(*) FROM {self._quote_identifier(table)}"
+                    ).fetchone()[0]
+            large_payloads: Dict[str, Dict[str, Any]] = {}
+            for table, column in (
+                ("cad_view_snapshots", "snapshot_data"),
+                ("cad_validation_reports", "issues"),
+                ("cad_semantic_objects", "entity_handles"),
+                ("cad_entities", "geometry"),
+            ):
+                if not self._table_exists(conn, table):
+                    continue
+                row = conn.execute(f'''
+                    SELECT COUNT(*) AS rows,
+                           COALESCE(SUM(length({column})), 0) AS bytes,
+                           COALESCE(MAX(length({column})), 0) AS max_bytes
+                    FROM {table}
+                ''').fetchone()
+                large_payloads[table] = dict(row)
+        return {
+            "db_path": self.db_path,
+            "page_size": page_size,
+            "page_count": page_count,
+            "freelist_count": freelist_count,
+            "freelist_bytes": page_size * freelist_count,
+            "file_bytes_estimate": page_size * page_count,
+            "auto_vacuum": auto_vacuum,
+            "table_counts": counts,
+            "large_payloads": large_payloads,
+            "legacy_database": self.get_legacy_database_status(),
+        }
+
+    def maintain(self,
+                 max_view_snapshots_per_scope: int = 20,
+                 max_validation_reports_per_scope: int = 20,
+                 incremental_vacuum_pages: int = 1000,
+                 vacuum: bool = False) -> Dict[str, Any]:
+        before = self.get_maintenance_status()
+        deleted: Dict[str, int] = {}
+        with self._conn() as conn:
+            deleted["cad_view_snapshots"] = self._prune_scoped_cache_table(
+                conn,
+                "cad_view_snapshots",
+                "snapshot_id",
+                "created_at",
+                max(1, int(max_view_snapshots_per_scope or 20)),
+            )
+            deleted["cad_validation_reports"] = self._prune_scoped_cache_table(
+                conn,
+                "cad_validation_reports",
+                "report_id",
+                "generated_at",
+                max(1, int(max_validation_reports_per_scope or 20)),
+            )
+            if incremental_vacuum_pages and not vacuum:
+                conn.execute(
+                    f"PRAGMA incremental_vacuum({max(1, int(incremental_vacuum_pages))})"
+                )
+        if vacuum:
+            conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
+            try:
+                conn.execute("PRAGMA busy_timeout=30000")
+                conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+                conn.execute("VACUUM")
+            finally:
+                conn.close()
+        after = self.get_maintenance_status()
+        return {
+            "before": before,
+            "after": after,
+            "deleted": deleted,
+            "vacuum": bool(vacuum),
+            "incremental_vacuum_pages": 0 if vacuum else int(incremental_vacuum_pages or 0),
+        }
 
     @staticmethod
     def _coerce_optional_point(value: Any) -> Optional[Tuple[float, float, float]]:
@@ -1813,6 +2054,16 @@ class CADDatabase:
         }
         if action in denied_actions:
             return sqlite3.SQLITE_DENY
+        if action == getattr(sqlite3, "SQLITE_READ", -1):
+            table = (arg1 or "").lower()
+            database = (db_name or "").lower()
+            view_source = (source or "").lower()
+            if (
+                database == "main"
+                and table in _READ_ONLY_DENIED_MAIN_TABLES
+                and view_source not in _READ_ONLY_SCOPED_VIEWS
+            ):
+                return sqlite3.SQLITE_DENY
         if action == getattr(sqlite3, "SQLITE_PRAGMA", -1):
             allowed_pragmas = {
                 "table_info", "index_info", "index_list", "foreign_key_list",
@@ -1828,6 +2079,33 @@ class CADDatabase:
         return '"' + identifier.replace('"', '""') + '"'
 
     def _install_scoped_read_views(self, conn: sqlite3.Connection) -> None:
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_workspaces AS
+            SELECT workspace_id, workspace_root, created_at, updated_at
+            FROM main.cad_workspaces
+            WHERE workspace_id = cad_current_workspace_id()
+        ''')
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_conversations AS
+            SELECT id, workspace_id, conversation_id, title, created_at, updated_at
+            FROM main.cad_conversations
+            WHERE workspace_id = cad_current_workspace_id()
+        ''')
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_threads AS
+            SELECT id, workspace_id, conversation_id, thread_id, title,
+                   created_at, updated_at
+            FROM main.cad_threads
+            WHERE workspace_id = cad_current_workspace_id()
+              AND conversation_id = cad_current_conversation_id()
+        ''')
+        conn.execute('''
+            CREATE TEMP VIEW IF NOT EXISTS cad_drawings AS
+            SELECT id, workspace_id, drawing_id, drawing_name, drawing_path,
+                   active, created_at, updated_at
+            FROM main.cad_drawings
+            WHERE workspace_id = cad_current_workspace_id()
+        ''')
         conn.execute('''
             CREATE TEMP VIEW IF NOT EXISTS cad_entities AS
             SELECT id, native_handle AS handle, name, type, layer, color,
@@ -1914,59 +2192,184 @@ class CADDatabase:
                   AND conversation_id = cad_current_conversation_id()
                   AND thread_id = cad_current_thread_id()
             ''')
+        for table in (
+            "cad_semantic_objects",
+            "cad_semantic_relations",
+            "cad_constraints",
+            "cad_validation_reports",
+            "cad_view_snapshots",
+        ):
+            if not self._table_exists(conn, table):
+                continue
+            conn.execute(f'''
+                CREATE TEMP VIEW IF NOT EXISTS {table} AS
+                SELECT *
+                FROM main.{table}
+                WHERE workspace_id = cad_current_workspace_id()
+                  AND drawing_id = cad_current_drawing_id()
+                  AND conversation_id = cad_current_conversation_id()
+                  AND thread_id = cad_current_thread_id()
+            ''')
+
+    @staticmethod
+    def _coerce_limit(value: Optional[int], env_name: str,
+                      default: int, maximum: int) -> int:
+        if value is None:
+            return _env_int(env_name, default, 1, maximum)
+        try:
+            return max(1, min(int(value), maximum))
+        except (TypeError, ValueError):
+            return _env_int(env_name, default, 1, maximum)
+
+    @staticmethod
+    def _row_result_size(row: Dict[str, Any]) -> int:
+        return len(json.dumps(row, ensure_ascii=False, default=str).encode("utf-8"))
+
+    def _fetch_limited_rows(self, cursor: sqlite3.Cursor,
+                            columns: List[str],
+                            max_rows: int,
+                            max_result_bytes: int) -> Tuple[List[Dict[str, Any]], bool, int]:
+        rows: List[Dict[str, Any]] = []
+        truncated = False
+        result_bytes = 0
+        while True:
+            batch = cursor.fetchmany(100)
+            if not batch:
+                break
+            for index, raw_row in enumerate(batch):
+                row = dict(zip(columns, raw_row))
+                row_bytes = self._row_result_size(row)
+                if rows and result_bytes + row_bytes > max_result_bytes:
+                    truncated = True
+                    return rows, truncated, result_bytes
+                rows.append(row)
+                result_bytes += row_bytes
+                if len(rows) >= max_rows:
+                    truncated = (index + 1 < len(batch)) or cursor.fetchone() is not None
+                    return rows, truncated, result_bytes
+        return rows, truncated, result_bytes
+
+    def _record_query_history(self, conn: sqlite3.Connection, query: str,
+                              result_count: int, duration_ms: float,
+                              truncated: bool = False,
+                              error: str = "") -> None:
+        ctx = self.get_context()
+        conn.execute(
+            """INSERT INTO main.query_history
+               (query, result_count, executed_at, workspace_id, drawing_id,
+                conversation_id, thread_id, duration_ms, truncated, error)
+               VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                query[:500], result_count, ctx.workspace_id, ctx.drawing_id,
+                ctx.conversation_id, ctx.thread_id, duration_ms,
+                int(bool(truncated)), error[:500],
+            ),
+        )
 
     def execute(self, query: str, params: tuple = (),
-                read_only: bool = False) -> Dict[str, Any]:
+                read_only: bool = False,
+                max_rows: Optional[int] = None,
+                timeout_ms: Optional[int] = None,
+                max_result_bytes: Optional[int] = None) -> Dict[str, Any]:
         """Execute SQL and return rows for result-producing statements.
 
         Set read_only=True for MCP-facing query tools; writes are denied by
-        token screening plus SQLite's authorizer.
+        token screening plus SQLite's authorizer. Read-only queries are scoped
+        through temporary views and are bounded by row, byte, and time limits.
         """
         if read_only and not self._is_read_only_sql(query):
             raise ValueError("Only read-only SELECT/WITH/PRAGMA/EXPLAIN SQL is allowed")
+        effective_max_rows = self._coerce_limit(
+            max_rows, "CAD_MCP_SQL_MAX_ROWS",
+            _DEFAULT_SQL_MAX_ROWS, _MAX_SQL_MAX_ROWS,
+        )
+        effective_timeout_ms = self._coerce_limit(
+            timeout_ms, "CAD_MCP_SQL_TIMEOUT_MS",
+            _DEFAULT_SQL_TIMEOUT_MS, _MAX_SQL_TIMEOUT_MS,
+        )
+        effective_max_result_bytes = self._coerce_limit(
+            max_result_bytes, "CAD_MCP_SQL_MAX_RESULT_BYTES",
+            _DEFAULT_SQL_MAX_RESULT_BYTES, _MAX_SQL_MAX_RESULT_BYTES,
+        )
         with self._conn() as conn:
             c = conn.cursor()
             scoped_read = self._is_read_only_sql(query)
             if scoped_read:
                 self._install_scoped_read_views(conn)
+            guards_active = False
+
+            def _clear_read_guards() -> None:
+                nonlocal guards_active
+                if guards_active:
+                    conn.set_authorizer(None)
+                    conn.set_progress_handler(None, 0)
+                    guards_active = False
+
             if read_only:
                 conn.set_authorizer(self._read_only_authorizer)
+                deadline = time.monotonic() + (effective_timeout_ms / 1000.0)
+
+                def _progress_handler() -> int:
+                    return 1 if time.monotonic() > deadline else 0
+
+                conn.set_progress_handler(_progress_handler, 1000)
+                guards_active = True
+            start = time.monotonic()
             try:
                 c.execute(query, params)
-            finally:
-                if read_only:
-                    conn.set_authorizer(None)
+                if c.description:
+                    columns = [desc[0] for desc in c.description] if c.description else []
+                    if read_only:
+                        rows, truncated, result_bytes = self._fetch_limited_rows(
+                            c, columns, effective_max_rows,
+                            effective_max_result_bytes,
+                        )
+                    else:
+                        rows = [dict(zip(columns, row)) for row in c.fetchall()]
+                        truncated = False
+                        result_bytes = sum(self._row_result_size(row) for row in rows)
+                    duration_ms = round((time.monotonic() - start) * 1000.0, 3)
+                    _clear_read_guards()
+                    self._record_query_history(
+                        conn, query, len(rows), duration_ms, truncated=truncated,
+                    )
+                    result = {
+                        "columns": columns,
+                        "rows": rows,
+                        "count": len(rows),
+                        "truncated": truncated,
+                        "result_bytes": result_bytes,
+                    }
+                    if read_only:
+                        result["limits"] = {
+                            "max_rows": effective_max_rows,
+                            "timeout_ms": effective_timeout_ms,
+                            "max_result_bytes": effective_max_result_bytes,
+                        }
+                    return result
 
-            if c.description:
-                columns = [desc[0] for desc in c.description] if c.description else []
-                rows = [dict(zip(columns, row)) for row in c.fetchall()]
-                if not read_only:
-                    ctx = self.get_context()
-                    conn.execute(
-                        """INSERT INTO main.query_history
-                           (query, result_count, workspace_id, drawing_id,
-                            conversation_id, thread_id)
-                           VALUES (?, ?, ?, ?, ?, ?)""",
-                        (
-                            query[:500], len(rows), ctx.workspace_id,
-                            ctx.drawing_id, ctx.conversation_id, ctx.thread_id,
-                        ))
-                return {"columns": columns, "rows": rows, "count": len(rows)}
-            else:
                 if read_only:
-                    return {"columns": [], "rows": [], "count": 0}
+                    duration_ms = round((time.monotonic() - start) * 1000.0, 3)
+                    _clear_read_guards()
+                    self._record_query_history(conn, query, 0, duration_ms)
+                    return {"columns": [], "rows": [], "count": 0, "truncated": False}
                 affected = c.rowcount
-                ctx = self.get_context()
-                conn.execute(
-                    """INSERT INTO main.query_history
-                       (query, result_count, workspace_id, drawing_id,
-                        conversation_id, thread_id)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (
-                        query[:500], affected, ctx.workspace_id,
-                        ctx.drawing_id, ctx.conversation_id, ctx.thread_id,
-                    ))
+                duration_ms = round((time.monotonic() - start) * 1000.0, 3)
+                _clear_read_guards()
+                self._record_query_history(conn, query, affected, duration_ms)
                 return {"affected_rows": affected}
+            except Exception as exc:
+                duration_ms = round((time.monotonic() - start) * 1000.0, 3)
+                _clear_read_guards()
+                try:
+                    self._record_query_history(
+                        conn, query, 0, duration_ms, error=str(exc),
+                    )
+                except Exception:
+                    logger.debug("Failed to record query error in history", exc_info=True)
+                raise
+            finally:
+                _clear_read_guards()
 
     def get_tables(self) -> List[str]:
         with self._conn() as conn:

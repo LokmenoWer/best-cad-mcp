@@ -51,6 +51,7 @@ def _scan_entity_record(ent: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
                       clear_annotations: bool = False,
+                      clear_understanding: bool = True,
                       detail_level: str = "minimal",
                       include_bounding_boxes: bool = True,
                       derive_topology: bool = True,
@@ -66,7 +67,10 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
     """
     _sync_db_active_drawing()
     if clear_db:
-        db.clear_entities(clear_annotations=clear_annotations)
+        db.clear_entities(
+            clear_annotations=clear_annotations,
+            clear_understanding=clear_understanding,
+        )
     result = ctrl.scan_model_space(
         max_entities,
         detail_level=detail_level,
@@ -109,6 +113,8 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
         lines.append("Model-private spatial annotations were cleared.")
     else:
         lines.append("Model-private spatial annotations were preserved.")
+    if clear_db and clear_understanding:
+        lines.append("Cached semantic objects, constraints, validation reports, and view snapshots for this thread were cleared.")
     for t, c in sorted(type_stats.items(), key=lambda x: -x[1])[:20]:
         lines.append(f"  {t}: {c}")
     if len(type_stats) > 20:

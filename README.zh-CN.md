@@ -249,12 +249,18 @@ approval_mode = "prompt"
 
 数据库按 workspace、drawing、conversation 和 thread 隔离数据，避免不同图纸中的相同 handle 冲突，也让并行 agent 会话拥有独立的私有标注和查询历史。
 
+`execute_query` 暴露的是只读、按 scope 隔离、带限制的 SQL。请使用 `cad_entities` 等公开表名；直接访问 `main.<table>` 会被拒绝，避免绕过 scoped view 读取其他工作区数据。结果默认限制为 1000 行、5 秒、约 1 MB JSON，可通过工具参数或 `CAD_MCP_SQL_MAX_ROWS`、`CAD_MCP_SQL_TIMEOUT_MS`、`CAD_MCP_SQL_MAX_RESULT_BYTES` 调整。
+
 常用工作区工具：
 
 - `get_workspace_context`
 - `set_workspace_context`
 - `activate_workspace_drawing`
 - `list_workspace_drawings`
+- `get_database_maintenance_status`
+- `maintain_database`
+- `clear_understanding_cache`
+- `get_legacy_database_status`
 
 ### CAD 理解层
 
@@ -272,6 +278,8 @@ approval_mode = "prompt"
 ```
 
 只读理解工具不会修改 DWG。语义对象、约束、验证报告、视图快照和 VLM 映射信息会存入工作区数据库。
+
+`scan_all_entities(clear_db=True)` 默认会清空当前 thread 的旧语义对象、约束、验证报告和视图快照，避免重新扫描后混入过期理解缓存。只有确实要跨扫描保留缓存时才传 `clear_understanding=False`。
 
 关键工具包括：
 
@@ -368,6 +376,10 @@ VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；返回 ove
 - `cad_visual_exports/`
 
 这些是运行时产物，不应提交到仓库。
+
+当前数据库是 `.cad_mcp/workspace.db`。如果旧版本留下根目录 `autocad_data.db`，`check_runtime_environment` 和 `get_legacy_database_status` 会以 warning 报告；确认没有旧 MCP 进程继续使用后，可以归档或删除。
+
+日志使用 UTF-8 并按大小轮转。可通过 `CAD_MCP_LOG_PATH`、`CAD_MCP_LOG_MAX_BYTES`、`CAD_MCP_LOG_BACKUP_COUNT`、`CAD_MCP_LOG_LEVEL`、`CAD_MCP_MCP_LOG_LEVEL` 配置。每行日志包含 workspace、drawing 和 thread ID，便于关联排查。
 
 ## 仓库结构
 

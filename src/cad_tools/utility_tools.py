@@ -36,7 +36,10 @@ def get_table_schema(table_name: str) -> str:
     return json.dumps(columns, indent=2, ensure_ascii=False)
 
 
-def execute_query(query: str) -> str:
+def execute_query(query: str,
+                  max_rows: int = 1000,
+                  timeout_ms: int = 5000,
+                  max_result_bytes: int = 1_000_000) -> str:
     """在 CAD 元数据数据库上执行 SQL 查询。
 
     数据库包含扫描后的实体、图层、图块、文本模式等信息。
@@ -59,30 +62,86 @@ def execute_query(query: str) -> str:
 
     Args:
         query: 只读 SQL 查询字符串（SELECT/WITH/PRAGMA/EXPLAIN）
+        max_rows: 最多返回行数（硬上限由服务端控制）
+        timeout_ms: 查询执行超时窗口
+        max_result_bytes: 返回 JSON 的近似字节上限
     """
     try:
-        result = db.execute(query, read_only=True)
+        result = db.execute(
+            query,
+            read_only=True,
+            max_rows=max_rows,
+            timeout_ms=timeout_ms,
+            max_result_bytes=max_result_bytes,
+        )
         if "columns" in result:
             # Return as formatted table
             cols = result["columns"]
             rows = result["rows"]
+            suffix = ""
+            if result.get("truncated"):
+                limits = result.get("limits", {})
+                suffix = (
+                    "\n\nTRUNCATED: result was limited by "
+                    f"max_rows={limits.get('max_rows')}, "
+                    f"timeout_ms={limits.get('timeout_ms')}, "
+                    f"max_result_bytes={limits.get('max_result_bytes')}."
+                )
             if not rows:
-                return f"查询返回 0 行 (列: {', '.join(cols)})"
-            return json.dumps(rows, indent=2, ensure_ascii=False, default=str)
+                return f"查询返回 0 行 (列: {', '.join(cols)}){suffix}"
+            return json.dumps(rows, indent=2, ensure_ascii=False, default=str) + suffix
         else:
             return f"已执行，影响 {result['affected_rows']} 行"
     except Exception as e:
         return f"查询执行失败: {e}"
 
 
-def execute_sql_query(query: str) -> str:
+def execute_sql_query(query: str,
+                      max_rows: int = 1000,
+                      timeout_ms: int = 5000,
+                      max_result_bytes: int = 1_000_000) -> str:
     """执行 SQL 查询（execute_query 的别名）。"""
-    return execute_query(query)
+    return execute_query(
+        query,
+        max_rows=max_rows,
+        timeout_ms=timeout_ms,
+        max_result_bytes=max_result_bytes,
+    )
 
 
 def get_workspace_context() -> str:
     """Return the active workspace/conversation/thread/drawing database scope."""
     return json.dumps(db.get_context_dict(), indent=2, ensure_ascii=False)
+
+
+def get_database_maintenance_status() -> str:
+    """Return SQLite maintenance and runtime-artifact status."""
+    return json.dumps(db.get_maintenance_status(), indent=2, ensure_ascii=False, default=str)
+
+
+def maintain_database(max_view_snapshots_per_scope: int = 20,
+                      max_validation_reports_per_scope: int = 20,
+                      incremental_vacuum_pages: int = 1000,
+                      vacuum: bool = False) -> str:
+    """Prune cache tables and reclaim SQLite free pages."""
+    result = db.maintain(
+        max_view_snapshots_per_scope=max_view_snapshots_per_scope,
+        max_validation_reports_per_scope=max_validation_reports_per_scope,
+        incremental_vacuum_pages=incremental_vacuum_pages,
+        vacuum=vacuum,
+    )
+    return json.dumps(result, indent=2, ensure_ascii=False, default=str)
+
+
+def clear_understanding_cache() -> str:
+    """Clear semantic/constraint/validation/view caches for the active thread."""
+    result = db.clear_understanding_cache()
+    return json.dumps(result, indent=2, ensure_ascii=False, default=str)
+
+
+def get_legacy_database_status() -> str:
+    """Report whether the retired root-level autocad_data.db is present."""
+    return json.dumps(db.get_legacy_database_status(), indent=2, ensure_ascii=False, default=str)
 
 
 def set_workspace_context(workspace_root: Optional[str] = None,
@@ -201,6 +260,14 @@ def check_runtime_environment(check_autocad: bool = False,
         True,
         str(workspace),
         "Start the MCP server from a writable workspace or set CAD_MCP_WORKSPACE_ROOT.",
+    ))
+    legacy_status = db.get_legacy_database_status()
+    checks.append(_preflight_check(
+        "legacy_root_database",
+        not (legacy_status["exists"] and not legacy_status["is_active_db"]),
+        False,
+        legacy_status["recommendation"] or "no retired autocad_data.db detected",
+        "Archive or delete the root-level autocad_data.db after confirming old data is no longer needed.",
     ))
 
     autocad_required = bool(check_autocad)
