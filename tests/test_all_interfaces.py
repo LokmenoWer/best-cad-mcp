@@ -110,6 +110,7 @@ class TestModuleImports(unittest.TestCase):
         expected = [
             'create_new_drawing', 'open_drawing', 'save_drawing', 'close_drawing',
             'draw_line', 'draw_circle', 'draw_arc', 'draw_ellipse',
+            'draw_ellipse_arc',
             'draw_polyline', 'draw_3d_polyline', 'draw_rectangle', 'draw_polygon',
             'draw_spline', 'draw_point', 'draw_text', 'draw_mtext',
             'draw_donut', 'draw_ray', 'draw_xline', 'draw_mline',

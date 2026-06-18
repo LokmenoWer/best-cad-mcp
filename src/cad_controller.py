@@ -800,6 +800,21 @@ class CADController:
         return self.doc.ModelSpace.AddEllipse(center, major, radius_ratio)
 
     @require_document
+    def add_ellipse_arc(self, cx: float, cy: float, major_axis: Tuple[float, float],
+                        radius_ratio: float, start_angle_deg: float,
+                        end_angle_deg: float) -> Any:
+        ell = self.add_ellipse(cx, cy, major_axis, radius_ratio)
+        start_rad = start_angle_deg * math.pi / 180.0
+        end_rad = end_angle_deg * math.pi / 180.0
+        try:
+            ell.StartParameter = start_rad
+            ell.EndParameter = end_rad
+        except Exception:
+            ell.StartAngle = start_rad
+            ell.EndAngle = end_rad
+        return ell
+
+    @require_document
     def add_polyline(self, points: List[float], closed: bool = False) -> Any:
         pt_array = to_variant_array(points)
         pline = self.doc.ModelSpace.AddLightWeightPolyline(pt_array)
@@ -2210,6 +2225,9 @@ class CADController:
                     "major_axis": list(ent.MajorAxis),
                     "minor_axis": list(ent.MinorAxis),
                     "radius_ratio": ent.RadiusRatio,
+                    "start_angle": ent.StartParameter * 180.0 / math.pi,
+                    "end_angle": ent.EndParameter * 180.0 / math.pi,
+                    "is_arc": abs((ent.EndParameter - ent.StartParameter) - (2.0 * math.pi)) > 1e-6,
                     "area": ent.Area,
                 })
             elif obj_name in ("AcDbPolyline", "AcDb2dPolyline"):
@@ -3178,6 +3196,19 @@ class CADController:
                         info["radius"] = round(float(com_get(typed_ent, "Radius", 0) or 0), 4)
                         info["start_angle"] = round(float(com_get(typed_ent, "StartAngle", 0) or 0), 4)
                         info["end_angle"] = round(float(com_get(typed_ent, "EndAngle", 0) or 0), 4)
+                    elif obj_name == "AcDbEllipse":
+                        center = self._scan_point(com_get(typed_ent, "Center", None))
+                        if center:
+                            info["center"] = center
+                        major_axis = self._scan_point(com_get(typed_ent, "MajorAxis", None))
+                        if major_axis:
+                            info["major_axis"] = major_axis
+                        info["radius_ratio"] = round(float(com_get(typed_ent, "RadiusRatio", 0) or 0), 4)
+                        start_param = float(com_get(typed_ent, "StartParameter", 0) or 0)
+                        end_param = float(com_get(typed_ent, "EndParameter", 0) or 0)
+                        info["start_angle"] = round(start_param * 180.0 / math.pi, 4)
+                        info["end_angle"] = round(end_param * 180.0 / math.pi, 4)
+                        info["is_arc"] = abs((end_param - start_param) - (2.0 * math.pi)) > 1e-6
                     elif obj_name in ("AcDbText", "AcDbMText"):
                         info["text"] = com_get(typed_ent, "TextString", "")
                     elif "Polyline" in obj_name:

@@ -28,7 +28,9 @@ SUPPORTED_KINDS = {
     "circle",
     "arc",
     "ellipse",
+    "ellipse_arc",
     "polyline",
+    "paired_ellipse_arcs",
     "rectangle",
     "chamfered_rectangle",
     "filleted_rectangle",
@@ -41,6 +43,7 @@ SUPPORTED_KINDS = {
     "hatch",
     "table",
     "pattern",
+    "bulkhead",
 }
 FEATURE_KINDS = {
     "chamfered_rectangle",
@@ -49,13 +52,17 @@ FEATURE_KINDS = {
     "slot",
     "pattern",
     "hatch",
+    "paired_ellipse_arcs",
+    "bulkhead",
 }
 GEOMETRY_KINDS = {
     "line",
     "circle",
     "arc",
     "ellipse",
+    "ellipse_arc",
     "polyline",
+    "paired_ellipse_arcs",
     "rectangle",
     "chamfered_rectangle",
     "filleted_rectangle",
@@ -196,6 +203,224 @@ def _points(value: Any) -> List[List[float]]:
     if value and all(isinstance(v, (int, float)) for v in value):
         return [p for p in (_point(value[i:i + 2]) for i in range(0, len(value), 2)) if p]
     return [p for p in (_point(item) for item in value) if p]
+
+
+def _number(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _text_blob(value: Any) -> str:
+    if isinstance(value, dict):
+        return " ".join(_text_blob(nested) for nested in value.values())
+    if isinstance(value, (list, tuple)):
+        return " ".join(_text_blob(nested) for nested in value)
+    return str(value or "")
+
+
+def _candidate_kind(value: Dict[str, Any]) -> str:
+    raw = (
+        value.get("kind")
+        or value.get("type")
+        or value.get("primitive_kind")
+        or value.get("geometry_kind")
+        or value.get("primitive")
+        or value.get("shape")
+        or value.get("selected_geometry")
+    )
+    return str(raw or "").strip().lower()
+
+
+def _curve_hint_text(item: Dict[str, Any]) -> str:
+    geom = _pixel_geometry(item)
+    fields = [
+        item.get("primitive_hint"),
+        item.get("geometry_hint"),
+        item.get("selected_geometry"),
+        item.get("semantic_type"),
+        item.get("type"),
+        item.get("label"),
+        item.get("kind"),
+        geom.get("primitive_hint"),
+        geom.get("geometry_hint"),
+        geom.get("selected_geometry"),
+        item.get("evidence"),
+    ]
+    return _text_blob(fields).lower()
+
+
+def _curve_fit_threshold(item: Dict[str, Any], fallback: float = 2.5) -> float:
+    explicit = _number(
+        item.get("fit_error_tolerance_px")
+        or item.get("max_fit_error_px")
+        or _pixel_geometry(item).get("fit_error_tolerance_px")
+        or _pixel_geometry(item).get("max_fit_error_px")
+    )
+    if explicit and explicit > 0:
+        return explicit
+    bbox = _normalize_bbox(item.get("pixel_bbox") or item.get("bbox"))
+    if not bbox:
+        return fallback
+    diagonal = math.hypot(bbox[2] - bbox[0], bbox[3] - bbox[1])
+    return max(fallback, diagonal * 0.015)
+
+
+def _accept_curve_candidate(candidate: Dict[str, Any],
+                            item: Dict[str, Any],
+                            explicit_geometry: bool = False) -> bool:
+    confidence = _confidence(candidate.get("confidence"))
+    if confidence is not None and confidence < 0.6:
+        return False
+    fit_error = _number(
+        candidate.get("fit_error_px")
+        or candidate.get("rms_error_px")
+        or candidate.get("max_error_px")
+        or candidate.get("residual_px")
+    )
+    if fit_error is None:
+        return explicit_geometry or confidence is not None
+    return fit_error <= _curve_fit_threshold(item)
+
+
+def _solve_linear_system(matrix: List[List[float]], vector: List[float]) -> Optional[List[float]]:
+    n = len(vector)
+    aug = [row[:] + [vector[index]] for index, row in enumerate(matrix)]
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda row: abs(aug[row][col]))
+        if abs(aug[pivot][col]) < 1e-12:
+            return None
+        if pivot != col:
+            aug[col], aug[pivot] = aug[pivot], aug[col]
+        scale = aug[col][col]
+        for j in range(col, n + 1):
+            aug[col][j] /= scale
+        for row in range(n):
+            if row == col:
+                continue
+            factor = aug[row][col]
+            if abs(factor) < 1e-12:
+                continue
+            for j in range(col, n + 1):
+                aug[row][j] -= factor * aug[col][j]
+    return [aug[row][n] for row in range(n)]
+
+
+def _ellipse_fit_from_points(points: Sequence[Sequence[float]],
+                             max_error_px: float) -> Optional[Dict[str, Any]]:
+    clean = [p for p in (_point(point) for point in points) if p]
+    if len(clean) < 5:
+        return None
+    mean_x = sum(point[0] for point in clean) / len(clean)
+    mean_y = sum(point[1] for point in clean) / len(clean)
+    span = max(
+        max(abs(point[0] - mean_x), abs(point[1] - mean_y)) for point in clean
+    )
+    if span <= 1e-6:
+        return None
+    rows = []
+    for x, y in clean:
+        u = (x - mean_x) / span
+        v = (y - mean_y) / span
+        rows.append([u * u, u * v, v * v, u, v])
+    normal = [[0.0 for _ in range(5)] for _ in range(5)]
+    rhs = [0.0 for _ in range(5)]
+    for row in rows:
+        for i in range(5):
+            rhs[i] += row[i]
+            for j in range(5):
+                normal[i][j] += row[i] * row[j]
+    solved = _solve_linear_system(normal, rhs)
+    if not solved:
+        return None
+    a, b, c, d, e = solved
+    q11 = a
+    q12 = b / 2.0
+    q22 = c
+    det = q11 * q22 - q12 * q12
+    if det <= 1e-12:
+        return None
+    center_u = -0.5 * (q22 * d - q12 * e) / det
+    center_v = -0.5 * (-q12 * d + q11 * e) / det
+    constant = (
+        q11 * center_u * center_u
+        + 2.0 * q12 * center_u * center_v
+        + q22 * center_v * center_v
+        + d * center_u
+        + e * center_v
+        - 1.0
+    )
+    rhs_centered = -constant
+    trace = q11 + q22
+    discriminant = max(0.0, (q11 - q22) * (q11 - q22) + 4.0 * q12 * q12)
+    root = math.sqrt(discriminant)
+    eig1 = (trace + root) / 2.0
+    eig2 = (trace - root) / 2.0
+    if eig1 <= 1e-12 or eig2 <= 1e-12 or rhs_centered <= 1e-12:
+        return None
+    len1 = math.sqrt(rhs_centered / eig1)
+    len2 = math.sqrt(rhs_centered / eig2)
+
+    def eigenvector(eig: float) -> List[float]:
+        if abs(q12) > 1e-12:
+            vx, vy = q12, eig - q11
+        elif q11 <= q22:
+            vx, vy = 1.0, 0.0
+        else:
+            vx, vy = 0.0, 1.0
+        length = math.hypot(vx, vy)
+        if length <= 1e-12:
+            return [1.0, 0.0]
+        return [vx / length, vy / length]
+
+    if len1 >= len2:
+        major_len, minor_len = len1, len2
+        major_vec_unit = eigenvector(eig1)
+    else:
+        major_len, minor_len = len2, len1
+        major_vec_unit = eigenvector(eig2)
+    if major_len <= 1e-9 or minor_len <= 1e-9:
+        return None
+    center = [mean_x + center_u * span, mean_y + center_v * span]
+    major_axis = [major_vec_unit[0] * major_len * span, major_vec_unit[1] * major_len * span]
+    minor_ratio = minor_len / major_len
+    if minor_ratio <= 0.0 or minor_ratio > 1.0:
+        return None
+    axis_angle = math.atan2(major_vec_unit[1], major_vec_unit[0])
+    cos_a = math.cos(axis_angle)
+    sin_a = math.sin(axis_angle)
+
+    def param_angle(point: Sequence[float]) -> float:
+        dx = (float(point[0]) - center[0]) / span
+        dy = (float(point[1]) - center[1]) / span
+        local_major = (dx * cos_a + dy * sin_a) / major_len
+        local_minor = (-dx * sin_a + dy * cos_a) / minor_len
+        return math.degrees(math.atan2(local_minor, local_major))
+
+    residuals = []
+    for point in clean:
+        dx = (point[0] - center[0]) / span
+        dy = (point[1] - center[1]) / span
+        local_major = (dx * cos_a + dy * sin_a) / major_len
+        local_minor = (-dx * sin_a + dy * cos_a) / minor_len
+        radial_error = abs(math.sqrt(local_major * local_major + local_minor * local_minor) - 1.0)
+        residuals.append(radial_error * major_len * span)
+    rms_error = math.sqrt(sum(error * error for error in residuals) / len(residuals))
+    if rms_error > max_error_px:
+        return None
+    return {
+        "center": center,
+        "major_axis": major_axis,
+        "radius_ratio": minor_ratio,
+        "start_angle": param_angle(clean[0]),
+        "end_angle": param_angle(clean[-1]),
+        "fit_error_px": rms_error,
+        "source": "polyline_fit",
+    }
 
 
 def _confidence(value: Any) -> Optional[float]:
@@ -443,6 +668,24 @@ def validate_image_drawing_spec(spec: Any,
             raw.get("fillets") or raw.get("radius") or raw.get("radii") or (isinstance(pixel_geometry, dict) and pixel_geometry.get("segments"))
         ):
             item_errors.append("filleted_rectangle requires fillets/radius/radii or explicit arc segments")
+        if kind == "ellipse_arc":
+            has_params = isinstance(pixel_geometry, dict) and (
+                pixel_geometry.get("center")
+                and (pixel_geometry.get("major_axis") or pixel_geometry.get("major_vector"))
+                and (pixel_geometry.get("radius_ratio") or pixel_geometry.get("minor_ratio") or pixel_geometry.get("axis_ratio"))
+                and (pixel_geometry.get("start_angle") is not None or pixel_geometry.get("start_parameter") is not None)
+                and (pixel_geometry.get("end_angle") is not None or pixel_geometry.get("end_parameter") is not None)
+            )
+            has_fit_points = isinstance(pixel_geometry, dict) and (
+                pixel_geometry.get("points") or pixel_geometry.get("vertices") or pixel_geometry.get("samples")
+            )
+            if not (has_params or has_fit_points):
+                item_errors.append("ellipse_arc requires explicit ellipse parameters or fit points")
+        if kind in {"paired_ellipse_arcs", "bulkhead"}:
+            curves = pixel_geometry.get("curves") if isinstance(pixel_geometry, dict) else None
+            candidates = raw.get("geometry_candidates") or (pixel_geometry.get("geometry_candidates") if isinstance(pixel_geometry, dict) else None)
+            if not (isinstance(curves, list) and len(curves) >= 2) and not candidates:
+                item_errors.append(f"{kind} requires two ellipse arc curves or geometry_candidates")
         if kind == "pattern":
             members = raw.get("members") or raw.get("member_ids") or raw.get("instances")
             if not members:
@@ -731,6 +974,219 @@ def _point_from_keys(item: Dict[str, Any], keys: Sequence[str]) -> Optional[List
             if point:
                 return point
     return None
+
+
+def _points_from_candidate(candidate: Dict[str, Any]) -> List[List[float]]:
+    geom = candidate.get("pixel_geometry")
+    if not isinstance(geom, dict):
+        geom = {}
+    for key in ("vertices", "points", "polyline", "samples", "sample_points"):
+        points = _points(geom.get(key) or candidate.get(key))
+        if points:
+            return points
+    return []
+
+
+def _bbox_from_item_or_candidate(item: Dict[str, Any],
+                                 candidate: Dict[str, Any]) -> Optional[BBox]:
+    return _normalize_bbox(
+        candidate.get("pixel_bbox")
+        or candidate.get("bbox")
+        or item.get("pixel_bbox")
+        or item.get("bbox")
+    )
+
+
+def _ellipse_arc_candidate(candidate: Dict[str, Any],
+                           item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    geom = candidate.get("pixel_geometry")
+    if not isinstance(geom, dict):
+        geom = {}
+    center = _point(geom.get("center") or candidate.get("center"))
+    major = _point(
+        geom.get("major_axis")
+        or geom.get("major_vector")
+        or candidate.get("major_axis")
+        or candidate.get("major_vector")
+    )
+    ratio = _number(
+        geom.get("radius_ratio")
+        or geom.get("minor_ratio")
+        or geom.get("axis_ratio")
+        or candidate.get("radius_ratio")
+        or candidate.get("minor_ratio")
+        or candidate.get("axis_ratio")
+    )
+    bbox = _bbox_from_item_or_candidate(item, candidate)
+    if bbox and (center is None or major is None or ratio is None):
+        x1, y1, x2, y2 = bbox
+        width = abs(x2 - x1)
+        height = abs(y2 - y1)
+        center = center or [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
+        if major is None:
+            if width >= height:
+                major = [width / 2.0, 0.0]
+            else:
+                major = [0.0, height / 2.0]
+        if ratio is None and max(width, height) > 0:
+            ratio = min(width, height) / max(width, height)
+    if center is None or major is None or ratio is None:
+        points = _points_from_candidate(candidate)
+        if points and _accept_curve_candidate(candidate, item):
+            return _ellipse_fit_from_points(points, _curve_fit_threshold(item))
+        return None
+    start_angle = _number(
+        geom.get("start_angle")
+        or geom.get("start_parameter")
+        or geom.get("start_param")
+        or candidate.get("start_angle")
+        or candidate.get("start_parameter")
+        or candidate.get("start_param")
+    )
+    end_angle = _number(
+        geom.get("end_angle")
+        or geom.get("end_parameter")
+        or geom.get("end_param")
+        or candidate.get("end_angle")
+        or candidate.get("end_parameter")
+        or candidate.get("end_param")
+    )
+    if start_angle is None or end_angle is None:
+        points = _points_from_candidate(candidate)
+        if len(points) >= 2:
+            fit = _ellipse_fit_from_points(points, _curve_fit_threshold(item))
+            if fit:
+                start_angle = fit["start_angle"]
+                end_angle = fit["end_angle"]
+    if start_angle is None or end_angle is None:
+        return None
+    if ratio <= 0.0 or ratio > 1.0 or math.hypot(major[0], major[1]) <= 1e-9:
+        return None
+    explicit = {
+        "center": center,
+        "major_axis": major,
+        "radius_ratio": ratio,
+        "start_angle": start_angle,
+        "end_angle": end_angle,
+    }
+    fit_error = _number(candidate.get("fit_error_px") or candidate.get("rms_error_px") or candidate.get("residual_px"))
+    if fit_error is not None:
+        explicit["fit_error_px"] = fit_error
+    return explicit if _accept_curve_candidate(candidate, item, explicit_geometry=True) else None
+
+
+def _iter_curve_candidates(item: Dict[str, Any]) -> List[Dict[str, Any]]:
+    geom = _pixel_geometry(item)
+    candidates: List[Dict[str, Any]] = []
+    for raw in (
+        item.get("geometry_candidates"),
+        geom.get("geometry_candidates"),
+        item.get("curve_candidates"),
+        geom.get("curve_candidates"),
+    ):
+        if isinstance(raw, list):
+            candidates.extend(candidate for candidate in raw if isinstance(candidate, dict))
+    for raw in (item.get("selected_geometry"), geom.get("selected_geometry")):
+        if isinstance(raw, dict):
+            candidates.insert(0, raw)
+    return candidates
+
+
+def _should_attempt_curve_fit(item: Dict[str, Any]) -> bool:
+    hint = _curve_hint_text(item)
+    tokens = (
+        "ellipse",
+        "elliptic",
+        "ellipse_arc",
+        "paired_ellipse",
+        "arc",
+        "curve",
+        "bulkhead",
+        "舱壁",
+        "椭圆",
+        "曲线",
+    )
+    return any(token in hint for token in tokens) or bool(_iter_curve_candidates(item))
+
+
+def _ellipse_arcs_for_item(item: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[str]]:
+    kind = str(item.get("kind") or "").lower()
+    geom = _pixel_geometry(item)
+    warnings: List[str] = []
+    expected_pair = kind in {"paired_ellipse_arcs", "bulkhead"} or "paired_ellipse" in _curve_hint_text(item)
+
+    explicit_curves = geom.get("curves") or geom.get("ellipse_arcs") or item.get("curves") or item.get("ellipse_arcs")
+    if isinstance(explicit_curves, list):
+        arcs = [
+            arc for arc in (_ellipse_arc_candidate(curve, item) for curve in explicit_curves if isinstance(curve, dict))
+            if arc
+        ]
+        if arcs:
+            if expected_pair and len(arcs) < 2:
+                warnings.append(f"{item.get('id')}: paired ellipse arcs requires at least two curve members.")
+                return [], warnings
+            return arcs[:2] if expected_pair else arcs[:1], warnings
+
+    if kind == "ellipse_arc":
+        arc = _ellipse_arc_candidate(item, item)
+        if arc:
+            return [arc], warnings
+        warnings.append(f"{item.get('id')}: ellipse_arc requires center, major_axis, radius_ratio, start_angle, and end_angle.")
+        return [], warnings
+
+    for candidate in _iter_curve_candidates(item):
+        candidate_kind = _candidate_kind(candidate)
+        if candidate_kind in {"paired_ellipse_arcs", "paired_ellipse_arc", "bulkhead"}:
+            curves = candidate.get("curves") or candidate.get("ellipse_arcs")
+            if isinstance(curves, list):
+                arcs = [
+                    arc for arc in (_ellipse_arc_candidate(curve, item) for curve in curves if isinstance(curve, dict))
+                    if arc
+                ]
+                if len(arcs) >= 2 and _accept_curve_candidate(candidate, item, explicit_geometry=True):
+                    return arcs[:2], warnings
+        if candidate_kind in {"ellipse_arc", "elliptical_arc"}:
+            arc = _ellipse_arc_candidate(candidate, item)
+            if arc:
+                return [arc], warnings
+
+    if kind == "polyline" and _should_attempt_curve_fit(item):
+        points = _points_from_candidate(item)
+        fit = _ellipse_fit_from_points(points, _curve_fit_threshold(item)) if points else None
+        if fit:
+            return [fit], warnings
+        if points:
+            warnings.append(f"{item.get('id')}: curve hint present but polyline points did not fit an ellipse arc within tolerance.")
+
+    return [], warnings
+
+
+def _ellipse_arc_steps(item: Dict[str, Any],
+                       arcs: Sequence[Dict[str, Any]],
+                       image_height: float,
+                       scale: float,
+                       step_id: str) -> List[Dict[str, Any]]:
+    steps: List[Dict[str, Any]] = []
+    for index, arc in enumerate(arcs):
+        center = _scale_point(arc["center"], image_height, scale)
+        major = arc["major_axis"]
+        member_step_id = step_id if len(arcs) == 1 else f"{step_id}_{index + 1}"
+        steps.append({
+            "step_id": member_step_id,
+            "op": "draw_ellipse_arc",
+            "args": {
+                "center_x": center[0],
+                "center_y": center[1],
+                "major_x": float(major[0]) * scale,
+                "major_y": -float(major[1]) * scale,
+                "radius_ratio": float(arc["radius_ratio"]),
+                "start_angle": float(arc["start_angle"]),
+                "end_angle": float(arc["end_angle"]),
+                "layer": _layer_for(item),
+            },
+            "save_as": f"${member_step_id}",
+        })
+    return steps
 
 
 def _item_center(item: Dict[str, Any]) -> Optional[List[float]]:
@@ -1122,6 +1578,15 @@ def _geometry_step(item: Dict[str, Any],
     steps: List[Dict[str, Any]] = []
     bbox = item.get("pixel_bbox")
     geom = _pixel_geometry(item)
+    curve_kinds = {"ellipse_arc", "paired_ellipse_arcs", "bulkhead"}
+    if kind in curve_kinds or (kind == "polyline" and _should_attempt_curve_fit(item)):
+        arcs, curve_warnings = _ellipse_arcs_for_item(item)
+        warnings.extend(curve_warnings)
+        if arcs:
+            steps.extend(_ellipse_arc_steps(item, arcs, image_height, scale, step_id))
+            return steps, warnings
+        if kind in curve_kinds:
+            return steps, warnings
     if kind in {"line", "centerline"}:
         step = _line_step(item, image_height, scale, step_id)
         if step:
@@ -1438,7 +1903,7 @@ def compile_image_spec_to_cad_plan(image_id: Optional[str] = None,
             {
                 "type": "image_trace_fidelity",
                 "source": image_id or "inline_spec",
-                "policy": "Do not silently downgrade chamfers, fillets, holes, slots, patterns, dimensions, hatches, or tables.",
+                "policy": "Do not silently downgrade chamfers, fillets, ellipse arcs, paired curves, holes, slots, patterns, dimensions, hatches, or tables.",
             }
         ],
         "metadata": {
@@ -1478,6 +1943,29 @@ def _plan_ops_for_var(plan: Dict[str, Any], item_id: str) -> List[str]:
     return ops
 
 
+def _requires_curve_primitive(item: Dict[str, Any]) -> bool:
+    kind = str(item.get("kind") or "").lower()
+    if kind in {"ellipse_arc", "paired_ellipse_arcs", "bulkhead"}:
+        return True
+    if kind != "polyline":
+        return False
+    hint = _curve_hint_text(item)
+    strong_tokens = (
+        "ellipse_arc",
+        "paired_ellipse",
+        "elliptic",
+        "bulkhead",
+        "舱壁",
+        "椭圆",
+    )
+    if any(token in hint for token in strong_tokens):
+        return True
+    for candidate in _iter_curve_candidates(item):
+        if _candidate_kind(candidate) in {"ellipse_arc", "elliptical_arc", "paired_ellipse_arcs", "bulkhead"}:
+            return True
+    return False
+
+
 def validate_image_fidelity_contract(spec: Dict[str, Any],
                                      cad_plan: Dict[str, Any],
                                      database: Optional[CADDatabase] = None) -> ToolResult:
@@ -1505,6 +1993,28 @@ def validate_image_fidelity_contract(spec: Dict[str, Any],
             item_id = str(item.get("id") or "")
             kind = str(item.get("kind") or "").lower()
             ops = _plan_ops_for_var(cad_plan, item_id)
+            if kind == "ellipse_arc" and "draw_ellipse_arc" not in ops:
+                errors.append({
+                    "id": item_id,
+                    "kind": kind,
+                    "message": "ellipse_arc must compile to draw_ellipse_arc, not a polyline approximation.",
+                    "ops": ops,
+                })
+            if kind in {"paired_ellipse_arcs", "bulkhead"}:
+                if ops.count("draw_ellipse_arc") < 2:
+                    errors.append({
+                        "id": item_id,
+                        "kind": kind,
+                        "message": f"{kind} must preserve both ellipse arc members.",
+                        "ops": ops,
+                    })
+            if kind == "polyline" and _requires_curve_primitive(item) and "draw_ellipse_arc" not in ops:
+                errors.append({
+                    "id": item_id,
+                    "kind": kind,
+                    "message": "polyline carries an ellipse-arc/bulkhead hint and cannot remain a plain polyline.",
+                    "ops": ops,
+                })
             if kind == "chamfered_rectangle":
                 if ops == ["draw_rectangle"] or "draw_rectangle" in ops and not {"draw_polyline", "chamfer_polyline"}.intersection(ops):
                     errors.append({

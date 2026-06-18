@@ -1,3 +1,4 @@
+import math
 import struct
 from pathlib import Path
 
@@ -181,6 +182,112 @@ def tube_bundle_hatch_spec():
     }
 
 
+def ellipse_arc_points(center, major_radius, radius_ratio, start_deg, end_deg, count=12):
+    points = []
+    for index in range(count):
+        t = math.radians(start_deg + (end_deg - start_deg) * index / max(count - 1, 1))
+        points.append([
+            center[0] + major_radius * math.cos(t),
+            center[1] + major_radius * radius_ratio * math.sin(t),
+        ])
+    return points
+
+
+def paired_bulkhead_spec():
+    return {
+        "schema_version": "ImageDrawingSpec/v1",
+        "domain": "mechanical",
+        "units": "mm",
+        "image_height": 160,
+        "calibration_candidates": [
+            {
+                "id": "cal_1",
+                "value": 160,
+                "pixel_distance": 160,
+                "confidence": 0.95,
+                "evidence": {"text": "160 mm scale"},
+            }
+        ],
+        "features": [
+            {
+                "id": "bulkhead_wall",
+                "kind": "bulkhead",
+                "confidence": 0.91,
+                "pixel_bbox": [15, 25, 145, 120],
+                "pixel_geometry": {
+                    "curves": [
+                        {
+                            "kind": "ellipse_arc",
+                            "center": [80, 80],
+                            "major_axis": [58, 0],
+                            "radius_ratio": 0.48,
+                            "start_angle": 205,
+                            "end_angle": 335,
+                            "confidence": 0.92,
+                            "fit_error_px": 1.1,
+                            "evidence": {"text": "outer elliptical bulkhead curve"},
+                        },
+                        {
+                            "kind": "ellipse_arc",
+                            "center": [80, 80],
+                            "major_axis": [47, 0],
+                            "radius_ratio": 0.48,
+                            "start_angle": 205,
+                            "end_angle": 335,
+                            "confidence": 0.9,
+                            "fit_error_px": 1.2,
+                            "evidence": {"text": "inner elliptical bulkhead curve"},
+                        },
+                    ]
+                },
+                "evidence": {"text": "bulkhead wall is formed by two elliptical curves"},
+            }
+        ],
+        "geometry": [],
+        "annotations": [],
+        "relations": [],
+        "tables": [],
+        "uncertainties": [],
+    }
+
+
+def polyline_ellipse_hint_spec():
+    return {
+        "schema_version": "ImageDrawingSpec/v1",
+        "domain": "mechanical",
+        "units": "mm",
+        "image_height": 120,
+        "calibration_candidates": [
+            {
+                "id": "cal_1",
+                "value": 120,
+                "pixel_distance": 120,
+                "confidence": 0.95,
+                "evidence": {"text": "120 mm scale"},
+            }
+        ],
+        "features": [],
+        "geometry": [
+            {
+                "id": "misread_curve",
+                "kind": "polyline",
+                "primitive_hint": "ellipse_arc",
+                "confidence": 0.86,
+                "pixel_bbox": [16, 38, 104, 82],
+                "pixel_geometry": {
+                    "points": ellipse_arc_points([60, 60], 44, 0.5, 200, 340),
+                    "closed": False,
+                },
+                "evidence": {"text": "visually smooth elliptical arc, VLM traced it as a polyline"},
+            }
+        ],
+        "annotations": [],
+        "relations": [],
+        "tables": [],
+        "uncertainties": [],
+    }
+
+
 def test_prepare_image_trace_with_bmp(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     db = make_db(tmp_path)
@@ -272,6 +379,44 @@ def test_compile_pattern_and_hatch_bind_to_plan_handles(tmp_path):
     assert dry["ok"], dry
 
 
+def test_compile_bulkhead_preserves_paired_ellipse_arcs(tmp_path):
+    db = make_db(tmp_path)
+    spec = paired_bulkhead_spec()
+
+    validation = validate_image_drawing_spec(spec, database=db)
+    compiled = compile_image_spec_to_cad_plan(spec=spec, database=db)
+
+    assert validation["ok"], validation
+    assert compiled["ok"], compiled
+    plan = compiled["data"]["plan"]
+    ops = [step["op"] for step in plan["steps"]]
+    assert ops.count("draw_ellipse_arc") == 2
+    assert "draw_polyline" not in ops
+    ellipse_steps = [step for step in plan["steps"] if step["op"] == "draw_ellipse_arc"]
+    assert [step["step_id"] for step in ellipse_steps] == ["bulkhead_wall_1", "bulkhead_wall_2"]
+    assert validate_cad_plan(plan)["ok"]
+    assert dry_run_cad_plan(plan)["ok"]
+
+
+def test_compile_polyline_hint_promotes_to_ellipse_arc(tmp_path):
+    db = make_db(tmp_path)
+    spec = polyline_ellipse_hint_spec()
+
+    validation = validate_image_drawing_spec(spec, database=db)
+    compiled = compile_image_spec_to_cad_plan(spec=spec, database=db)
+
+    assert validation["ok"], validation
+    assert compiled["ok"], compiled
+    plan = compiled["data"]["plan"]
+    ops = [step["op"] for step in plan["steps"]]
+    assert "draw_ellipse_arc" in ops
+    assert "draw_polyline" not in ops
+    step = next(step for step in plan["steps"] if step["op"] == "draw_ellipse_arc")
+    assert step["args"]["radius_ratio"] > 0
+    assert validate_cad_plan(plan)["ok"]
+    assert dry_run_cad_plan(plan)["ok"]
+
+
 def test_fidelity_rejects_chamfered_rectangle_downgrade():
     spec = sample_spec()
     plan = {
@@ -319,3 +464,21 @@ def test_fidelity_rejects_filleted_rectangle_without_radius_preservation():
 
     assert not result["ok"]
     assert "filleted_rectangle" in result["data"]["errors"][0]["kind"]
+
+
+def test_fidelity_rejects_curve_hint_polyline_downgrade():
+    spec = polyline_ellipse_hint_spec()
+    plan = {
+        "steps": [
+            {
+                "step_id": "misread_curve",
+                "op": "draw_polyline",
+                "args": {"points": [0, 0, 1, 1], "closed": False},
+            }
+        ]
+    }
+
+    result = validate_image_fidelity_contract(spec, plan)
+
+    assert not result["ok"]
+    assert "ellipse-arc" in result["data"]["errors"][0]["message"]

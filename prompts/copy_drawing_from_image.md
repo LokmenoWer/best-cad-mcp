@@ -6,6 +6,10 @@
 - Preserve mechanical drawing semantics and feature geometry. A chamfered square
   is not a square; a filleted rectangle is not a rectangle; a hole pattern is
   not unrelated circles.
+- Preserve true curve primitives. Elliptical arcs, paired elliptical wall or
+  bulkhead curves, and smooth fitted curves must not be flattened into plain
+  polylines. If you are unsure, include `geometry_candidates` and record the
+  ambiguity in `uncertainties`.
 - Do not invent unclear dimensions, hidden features, materials, tolerances, BOM
   rows, or text. Put unresolved observations in `uncertainties`.
 - Every feature, geometry element, annotation, and table must include
@@ -24,7 +28,12 @@
    If a value is uncertain, keep it out of calibration and record uncertainty.
 4. Encode repeated holes or parts as `pattern` items with member IDs and the
    grid/polar relationship when visible.
-5. Encode dimensions as `dimension` annotations with measurement points and
+5. For curved mechanical regions such as bulkheads, shells, ribs, and paired
+   wall contours, identify whether the visual stroke is a line, circular arc,
+   `ellipse_arc`, `paired_ellipse_arcs`, spline, or true polyline. Include fit
+   evidence such as center, major axis, radius ratio, start/end angle, sampled
+   points, and `fit_error_px` when available.
+6. Encode dimensions as `dimension` annotations with measurement points and
    text point when visible. Do not convert dimensions to plain text.
 
 ## JSON Shape
@@ -48,8 +57,8 @@ Supported `kind` values:
 
 ```text
 line, circle, arc, ellipse, polyline, rectangle, chamfered_rectangle,
-filleted_rectangle, hole, slot, centerline, dimension, text, leader, hatch,
-table, pattern
+ellipse_arc, paired_ellipse_arcs, filleted_rectangle, hole, slot, centerline,
+dimension, text, leader, hatch, table, pattern, bulkhead
 ```
 
 ## Feature Rules
@@ -60,6 +69,16 @@ table, pattern
   `segments`. Do not use a plain `rectangle`.
 - `slot`: include centerline/ends/radius or an explicit closed polyline/arc
   segment description.
+- `ellipse_arc`: include `pixel_geometry.center`, `major_axis`,
+  `radius_ratio`, `start_angle`, and `end_angle`, or include enough sampled
+  `points`/`vertices` for fitting. Angles are in degrees.
+- `paired_ellipse_arcs`/`bulkhead`: include two curve members under
+  `pixel_geometry.curves`; each member should be an `ellipse_arc` candidate
+  with center, major axis, radius ratio, start/end angle, confidence, evidence,
+  and optional `fit_error_px`.
+- If the visible curve was initially traced as a `polyline`, include
+  `primitive_hint` or `geometry_candidates` so downstream geometry arbitration
+  can promote it to `ellipse_arc` or `paired_ellipse_arcs`.
 - `hole`: include center and radius/diameter when visible. Use `pattern` for
   repeated holes.
 - `hatch`: include the region bbox, pattern direction if visible, and related

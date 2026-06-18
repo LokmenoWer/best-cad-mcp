@@ -987,10 +987,13 @@ class CADDatabase:
                 add_relation("c0", "center", "has_center")
         elif "ellipse" in etype:
             add_primitive("c0", "curve", "ellipse", 0, point=center,
-                          is_closed=True,
+                          is_closed=not bool(geometry.get("is_arc")),
                           properties={
                               "major_axis": geometry.get("major_axis"),
                               "radius_ratio": geometry.get("radius_ratio"),
+                              "start_angle": geometry.get("start_angle"),
+                              "end_angle": geometry.get("end_angle"),
+                              "is_arc": geometry.get("is_arc"),
                           })
             if center:
                 add_relation("c0", "center", "has_center")

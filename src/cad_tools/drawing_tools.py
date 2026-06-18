@@ -192,6 +192,35 @@ def draw_ellipse(center_x: float, center_y: float,
     return format_success(f"已绘制椭圆", handle=ell.Handle, ratio=radius_ratio)
 
 
+def draw_ellipse_arc(center_x: float, center_y: float,
+                     major_x: float, major_y: float, radius_ratio: float,
+                     start_angle: float, end_angle: float,
+                     layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """Draw an AutoCAD ellipse entity with bounded start/end parameters."""
+    if layer:
+        ctrl.create_layer(layer)
+        ctrl.set_current_layer(layer)
+    ell = ctrl.add_ellipse_arc(center_x, center_y, (major_x, major_y), radius_ratio, start_angle, end_angle)
+    if color != "bylayer":
+        try:
+            _com_set(ell, "Color", resolve_color(color))
+        except Exception:
+            pass
+    handle = _com_get(ell, "Handle", "")
+    layer_name = _com_get(ell, "Layer", "0")
+    db.upsert_entity(handle, "Ellipse", "AcDbEllipse",
+                     layer=layer_name, color=_com_get(ell, "Color", 256),
+                     geometry={"center": [center_x, center_y, 0],
+                               "major_axis": [major_x, major_y],
+                               "radius_ratio": radius_ratio,
+                               "start_angle": start_angle,
+                               "end_angle": end_angle,
+                               "is_arc": True})
+    return format_success("Drawn ellipse arc", handle=handle,
+                          layer=layer_name, ratio=radius_ratio,
+                          span=f"{start_angle} -> {end_angle}")
+
+
 def draw_polyline(points: List[float], closed: bool = False,
                   layer: Optional[str] = None, color: str = "bylayer") -> str:
     """绘制二维多段线。

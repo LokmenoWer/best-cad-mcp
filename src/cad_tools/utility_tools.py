@@ -1356,7 +1356,7 @@ def get_tool_help(tool_name: Optional[str] = None) -> str:
                     "get_active_space_info", "get_application_info",
                     "is_autocad_idle"],
         "2D绘图": ["draw_line", "draw_circle", "draw_arc", "draw_ellipse",
-                "draw_polyline", "draw_rectangle", "draw_polygon",
+                "draw_ellipse_arc", "draw_polyline", "draw_rectangle", "draw_polygon",
                 "draw_spline", "draw_point", "draw_text", "draw_mtext",
                 "draw_donut", "draw_ray", "draw_xline", "draw_mline",
                 "draw_2d_solid", "draw_trace", "draw_raster_image",

@@ -191,6 +191,10 @@ TOOL_DESCRIPTIONS = {
         "Draw one circle. For repeated holes or circular patterns, draw one "
         "circle and use array_polar instead of placing every circle manually."
     ),
+    "draw_ellipse_arc": (
+        "Draw a bounded AutoCAD ellipse entity for true elliptical arcs. Use "
+        "this instead of approximating an elliptical curve with a polyline."
+    ),
     "draw_rectangle": (
         "Preferred tool for any rectangle or square from two opposite corners. "
         "Use this instead of four draw_line calls or a hand-built closed "
@@ -854,6 +858,25 @@ def draw_ellipse(ctx: Context, center_x: float, center_y: float,
     """
     return drawing_tools.draw_ellipse(center_x, center_y, major_x, major_y,
                                       radius_ratio, layer, color)
+
+
+@mcp.tool(description=TOOL_DESCRIPTIONS["draw_ellipse_arc"])
+def draw_ellipse_arc(ctx: Context, center_x: float, center_y: float,
+                     major_x: float, major_y: float, radius_ratio: float,
+                     start_angle: float, end_angle: float,
+                     layer: Optional[str] = None, color: str = "bylayer") -> str:
+    """Draw a bounded ellipse arc as an AcDbEllipse entity."""
+    return drawing_tools.draw_ellipse_arc(
+        center_x,
+        center_y,
+        major_x,
+        major_y,
+        radius_ratio,
+        start_angle,
+        end_angle,
+        layer,
+        color,
+    )
 
 
 @mcp.tool(description=TOOL_DESCRIPTIONS["draw_polyline"])
