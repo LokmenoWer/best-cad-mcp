@@ -4884,12 +4884,22 @@ def propose_repair_plan(ctx: Context,
 def export_view_image_with_mapping(ctx: Context,
                                    filepath: Optional[str] = None,
                                    include_overlay: bool = True,
-                                   include_entity_bboxes: bool = True) -> Dict[str, Any]:
+                                   include_entity_bboxes: bool = True,
+                                   overlay_granularity: str = "entity",
+                                   overlay_style: str = "bbox",
+                                   include_tiles: bool = False,
+                                   tile_size: int = 640,
+                                   tile_overlap: float = 0.2) -> Dict[str, Any]:
     """Export a view artifact plus sidecar world/pixel/entity mapping."""
     return understanding_view.export_view_image_with_mapping(
         filepath=filepath,
         include_overlay=include_overlay,
         include_entity_bboxes=include_entity_bboxes,
+        overlay_granularity=overlay_granularity,
+        overlay_style=overlay_style,
+        include_tiles=include_tiles,
+        tile_size=tile_size,
+        tile_overlap=tile_overlap,
     )
 
 

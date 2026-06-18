@@ -280,11 +280,41 @@ def _svg_escape(value: Any) -> str:
     return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
+def _pixel_bbox_with_min_size(bbox: Sequence[float],
+                              min_size: float = 10.0) -> List[float]:
+    x1, y1, x2, y2 = [float(v) for v in list(bbox)[:4]]
+    if x2 < x1:
+        x1, x2 = x2, x1
+    if y2 < y1:
+        y1, y2 = y2, y1
+    width = x2 - x1
+    height = y2 - y1
+    if width < min_size:
+        pad = (min_size - width) / 2.0
+        x1 -= pad
+        x2 += pad
+    if height < min_size:
+        pad = (min_size - height) / 2.0
+        y1 -= pad
+        y2 += pad
+    return [x1, y1, x2, y2]
+
+
+def _overlay_colors(item: Dict[str, Any]) -> Tuple[str, str, str]:
+    kind = str(item.get("item_kind") or "entity")
+    if kind == "primitive":
+        return "#2563eb", "rgba(37, 99, 235, 0.10)", "#1e3a8a"
+    if kind == "semantic":
+        return "#059669", "rgba(5, 150, 105, 0.10)", "#064e3b"
+    return "#e11d48", "rgba(225, 29, 72, 0.08)", "#111827"
+
+
 def _write_svg_overlay(path: Path,
                        image_width: int,
                        image_height: int,
                        items: List[Dict[str, Any]],
-                       warnings: Optional[List[str]] = None) -> str:
+                       warnings: Optional[List[str]] = None,
+                       overlay_style: str = "bbox") -> str:
     overlay_path = path.with_name(f"{path.stem}_overlay.svg")
     lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{image_width}" height="{image_height}" viewBox="0 0 {image_width} {image_height}">',
@@ -292,15 +322,34 @@ def _write_svg_overlay(path: Path,
     ]
     for item in items:
         bbox = item.get("pixel_bbox") or [0, 0, 0, 0]
-        x1, y1, x2, y2 = [float(v) for v in bbox[:4]]
+        x1, y1, x2, y2 = _pixel_bbox_with_min_size(bbox, min_size=8.0)
         label = item.get("overlay_id", "?")
+        stroke, fill, text_color = _overlay_colors(item)
+        center_x = (x1 + x2) / 2.0
+        center_y = (y1 + y2) / 2.0
+        fill_value = fill if overlay_style == "som" else "none"
         lines.append(
             f'<rect x="{x1:.2f}" y="{y1:.2f}" width="{max(0.5, x2 - x1):.2f}" '
-            f'height="{max(0.5, y2 - y1):.2f}" fill="none" stroke="#e11d48" stroke-width="2"/>'
+            f'height="{max(0.5, y2 - y1):.2f}" fill="{fill_value}" stroke="{stroke}" stroke-width="2"/>'
         )
+        if overlay_style == "som":
+            radius = max(9.0, min(18.0, (len(str(label)) * 4.2) + 6.0))
+            lines.append(
+                f'<circle cx="{center_x:.2f}" cy="{center_y:.2f}" r="{radius:.2f}" '
+                f'fill="{stroke}" fill-opacity="0.92" stroke="white" stroke-width="2"/>'
+            )
+            text_x = center_x
+            text_y = center_y + 4.0
+            anchor = "middle"
+            text_color = "white"
+        else:
+            text_x = x1
+            text_y = max(12.0, y1 - 3)
+            anchor = "start"
         lines.append(
-            f'<text x="{x1:.2f}" y="{max(12.0, y1 - 3):.2f}" font-size="13" '
-            f'font-family="Arial" font-weight="700" fill="#111827">{_svg_escape(label)}</text>'
+            f'<text x="{text_x:.2f}" y="{text_y:.2f}" font-size="13" '
+            f'font-family="Arial" font-weight="700" text-anchor="{anchor}" '
+            f'fill="{text_color}">{_svg_escape(label)}</text>'
         )
         lines.append(f'<title>{_svg_escape(label)}: {_svg_escape(item.get("handle", ""))}</title>')
     for index, warning in enumerate(warnings or [], start=1):
@@ -316,7 +365,8 @@ def _write_svg_overlay(path: Path,
 def _draw_raster_overlay(path: Path,
                          image_width: int,
                          image_height: int,
-                         items: List[Dict[str, Any]]) -> Optional[str]:
+                         items: List[Dict[str, Any]],
+                         overlay_style: str = "bbox") -> Optional[str]:
     if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}:
         return None
     if not path.exists():
@@ -329,15 +379,32 @@ def _draw_raster_overlay(path: Path,
         draw = ImageDraw.Draw(image, "RGBA")
         font = ImageFont.load_default()
         for item in items:
-            x1, y1, x2, y2 = [float(v) for v in (item.get("pixel_bbox") or [0, 0, 0, 0])[:4]]
+            x1, y1, x2, y2 = _pixel_bbox_with_min_size(item.get("pixel_bbox") or [0, 0, 0, 0])
             label = str(item.get("overlay_id") or "?")
-            draw.rectangle([x1, y1, x2, y2], outline=(225, 29, 72, 255), width=3)
+            kind = str(item.get("item_kind") or "entity")
+            if kind == "primitive":
+                outline = (37, 99, 235, 255)
+                fill = (37, 99, 235, 26)
+            elif kind == "semantic":
+                outline = (5, 150, 105, 255)
+                fill = (5, 150, 105, 26)
+            else:
+                outline = (225, 29, 72, 255)
+                fill = (225, 29, 72, 20)
+            draw.rectangle([x1, y1, x2, y2], outline=outline, fill=fill if overlay_style == "som" else None, width=3)
             text_box = draw.textbbox((0, 0), label, font=font)
             tw = text_box[2] - text_box[0] + 8
             th = text_box[3] - text_box[1] + 6
-            label_y = max(0, y1 - th - 2)
-            draw.rectangle([x1, label_y, x1 + tw, label_y + th], fill=(17, 24, 39, 220))
-            draw.text((x1 + 4, label_y + 3), label, fill=(255, 255, 255, 255), font=font)
+            if overlay_style == "som":
+                cx = (x1 + x2) / 2.0
+                cy = (y1 + y2) / 2.0
+                radius = max(10, int(max(tw, th) / 2 + 4))
+                draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=outline, outline=(255, 255, 255, 255), width=2)
+                draw.text((cx - tw / 2 + 4, cy - th / 2 + 3), label, fill=(255, 255, 255, 255), font=font)
+            else:
+                label_y = max(0, y1 - th - 2)
+                draw.rectangle([x1, label_y, x1 + tw, label_y + th], fill=(17, 24, 39, 220))
+                draw.text((x1 + 4, label_y + 3), label, fill=(255, 255, 255, 255), font=font)
         overlay_path = path.with_name(f"{path.stem}_overlay.png")
         if image.width != image_width or image.height != image_height:
             image_width, image_height = image.width, image.height
@@ -382,6 +449,7 @@ def _build_overlay_items(database: CADDatabase,
         bbox = bbox_from_row(entity)
         items.append({
             "overlay_id": f"E{index:03d}",
+            "item_kind": "entity",
             "handle": handle,
             "native_handle": str(entity.get("native_handle") or handle),
             "entity_type": entity.get("type") or entity.get("entity_type") or entity.get("name") or "Unknown",
@@ -394,9 +462,141 @@ def _build_overlay_items(database: CADDatabase,
     return items
 
 
+def _build_primitive_overlay_items(database: CADDatabase,
+                                   entity_items: List[Dict[str, Any]],
+                                   view_extent: BBox,
+                                   matrix: Sequence[Sequence[float]]) -> List[Dict[str, Any]]:
+    primitive_items: List[Dict[str, Any]] = []
+    for entity_item in entity_items:
+        handle = str(entity_item.get("handle") or "")
+        parent_id = str(entity_item.get("overlay_id") or "")
+        topology = topology_for_handle(database, handle)
+        for primitive_index, primitive in enumerate(topology.get("primitives", []), start=1):
+            world_bbox = _primitive_bbox(primitive)
+            if not world_bbox or not bbox_intersects(world_bbox, view_extent):
+                continue
+            primitive_items.append({
+                "overlay_id": f"{parent_id}.P{primitive_index:02d}",
+                "item_kind": "primitive",
+                "handle": handle,
+                "native_handle": entity_item.get("native_handle") or handle,
+                "parent_overlay_id": parent_id,
+                "entity_type": entity_item.get("entity_type"),
+                "layer": entity_item.get("layer"),
+                "primitive_key": primitive.get("primitive_key"),
+                "primitive_type": primitive.get("primitive_type"),
+                "role": primitive.get("role"),
+                "pixel_bbox": bbox_world_to_pixel(world_bbox, matrix),
+                "world_bbox": bbox_dict(world_bbox),
+                "semantic_tags": entity_item.get("semantic_tags", []),
+                "confidence": 0.9,
+            })
+    return primitive_items
+
+
+def _overlay_items_for_granularity(database: CADDatabase,
+                                   visible_handles: List[str],
+                                   screen_bboxes: Dict[str, List[float]],
+                                   view_extent: BBox,
+                                   matrix: Sequence[Sequence[float]],
+                                   overlay_granularity: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    entity_items = _build_overlay_items(database, visible_handles, screen_bboxes)
+    primitive_items = _build_primitive_overlay_items(database, entity_items, view_extent, matrix)
+    granularity = (overlay_granularity or "entity").lower().strip()
+    if granularity == "primitive":
+        return primitive_items, primitive_items
+    if granularity in {"both", "entity+primitive", "all"}:
+        return entity_items + primitive_items, primitive_items
+    return entity_items, primitive_items
+
+
+def _build_tile_index(clean_image_path: str,
+                      overlay_image_path: str,
+                      image_width: int,
+                      image_height: int,
+                      overlay_items: List[Dict[str, Any]],
+                      tile_size: int = 640,
+                      tile_overlap: float = 0.2) -> Dict[str, Any]:
+    size = max(128, min(int(tile_size or 640), 4096))
+    overlap = max(0.0, min(float(tile_overlap or 0.0), 0.8))
+    step = max(1, int(size * (1.0 - overlap)))
+    tiles: List[Dict[str, Any]] = []
+    raster_suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+    clean_path = Path(clean_image_path)
+    overlay_path = Path(overlay_image_path) if overlay_image_path else Path("")
+    can_crop_clean = clean_path.exists() and clean_path.suffix.lower() in raster_suffixes
+    can_crop_overlay = overlay_path.exists() and overlay_path.suffix.lower() in raster_suffixes
+    clean_image = None
+    overlay_image = None
+    try:
+        if can_crop_clean or can_crop_overlay:
+            from PIL import Image
+
+            clean_image = Image.open(clean_path) if can_crop_clean else None
+            overlay_image = Image.open(overlay_path) if can_crop_overlay else None
+        tile_dir = clean_path.with_name(f"{clean_path.stem}_tiles")
+        if clean_image or overlay_image:
+            tile_dir.mkdir(parents=True, exist_ok=True)
+        tile_index = 1
+        y = 0
+        while y < image_height:
+            x = 0
+            y2 = min(image_height, y + size)
+            y1 = max(0, y2 - size)
+            while x < image_width:
+                x2 = min(image_width, x + size)
+                x1 = max(0, x2 - size)
+                tile_bbox = [float(x1), float(y1), float(x2), float(y2)]
+                visible_items = [
+                    item for item in overlay_items
+                    if bbox_intersects(tile_bbox, item.get("pixel_bbox"))
+                ]
+                tile: Dict[str, Any] = {
+                    "tile_id": f"T{tile_index:03d}",
+                    "pixel_bbox": tile_bbox,
+                    "overlay_ids": [item.get("overlay_id") for item in visible_items],
+                    "item_count": len(visible_items),
+                }
+                if clean_image:
+                    clean_tile_path = tile_dir / f"{clean_path.stem}_{tile['tile_id']}.png"
+                    clean_image.crop((x1, y1, x2, y2)).save(clean_tile_path)
+                    tile["clean_tile_path"] = str(clean_tile_path)
+                if overlay_image:
+                    overlay_tile_path = tile_dir / f"{clean_path.stem}_{tile['tile_id']}_overlay.png"
+                    overlay_image.crop((x1, y1, x2, y2)).save(overlay_tile_path)
+                    tile["overlay_tile_path"] = str(overlay_tile_path)
+                tiles.append(tile)
+                tile_index += 1
+                if x2 >= image_width:
+                    break
+                x += step
+            if y2 >= image_height:
+                break
+            y += step
+    finally:
+        for image in (clean_image, overlay_image):
+            if image is not None:
+                image.close()
+    sidecar_path = clean_path.with_name(f"{clean_path.stem}_tiles.json")
+    tile_index_payload = {
+        "tile_size": size,
+        "tile_overlap": overlap,
+        "tiles": tiles,
+        "warnings": [] if (can_crop_clean or can_crop_overlay) else [
+            "Source view artifact was not a supported raster image; tile index contains metadata only."
+        ],
+    }
+    sidecar_path.write_text(json.dumps(tile_index_payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    return {
+        "tile_index_path": str(sidecar_path),
+        **tile_index_payload,
+    }
+
+
 def create_overlay_artifact(clean_image_path: str,
                             entity_screen_bboxes: Any,
-                            context: Dict[str, Any]) -> Dict[str, Any]:
+                            context: Dict[str, Any],
+                            overlay_style: str = "bbox") -> Dict[str, Any]:
     """Create a real raster overlay when possible, otherwise SVG fallback."""
     path = Path(clean_image_path)
     image = context.get("image", {})
@@ -411,19 +611,21 @@ def create_overlay_artifact(clean_image_path: str,
             for index, (handle, bbox) in enumerate(dict(entity_screen_bboxes or {}).items(), start=1)
         ]
 
-    overlay_path = _draw_raster_overlay(path, image_width, image_height, items)
+    style = "som" if str(overlay_style or "").lower().strip() in {"som", "set_of_mark", "set-of-mark"} else "bbox"
+    overlay_path = _draw_raster_overlay(path, image_width, image_height, items, overlay_style=style)
     if overlay_path:
         artifact_warnings = []
     else:
         artifact_warnings = [
             "Raster overlay was unavailable; generated an external SVG overlay fallback."
         ]
-        overlay_path = _write_svg_overlay(path, image_width, image_height, items, warnings=artifact_warnings)
+        overlay_path = _write_svg_overlay(path, image_width, image_height, items, warnings=artifact_warnings, overlay_style=style)
 
     sidecar = {
         "clean_image_path": str(path),
         "overlay_image_path": overlay_path,
         "overlay_items": items,
+        "overlay_style": style,
         "image": {"width": image_width, "height": image_height},
         "warnings": warnings + artifact_warnings,
     }
@@ -582,6 +784,11 @@ def get_current_view_context(filepath: Optional[str] = None,
 def export_view_image_with_mapping(filepath: Optional[str] = None,
                                    include_overlay: bool = True,
                                    include_entity_bboxes: bool = True,
+                                   overlay_granularity: str = "entity",
+                                   overlay_style: str = "bbox",
+                                   include_tiles: bool = False,
+                                   tile_size: int = 640,
+                                   tile_overlap: float = 0.2,
                                    database: Optional[CADDatabase] = None) -> ToolResult:
     db = get_db(database)
     if filepath is None or not str(filepath).strip():
@@ -644,7 +851,14 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
                 "Current AutoCAD view contained no scanned entities; mapping fell back to scanned entity extents."
             )
 
-    overlay_items = _build_overlay_items(db, visible_handles, entity_screen_bboxes)
+    overlay_items, primitive_overlay_items = _overlay_items_for_granularity(
+        db,
+        visible_handles,
+        entity_screen_bboxes,
+        transform["world_extent"],
+        transform["world_to_pixel"],
+        overlay_granularity,
+    )
     overlay_path = ""
     overlay_items_path = ""
     if include_overlay:
@@ -652,10 +866,29 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
             str(path),
             overlay_items,
             {**context, "warnings": warnings, "image": {"width": image_width, "height": image_height}},
+            overlay_style=overlay_style,
         )
         overlay_path = overlay["overlay_image_path"]
         overlay_items_path = overlay["overlay_items_path"]
         warnings.extend(overlay.get("warnings", []))
+    tile_index = {
+        "tile_index_path": "",
+        "tiles": [],
+        "warnings": [],
+        "tile_size": tile_size,
+        "tile_overlap": tile_overlap,
+    }
+    if include_tiles:
+        tile_index = _build_tile_index(
+            str(path),
+            overlay_path,
+            image_width,
+            image_height,
+            overlay_items,
+            tile_size=tile_size,
+            tile_overlap=tile_overlap,
+        )
+        warnings.extend(tile_index.get("warnings", []))
 
     snapshot = {
         "snapshot_id": stable_id("snapshot", str(path), now_iso()),
@@ -665,6 +898,11 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
         "context_json_path": "",
         "overlay_items_path": overlay_items_path,
         "overlay_items": overlay_items,
+        "primitive_overlay_items": primitive_overlay_items,
+        "overlay_granularity": (overlay_granularity or "entity").lower().strip(),
+        "overlay_style": "som" if str(overlay_style or "").lower().strip() in {"som", "set_of_mark", "set-of-mark"} else "bbox",
+        "tile_index_path": tile_index.get("tile_index_path", ""),
+        "tiles": tile_index.get("tiles", []),
         "view": context["view"],
         "ucs": context.get("ucs", {}),
         "viewport": context.get("viewport", {}),
@@ -707,6 +945,8 @@ def get_visible_entities_in_view(snapshot_id: str,
             "visible_handles": handles,
             "entity_screen_bboxes": snapshot.get("entity_screen_bboxes", {}),
             "overlay_items": snapshot.get("overlay_items", []),
+            "primitive_overlay_items": snapshot.get("primitive_overlay_items", []),
+            "tiles": snapshot.get("tiles", []),
         },
         handles=handles,
         next_tools=["ground_vlm_region", "ground_vlm_overlay_id", "explain_entity"],
@@ -868,12 +1108,33 @@ def _candidate_from_overlay_item(database: CADDatabase,
         query_bbox,
         snapshot,
     )
+    if item.get("primitive_key"):
+        primitive_matches = [{
+            "primitive_key": item.get("primitive_key"),
+            "primitive_type": item.get("primitive_type"),
+            "role": item.get("role"),
+            "score": 1.0,
+            "evidence": {
+                "reason": "VLM referenced a primitive overlay item directly.",
+                "overlay_id": item.get("overlay_id"),
+                "pixel_bbox": ent_bbox,
+                "world_bbox": item.get("world_bbox"),
+            },
+        }] + [
+            primitive for primitive in primitive_matches
+            if primitive.get("primitive_key") != item.get("primitive_key")
+        ]
     warnings = list(snapshot.get("limitations", [])) + primitive_warnings
     return {
         "handle": item.get("handle"),
         "native_handle": item.get("native_handle") or item.get("handle"),
         "entity_type": item.get("entity_type"),
         "overlay_id": item.get("overlay_id"),
+        "item_kind": item.get("item_kind", "entity"),
+        "parent_overlay_id": item.get("parent_overlay_id"),
+        "primitive_key": item.get("primitive_key"),
+        "primitive_type": item.get("primitive_type"),
+        "role": item.get("role"),
         "score": round(score, 4),
         "iou_score": round(iou, 4),
         "distance_score": round(distance_score, 4),
