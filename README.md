@@ -494,6 +494,12 @@ The `prompts/` directory contains MCP prompt source files for:
 - VLM drawing review, and
 - repair planning.
 
+These prompts are intentionally workflow-oriented. They tell agents to route
+complex drawings through CAD-IR, semantic objects, constraints, validation,
+visual grounding, and guarded CADPlan execution instead of simplifying
+assemblies, section/detail views, BOMs, title blocks, hatches, dimensions, or
+3D intent into generic lines and text.
+
 The `.agents/skills/draw-assembly-diagrams` skill provides agent-facing
 assembly drawing workflows. Assembly rules are modular:
 

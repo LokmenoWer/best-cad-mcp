@@ -1,5 +1,19 @@
 # VLM Review Drawing
 
+## Fidelity Contract
+
+- Use VLM review to preserve complex visible semantics, not to replace CAD
+  evidence. Views, section/detail markers, BOMs, title blocks, GD&T, surface
+  finish symbols, dimensions, hatches, and repeated components must remain
+  grounded to handles, primitives, or explicit uncertainty.
+- A VLM finding is a hypothesis until validated, grounded, persisted, and
+  reviewed. Do not promote it to a repair issue just because it is visually
+  plausible.
+- Do not draw helper geometry, labels, arrows, or temporary marks into the DWG
+  for VLM grounding.
+
+## Workflow
+
 1. Call `export_view_image_with_mapping` with `include_overlay=true`.
    Use `overlay_granularity="both"` and `overlay_style="som"` for dense
    review, and `include_tiles=true` for large drawings.

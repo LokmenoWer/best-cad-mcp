@@ -609,7 +609,213 @@ def restart_mcp(delay_seconds: float = 0.5, exit_code: int = 0) -> str:
 
 # ── Help / Documentation ───────────────────────────────────────
 
+WORKFLOW_PLAYBOOKS = [
+    {
+        "name": "Existing or complex drawing understanding",
+        "keywords": [
+            "understand", "inspect", "analyze", "existing drawing",
+            "complex drawing", "engineering drawing", "assembly drawing",
+            "section view", "detail view", "title block", "gd&t",
+            "tolerance", "bom", "drawing intent", "理解", "分析", "复杂图纸",
+            "工程图", "装配图", "剖视图", "明细表", "标题栏",
+        ],
+        "steps": [
+            "scan_all_entities(topology_detail='full' when primitive grounding matters)",
+            "build_drawing_ir(sections=['overview', 'entities'] for orientation and handle lookup)",
+            "summarize_drawing",
+            "detect_semantic_objects(domain='mechanical' or another suitable domain)",
+            "extract_drawing_constraints -> bind_all_dimensions -> check_drawing_constraints",
+            "validate_geometry",
+            "export_view_image_with_mapping(include_overlay=True, include_tiles=True for dense drawings)",
+        ],
+        "fidelity": [
+            "Keep uncertain semantics explicit; do not collapse views, dimensions, BOMs, title blocks, or section/detail views into generic linework.",
+            "Use CAD-IR resources and semantic graph evidence before editing or summarizing a dense drawing.",
+        ],
+    },
+    {
+        "name": "New complex drawing from specification",
+        "keywords": [
+            "draw from spec", "generate drawing", "create drawing",
+            "complex", "assembly", "mechanical drawing", "floor plan",
+            "layout", "bom", "parts list", "section", "exploded",
+            "3d", "solid", "from specification", "复杂", "绘制", "生成",
+            "装配", "机械图", "爆炸图", "剖面", "三维",
+        ],
+        "steps": [
+            "recommend_cad_tools(intent) to identify purpose-built tools",
+            "create CADPlan with variables, layers, save_as handles, dependencies, expectations, and postconditions",
+            "validate_cad_plan -> dry_run_cad_plan",
+            "execute_cad_plan only with allow_modify=True and transactional=True",
+            "scan_all_entities -> build_drawing_ir -> validate_geometry -> export_view_image_with_mapping",
+        ],
+        "fidelity": [
+            "Use blocks/arrays for repeated components, CAD tables for BOMs, dimensions for measurements, hatches for sections, and solids/booleans for 3D intent.",
+            "If no exposed tool can preserve a requested feature, state the limitation instead of silently simplifying it.",
+        ],
+    },
+    {
+        "name": "Validation-led repair",
+        "keywords": [
+            "repair", "fix", "validate", "issue", "constraint violation",
+            "dimension mismatch", "geometry problem", "修复", "校验",
+            "约束", "尺寸错误", "问题",
+        ],
+        "steps": [
+            "validate_geometry",
+            "extract_drawing_constraints -> bind_all_dimensions -> check_drawing_constraints when design intent matters",
+            "propose_repair_plan or propose_constraint_repair_plan",
+            "validate_cad_plan -> dry_run_cad_plan",
+            "execute_cad_plan only after explicit modification permission",
+            "scan_all_entities -> validate_geometry -> export_view_image_with_mapping",
+        ],
+        "fidelity": [
+            "Repair by handle and preserve blocks, associative dimensions, layers, hatches, and annotations when possible.",
+            "Do not delete and redraw complex regions unless the plan states why that is the least destructive repair.",
+        ],
+    },
+    {
+        "name": "VLM visual review and grounding",
+        "keywords": [
+            "visual", "vlm", "screenshot", "overlay", "ground",
+            "grounding", "pixel", "review", "view image", "视觉", "截图",
+            "叠加", "定位", "审查",
+        ],
+        "steps": [
+            "export_view_image_with_mapping(include_overlay=True, overlay_granularity='both')",
+            "validate_vlm_review_output before trusting model JSON",
+            "submit_vlm_review to ground overlay IDs or bboxes to handles",
+            "get_vlm_findings -> fuse_vlm_findings_into_semantic_graph when findings identify semantic objects",
+            "analyze_engineering_drawing_stages for layout/annotation reconciliation",
+        ],
+        "fidelity": [
+            "VLM findings are hypotheses until grounded to handles or primitive candidates.",
+            "Do not draw helper labels into the DWG for visual grounding.",
+        ],
+    },
+]
+
+
 TOOL_ROUTING_CATALOG = [
+    {
+        "category": "Understanding",
+        "tool": "build_drawing_ir",
+        "use": "Build CAD-IR v2, a structured drawing index for complex drawings, handle lookup, resources, and downstream validation.",
+        "avoid": "Do not summarize or edit a dense drawing from primitive counts alone.",
+        "keywords": ["cad-ir", "drawing ir", "structured index", "complex drawing", "understand drawing", "handle lookup", "工程图", "复杂图纸", "结构化索引"],
+    },
+    {
+        "category": "Understanding",
+        "tool": "summarize_drawing",
+        "use": "Summarize scanned drawing metadata after CAD-IR and semantic extraction.",
+        "avoid": "Do not infer drawing purpose from a small sample of entities.",
+        "keywords": ["summary", "summarize", "overview", "drawing summary", "概览", "总结"],
+    },
+    {
+        "category": "Understanding",
+        "tool": "detect_semantic_objects",
+        "use": "Detect domain-level objects such as parts, holes, labels, dimensions, tables, views, and drawing regions.",
+        "avoid": "Do not flatten meaningful CAD objects into anonymous lines and text.",
+        "keywords": ["semantic", "part", "assembly", "hole", "view", "title block", "bom", "gdt", "gd&t", "语义", "零件", "装配", "孔", "标题栏"],
+    },
+    {
+        "category": "Understanding",
+        "tool": "extract_drawing_constraints",
+        "use": "Extract geometric and dimensional constraints such as alignment, symmetry, spacing, and measurement intent.",
+        "avoid": "Do not move or redraw constrained geometry before checking design intent.",
+        "keywords": ["constraint", "constraints", "alignment", "symmetry", "spacing", "design intent", "约束", "对齐", "对称", "间距"],
+    },
+    {
+        "category": "Understanding",
+        "tool": "bind_all_dimensions",
+        "use": "Bind dimension entities to likely geometry handles before validation, repair, or explanation.",
+        "avoid": "Do not treat dimension text as unconnected annotation when associative binding is needed.",
+        "keywords": ["bind dimensions", "dimension binding", "dimensioned", "measurement", "尺寸绑定", "尺寸关联"],
+    },
+    {
+        "category": "Understanding",
+        "tool": "check_drawing_constraints",
+        "use": "Check extracted constraints against current geometry and report violations.",
+        "avoid": "Do not repair design-intent issues without checking the active constraint set.",
+        "keywords": ["check constraints", "constraint violation", "violated", "约束检查", "违反约束"],
+    },
+    {
+        "category": "Validation",
+        "tool": "validate_geometry",
+        "use": "Validate geometry, layers, blocks, annotations, dimensions, and constraints before and after changes.",
+        "avoid": "Do not rely on visual appearance alone after a complex edit.",
+        "keywords": ["validate", "validation", "geometry check", "quality", "校验", "验证", "质量"],
+    },
+    {
+        "category": "Visual grounding",
+        "tool": "export_view_image_with_mapping",
+        "use": "Export clean image, overlay, pixel/world mapping, visible handles, and optional tiles for dense visual review.",
+        "avoid": "Do not use visible helper geometry to label or ground model observations.",
+        "keywords": ["visual mapping", "overlay", "pixel", "world mapping", "tiles", "view image", "grounding", "视觉", "叠加", "像素", "定位"],
+    },
+    {
+        "category": "Engineering review",
+        "tool": "analyze_engineering_drawing_stages",
+        "use": "Analyze layout segmentation, annotations, title blocks, BOM-like tables, VLM parsing, and semantic reconciliation.",
+        "avoid": "Do not simplify engineering sheets to one model-space outline when views and annotations carry meaning.",
+        "keywords": ["engineering drawing", "assembly drawing", "section view", "detail view", "bom", "title block", "annotation detection", "工程图", "装配图", "剖视图", "标题栏", "明细表"],
+    },
+    {
+        "category": "VLM grounding",
+        "tool": "validate_vlm_review_output",
+        "use": "Validate VLM JSON before grounding or persisting findings.",
+        "avoid": "Do not trust unvalidated VLM prose or malformed JSON as drawing evidence.",
+        "keywords": ["vlm json", "validate vlm", "review output", "视觉模型", "审查输出"],
+    },
+    {
+        "category": "VLM grounding",
+        "tool": "submit_vlm_review",
+        "use": "Ground VLM overlay IDs or pixel bboxes to CAD handles and persist evidence.",
+        "avoid": "Do not convert VLM findings into repairs before grounding candidates are inspected.",
+        "keywords": ["submit vlm", "ground findings", "overlay id", "bbox", "VLM定位", "候选句柄"],
+    },
+    {
+        "category": "VLM grounding",
+        "tool": "fuse_vlm_findings_into_semantic_graph",
+        "use": "Fuse grounded VLM findings into the semantic graph as evidence-bearing hypotheses.",
+        "avoid": "Do not overwrite lower-level CAD evidence with unreviewed visual hypotheses.",
+        "keywords": ["fuse vlm", "semantic graph", "visual semantics", "语义图", "融合"],
+    },
+    {
+        "category": "CADPlan",
+        "tool": "validate_cad_plan",
+        "use": "Validate CADPlan schema, dependencies, tool bindings, safety, and postconditions before execution.",
+        "avoid": "Do not execute a multi-step plan before validation.",
+        "keywords": ["cadplan", "plan validation", "validate plan", "multi-step", "计划校验"],
+    },
+    {
+        "category": "CADPlan",
+        "tool": "dry_run_cad_plan",
+        "use": "Dry-run a CADPlan to inspect planned operations and handle bindings without modifying AutoCAD.",
+        "avoid": "Do not skip dry-run for multi-step generation or repair.",
+        "keywords": ["dry run", "dry-run", "preview plan", "cadplan", "试运行", "预演"],
+    },
+    {
+        "category": "CADPlan",
+        "tool": "execute_cad_plan",
+        "use": "Execute a validated CADPlan only after explicit modification permission with allow_modify=True.",
+        "avoid": "Do not execute automatically or without transactional safeguards for complex changes.",
+        "keywords": ["execute plan", "execute cadplan", "transactional", "allow_modify", "执行计划"],
+    },
+    {
+        "category": "Repair planning",
+        "tool": "propose_repair_plan",
+        "use": "Propose a CADPlan for selected validation or VLM issues without modifying the DWG.",
+        "avoid": "Do not manually patch validation issues when a proposed plan can preserve intent.",
+        "keywords": ["repair plan", "fix issue", "validation issue", "repair drawing", "修复计划", "修复问题"],
+    },
+    {
+        "category": "Repair planning",
+        "tool": "propose_constraint_repair_plan",
+        "use": "Propose a CADPlan for violated constraints without modifying the DWG.",
+        "avoid": "Do not repair a constraint violation without exposing the intended constraint change.",
+        "keywords": ["constraint repair", "violated constraint", "repair constraint", "约束修复"],
+    },
     {
         "category": "2D drawing",
         "tool": "draw_rectangle",
@@ -916,6 +1122,70 @@ TOOL_ROUTING_CATALOG = [
 _TOOL_ROUTING_BY_NAME = {entry["tool"]: entry for entry in TOOL_ROUTING_CATALOG}
 
 
+def _score_keywords(intent: str, keywords: List[str]) -> int:
+    query = intent.lower()
+    score = 0
+    for keyword in keywords:
+        kw = keyword.lower()
+        if kw and kw in query:
+            score += 6
+    return score
+
+
+def _recommended_workflow_playbooks(intent: str) -> List[Dict[str, Any]]:
+    scored = [
+        (_score_keywords(intent, playbook["keywords"]), playbook)
+        for playbook in WORKFLOW_PLAYBOOKS
+    ]
+    matches = [
+        playbook
+        for score, playbook in sorted(scored, key=lambda item: (-item[0], item[1]["name"]))
+        if score > 0
+    ]
+    query = intent.lower()
+    words = set(query.replace("_", " ").replace("-", " ").replace(",", " ").split())
+    asks_understanding = (
+        bool({"understand", "inspect", "analyze"} & words)
+        or "review existing" in query
+        or "理解" in query
+        or "分析" in query
+    )
+    asks_creation = (
+        bool({"draw", "create", "generate"} & words)
+        or "from spec" in query
+        or "from specification" in query
+        or "绘制" in query
+        or "生成" in query
+        or "创建" in query
+    )
+    asks_repair = (
+        bool({"repair", "fix"} & words)
+        or "修复" in query
+    )
+    if asks_repair and not asks_creation:
+        repair_matches = [playbook for playbook in matches if playbook["name"] == "Validation-led repair"]
+        if repair_matches:
+            return repair_matches
+    if asks_understanding and not asks_creation:
+        understanding_matches = [
+            playbook for playbook in matches
+            if playbook["name"] in {
+                "Existing or complex drawing understanding",
+                "VLM visual review and grounding",
+            }
+        ]
+        if understanding_matches:
+            return understanding_matches
+    if asks_creation and not asks_understanding:
+        creation_matches = [
+            playbook for playbook in matches
+            if playbook["name"] == "New complex drawing from specification"
+        ]
+        if creation_matches:
+            return creation_matches
+    return matches
+
+
 def _score_tool_route(intent: str, entry: dict) -> int:
     query = intent.lower()
     score = 0
@@ -925,10 +1195,7 @@ def _score_tool_route(intent: str, entry: dict) -> int:
         [entry["tool"], entry["category"], entry["use"], entry["avoid"]]
         + entry["keywords"]
     ).lower()
-    for keyword in entry["keywords"]:
-        kw = keyword.lower()
-        if kw and kw in query:
-            score += 6
+    score += _score_keywords(intent, entry["keywords"])
     for token in query.replace("_", " ").replace("-", " ").split():
         if len(token) >= 3 and token in haystack:
             score += 1
@@ -948,11 +1215,13 @@ def recommend_cad_tools(intent: str, max_results: int = 8) -> str:
             "recommend_cad_tools('draw a rounded rectangle with dimensions')."
         )
 
+    intent_text = intent.strip()
     max_results = max(1, min(int(max_results or 8), 20))
+    playbooks = _recommended_workflow_playbooks(intent_text)[:2]
     scored = [
         (score, entry)
         for entry in TOOL_ROUTING_CATALOG
-        if (score := _score_tool_route(intent, entry)) > 0
+        if (score := _score_tool_route(intent_text, entry)) > 0
     ]
     scored.sort(key=lambda item: (-item[0], item[1]["category"], item[1]["tool"]))
 
@@ -968,7 +1237,19 @@ def recommend_cad_tools(intent: str, max_results: int = 8) -> str:
             _TOOL_ROUTING_BY_NAME["send_command"],
         ][:max_results]
 
-    lines = [f"Recommended CAD MCP tools for: {intent.strip()}"]
+    lines = [f"Recommended CAD MCP tools for: {intent_text}"]
+    if playbooks:
+        lines.append("")
+        lines.append("Workflow route:")
+        for playbook in playbooks:
+            lines.append(f"- {playbook['name']}")
+            for step in playbook["steps"]:
+                lines.append(f"  -> {step}")
+            for guard in playbook["fidelity"]:
+                lines.append(f"  Fidelity: {guard}")
+
+    lines.append("")
+    lines.append("Tool matches:")
     for idx, entry in enumerate(entries, 1):
         lines.append(f"{idx}. {entry['tool']} [{entry['category']}]")
         lines.append(f"   Use: {entry['use']}")
@@ -977,7 +1258,9 @@ def recommend_cad_tools(intent: str, max_results: int = 8) -> str:
     lines.append("")
     lines.append("Workflow guards:")
     lines.append("- Existing drawing: scan_all_entities -> get_entity_statistics/execute_query before edits.")
-    lines.append("- Vision-capable model: call export_view_image whenever the visible CAD state needs confirmation.")
+    lines.append("- Vision-capable model: call export_view_image_with_mapping whenever the visible CAD state needs confirmation.")
+    lines.append("- Dense/complex drawing: use CAD-IR, semantic objects, constraints, validation, and overlay mapping before simplifying.")
+    lines.append("- New complex drawing: use CADPlan validation and dry-run before execution.")
     lines.append("- Model-only context: use add_spatial_annotation/list_spatial_annotations instead of drawing helper labels.")
     lines.append("- Prefer named tools over draw_line/draw_circle/draw_polyline and repeated copy_entity.")
     lines.append("- Use send_command only after the catalog has no suitable tool.")

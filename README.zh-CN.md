@@ -379,6 +379,10 @@ VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；返回 ove
 - VLM 图纸审阅；
 - 修复规划。
 
+这些提示词按工作流组织，目的是让 agent 面对复杂图纸时先走
+CAD-IR、语义对象、约束、验证、视觉定位和受保护 CADPlan，而不是把
+装配图、剖视/详图、BOM、标题栏、填充、尺寸或 3D 意图简化成普通线段和文字。
+
 `.agents/skills/draw-assembly-diagrams` 提供面向 agent 的装配图工作流。装配图规则已经模块化：
 
 - `references/assembly/index.md` 负责选择适用规范模块。

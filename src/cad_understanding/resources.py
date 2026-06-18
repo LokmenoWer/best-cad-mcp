@@ -68,6 +68,41 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
         return analyze_engineering_drawing_stages(database=db)["data"]
     if uri == "cad://drawing/current/tool-guide":
         return {
+            "intent_routes": {
+                "understand_existing_or_complex": [
+                    "scan_all_entities(topology_detail='full' when primitive grounding matters)",
+                    "build_drawing_ir",
+                    "summarize_drawing",
+                    "detect_semantic_objects",
+                    "extract_drawing_constraints",
+                    "bind_all_dimensions",
+                    "check_drawing_constraints",
+                    "validate_geometry",
+                    "export_view_image_with_mapping(include_overlay=True)",
+                ],
+                "engineering_drawing_or_assembly": [
+                    "export_view_image_with_mapping(include_overlay=True, overlay_granularity='both')",
+                    "analyze_engineering_drawing_stages",
+                    "fuse_vlm_findings_into_semantic_graph when grounded findings add semantic objects",
+                    "build_drawing_ir(sections=['overview', 'entities'])",
+                ],
+                "new_complex_drawing": [
+                    "recommend_cad_tools(intent)",
+                    "validate_cad_plan",
+                    "dry_run_cad_plan",
+                    "execute_cad_plan only with allow_modify=True and transactional=True",
+                    "scan_all_entities",
+                    "validate_geometry",
+                ],
+                "repair": [
+                    "validate_geometry",
+                    "propose_repair_plan or propose_constraint_repair_plan",
+                    "validate_cad_plan",
+                    "dry_run_cad_plan",
+                    "execute_cad_plan only with explicit permission",
+                    "validate_geometry",
+                ],
+            },
             "workflow": [
                 "scan_all_entities",
                 "build_drawing_ir",
@@ -90,6 +125,11 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
                 "Understanding tools read scanned metadata and do not modify the DWG.",
                 "Semantic, constraint, validation, and view grounding metadata is stored in SQLite.",
                 "Plan execution refuses to modify AutoCAD unless allow_modify=True.",
+            ],
+            "fidelity": [
+                "Do not flatten assemblies, section views, exploded views, BOMs, title blocks, or dimensions into generic lines and text.",
+                "Use blocks/arrays for repeated parts, CAD tables for BOMs, associative dimensions for measurements, hatches for sections, and solids/regions/booleans for 3D intent.",
+                "When no exposed tool preserves the requested feature, state the gap and request guidance instead of silently simplifying.",
             ],
         }
     raise KeyError(uri)

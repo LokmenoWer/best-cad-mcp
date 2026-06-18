@@ -601,6 +601,22 @@ class TestMCPToolSchemas(unittest.TestCase):
         self.assertIn("add_linear_dimension", result)
         self.assertIn("Avoid", result)
 
+    def test_recommend_cad_tools_routes_complex_drawings_to_advanced_workflows(self):
+        result = utility_tools.recommend_cad_tools(
+            "understand a complex mechanical assembly drawing with BOM, "
+            "GD&T, section view, dimensions, and validation issues"
+        )
+
+        self.assertIn("Workflow route:", result)
+        self.assertIn("Existing or complex drawing understanding", result)
+        self.assertIn("build_drawing_ir", result)
+        self.assertIn("detect_semantic_objects", result)
+        self.assertIn("bind_all_dimensions", result)
+        self.assertIn("validate_geometry", result)
+        self.assertIn("export_view_image_with_mapping", result)
+        self.assertIn("analyze_engineering_drawing_stages", result)
+        self.assertIn("Do not flatten", result)
+
     def test_set_xdata_schema_requires_code_value(self):
         schema = self._get_input_schema("set_xdata")
         data_pairs_schema = schema["properties"]["data_pairs"]
@@ -765,6 +781,8 @@ class TestMCPToolSchemas(unittest.TestCase):
 
         self.assertIn("CAD Layer Planning Guide", layer_prompt)
         self.assertIn("Recommended workflow", workflow_prompt)
+        self.assertIn("Classify the request", workflow_prompt)
+        self.assertIn("Engineering drawing or assembly", workflow_prompt)
         self.assertIsNone(cjk.search(layer_prompt))
         self.assertIsNone(cjk.search(workflow_prompt))
 
@@ -788,6 +806,22 @@ class TestMCPToolSchemas(unittest.TestCase):
 
         self.assertIn("insert_minsert_block", result)
         self.assertIn("insert_block plus array_rectangular", result)
+
+    def test_prompt_files_include_complex_drawing_fidelity_contracts(self):
+        from src import server
+
+        precise_prompt = server.precise_draw_from_spec()
+        understand_prompt = server.understand_existing_drawing()
+        repair_prompt = server.repair_drawing()
+        vlm_prompt = server.vlm_review_drawing()
+
+        self.assertIn("Fidelity Contract", precise_prompt)
+        self.assertIn("Do not simplify", precise_prompt)
+        self.assertIn("CADPlan", precise_prompt)
+        self.assertIn("not just a count of", understand_prompt)
+        self.assertIn("analyze_engineering_drawing_stages", understand_prompt)
+        self.assertIn("Do not delete and redraw complex geometry", repair_prompt)
+        self.assertIn("hypothesis until validated", vlm_prompt)
 
     def test_add_mleader_rejects_mixed_point_shapes_without_throwing(self):
         result = text_tools.add_mleader("Note", [[0, 0, 0], 10, 10, 0])

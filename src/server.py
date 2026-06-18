@@ -126,17 +126,35 @@ _configure_logging()
 logger = logging.getLogger("mcp_cad_server")
 
 TOOL_SELECTION_INSTRUCTIONS = """
-This AutoCAD MCP exposes 251 specialized CAD tools. Always choose the most
-specific tool for the CAD intent before composing low-level primitives.
+This AutoCAD MCP exposes hundreds of specialized CAD tools. Always choose the most
+specific workflow and tool for the CAD intent before composing low-level
+primitives. Treat the tool surface as indexed by intent, not as a flat list.
 
 Tool-choice rules:
 - Before live CAD work, call check_runtime_environment(check_autocad=True) so
   missing Python modules, workspace issues, AutoCAD COM availability, and visual
   review helpers are reported explicitly.
+- For existing or complex drawings, route through the understanding stack before
+  acting: scan_all_entities -> build_drawing_ir -> summarize_drawing ->
+  detect_semantic_objects -> extract_drawing_constraints -> bind_all_dimensions
+  -> check_drawing_constraints -> validate_geometry. Use topology_detail="full"
+  when primitive grounding, dimension binding, or section/detail reasoning
+  matters.
+- For engineering drawings, assemblies, title blocks, BOMs, GD&T, surface
+  finish notes, section/detail views, or exploded views, call
+  analyze_engineering_drawing_stages and export_view_image_with_mapping with
+  overlays. Do not reduce these artifacts to generic lines and labels.
+- For new complex drawings, start with recommend_cad_tools(intent), then create
+  a CADPlan using semantic operations, variables, handle capture, dependencies,
+  expectations, and postconditions. Validate and dry-run before execution.
 - For rectangles, polygons, splines, donuts, mlines, arrays, blocks, hatches,
   dimensions, leaders, 3D solids, trims, fillets, chamfers, offsets, and
   transforms, use the named tool. Do not rebuild them from draw_line,
   draw_circle, draw_polyline, or repeated copy_entity calls.
+- Preserve drawing fidelity: repeated parts should become blocks or arrays,
+  measured geometry should use associative dimensions, tabular data should use
+  CAD tables, sections should use hatch/section tools, and 3D intent should use
+  solids/regions/booleans instead of 2D wireframe approximations.
 - Use draw_line/draw_circle/draw_polyline only for simple one-off geometry or
   when no named tool fits.
 - Use send_command only as the final escape hatch after checking the exposed
@@ -151,7 +169,8 @@ Tool-choice rules:
   pointers, and part names. These annotations live only in the MCP SQLite
   database and must not create layers, XData, blocks, or visible marks in DWG.
 - If unsure which tool to use, call recommend_cad_tools(intent) or
-  get_tool_help(tool_name) before drawing.
+  get_tool_help(tool_name) before drawing. Use cad://tool-selection,
+  cad://tools, and cad://drawing/current/tool-guide as compact indexes.
 """
 
 TOOL_DESCRIPTIONS = {
@@ -340,6 +359,33 @@ def _humanize_tool_name(name: str) -> str:
 
 
 def _registration_category(name: str) -> str:
+    if name in {
+        "build_drawing_ir", "export_drawing_ir", "summarize_drawing",
+        "explain_entity", "find_entities_by_description",
+        "analyze_drawing_intent", "detect_semantic_objects",
+        "get_semantic_graph", "find_semantic_objects",
+        "extract_drawing_constraints", "check_drawing_constraints",
+        "get_drawing_constraints", "bind_dimension_to_geometry",
+        "bind_all_dimensions", "validate_geometry", "get_validation_report",
+        "list_cad_resources", "get_cad_resource",
+    }:
+        return "CAD understanding"
+    if name in {
+        "export_view_image_with_mapping", "get_visible_entities_in_view",
+        "map_pixel_to_world", "map_world_to_pixel",
+        "map_pixel_region_to_world_bbox", "ground_vlm_region",
+        "ground_vlm_overlay_id", "validate_vlm_review_output",
+        "submit_vlm_review", "get_vlm_findings",
+        "fuse_vlm_findings_into_semantic_graph", "evaluate_vlm_grounding",
+        "promote_vlm_finding_to_validation_issue",
+        "analyze_engineering_drawing_stages",
+    }:
+        return "visual grounding and engineering review"
+    if name in {
+        "propose_constraint_repair_plan", "propose_repair_plan",
+        "validate_cad_plan", "dry_run_cad_plan", "execute_cad_plan",
+    }:
+        return "CADPlan planning and repair"
     if "dimension" in name or name in {"add_qdim", "set_text_alignment",
                                         "set_text_properties"}:
         return "dimensioning"
@@ -384,6 +430,68 @@ def _registration_category(name: str) -> str:
 
 def _default_tool_description(name: str) -> str:
     specific = {
+        "build_drawing_ir": (
+            "Build CAD-IR v2, the compact structured drawing index. Use after "
+            "scan_all_entities for complex drawings before summarizing, "
+            "editing, validating, or planning repairs."
+        ),
+        "summarize_drawing": (
+            "Summarize the scanned drawing from structured metadata. Use with "
+            "CAD-IR, semantic objects, constraints, and validation evidence "
+            "instead of guessing from primitive counts."
+        ),
+        "detect_semantic_objects": (
+            "Detect domain-level objects such as parts, holes, walls, labels, "
+            "tables, dimensions, and drawing regions from scanned metadata. "
+            "Use before simplifying complex drawings into generic geometry."
+        ),
+        "extract_drawing_constraints": (
+            "Extract geometric and dimensional constraints from scanned CAD "
+            "metadata. Use when design intent, alignment, symmetry, spacing, "
+            "or dimension consistency matters."
+        ),
+        "bind_all_dimensions": (
+            "Bind dimension entities to likely geometry handles. Use before "
+            "changing or validating dimensioned drawings."
+        ),
+        "check_drawing_constraints": (
+            "Check extracted constraints against current geometry and report "
+            "violations for repair planning."
+        ),
+        "validate_geometry": (
+            "Validate scanned geometry, annotations, layers, blocks, and "
+            "constraints. Use before and after repairs or complex generation."
+        ),
+        "export_view_image_with_mapping": (
+            "Export a clean view, overlay, pixel/world mapping, visible-handle "
+            "index, and optional tiles for visual grounding of complex drawings."
+        ),
+        "analyze_engineering_drawing_stages": (
+            "Analyze engineering drawing layout stages: views, sections, "
+            "annotations, title blocks, BOM-like tables, VLM evidence, and "
+            "semantic reconciliation."
+        ),
+        "propose_repair_plan": (
+            "Create a guarded CADPlan from validation or VLM issues. It "
+            "proposes repairs only and does not modify the DWG."
+        ),
+        "propose_constraint_repair_plan": (
+            "Create a guarded CADPlan from violated drawing constraints. It "
+            "proposes repairs only and does not modify the DWG."
+        ),
+        "validate_cad_plan": (
+            "Validate a CADPlan's schema, dependencies, operation bindings, "
+            "safety rules, and postconditions before any execution."
+        ),
+        "dry_run_cad_plan": (
+            "Dry-run a CADPlan to preview steps, handle bindings, and likely "
+            "effects without modifying AutoCAD."
+        ),
+        "execute_cad_plan": (
+            "Execute a validated CADPlan only with explicit allow_modify=True. "
+            "Use transactional=True for multi-step edits and inspect rollback "
+            "status on failure."
+        ),
         "execute_query": (
             "Run a scoped, bounded read-only SQL query over scanned CAD "
             "metadata. Use after scan_all_entities to filter, count, and "
@@ -3190,6 +3298,33 @@ def _registered_tools():
 
 
 def _tool_category(name: str) -> str:
+    if name in {
+        "build_drawing_ir", "export_drawing_ir", "summarize_drawing",
+        "explain_entity", "find_entities_by_description",
+        "analyze_drawing_intent", "detect_semantic_objects",
+        "get_semantic_graph", "find_semantic_objects",
+        "extract_drawing_constraints", "check_drawing_constraints",
+        "get_drawing_constraints", "bind_dimension_to_geometry",
+        "bind_all_dimensions", "validate_geometry", "get_validation_report",
+        "list_cad_resources", "get_cad_resource",
+    }:
+        return "CAD understanding"
+    if name in {
+        "export_view_image_with_mapping", "get_visible_entities_in_view",
+        "map_pixel_to_world", "map_world_to_pixel",
+        "map_pixel_region_to_world_bbox", "ground_vlm_region",
+        "ground_vlm_overlay_id", "validate_vlm_review_output",
+        "submit_vlm_review", "get_vlm_findings",
+        "fuse_vlm_findings_into_semantic_graph", "evaluate_vlm_grounding",
+        "promote_vlm_finding_to_validation_issue",
+        "analyze_engineering_drawing_stages",
+    }:
+        return "Visual grounding and engineering review"
+    if name in {
+        "propose_constraint_repair_plan", "propose_repair_plan",
+        "validate_cad_plan", "dry_run_cad_plan", "execute_cad_plan",
+    }:
+        return "CADPlan planning and repair"
     if name == "export_view_image":
         return "Vision verification"
     if name in {"add_spatial_annotation", "list_spatial_annotations",
@@ -5198,22 +5333,32 @@ def cad_workflow_guide() -> str:
 ## Recommended workflow
 0. Preflight: call check_runtime_environment(check_autocad=True) before live
    CAD work; fix required blockers before drawing or editing.
-1. Open or create: create_new_drawing/open_drawing.
-2. Existing drawing: scan_all_entities, then get_entity_statistics or execute_query.
-3. Plan layers before drawing: create_layer and draw with color="bylayer".
-4. Pick the named tool for the intent: rectangle, polygon, block, hatch,
+1. Classify the request: existing drawing understanding, new drawing from
+   specification, repair, VLM review, or export/plot.
+2. Existing or complex drawing: scan_all_entities, build_drawing_ir,
+   summarize_drawing, detect_semantic_objects, extract_drawing_constraints,
+   bind_all_dimensions, check_drawing_constraints, validate_geometry, and use
+   cad://drawing/current/ir/overview for fast orientation.
+3. Engineering drawing or assembly: preserve views, sections, BOMs, title
+   blocks, GD&T, hatches, dimensions, and repeated parts; use
+   analyze_engineering_drawing_stages and export_view_image_with_mapping.
+4. New complex drawing: use recommend_cad_tools(intent), then CADPlan with
+   variables, save_as handles, dependencies, expectations, and postconditions.
+5. Plan layers before drawing: create_layer and draw with color="bylayer".
+6. Pick the named tool for the intent: rectangle, polygon, block, hatch,
    dimension, leader, array, fillet, chamfer, trim, offset, 3D solid, etc.
-5. Edit by handle with editing tools; do not delete and redraw just to move,
+7. Edit by handle with editing tools; do not delete and redraw just to move,
    mirror, scale, offset, trim, or array.
-6. Dimension with add_*_dimension or add_qdim; never fake dimensions with text
+8. Dimension with add_*_dimension or add_qdim; never fake dimensions with text
    and lines.
-7. Vision-capable verification: call export_view_image whenever seeing the
-   current view would reduce ambiguity; use zoom_extents_first=True for whole
-   drawing review.
-8. Model-private context: use add_spatial_annotation/list_spatial_annotations
+9. Vision-capable verification: call export_view_image_with_mapping whenever
+   seeing the current view would reduce ambiguity; use overlays and tiles for
+   dense drawings.
+10. Model-private context: use add_spatial_annotation/list_spatial_annotations
    for hidden part labels or pointer-style references; do not draw helper
    labels into the DWG for model memory.
-9. Verify with scan_all_entities/zoom_extents and save/export.
+11. Verify with scan_all_entities, validate_geometry, visual mapping, and only
+    save/export when requested.
 
 When unsure, call recommend_cad_tools(intent). For a full generated index, use
 get_tool_help() or resource cad://tools.
