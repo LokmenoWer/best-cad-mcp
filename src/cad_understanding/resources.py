@@ -16,8 +16,10 @@ from .common import (
     topology_summary,
 )
 from .constraints import get_constraints
+from .engineering_review import analyze_engineering_drawing_stages
 from .ir_builder import build_drawing_ir
 from .semantic_graph import get_semantic_graph
+from .vlm import get_vlm_findings
 from .result import ToolResult, error_result, ok_result
 
 CAD_RESOURCE_URIS = [
@@ -30,6 +32,8 @@ CAD_RESOURCE_URIS = [
     "cad://drawing/current/semantic-graph",
     "cad://drawing/current/constraints",
     "cad://drawing/current/validation-report",
+    "cad://drawing/current/vlm-findings",
+    "cad://drawing/current/engineering-interpretation",
     "cad://drawing/current/tool-guide",
 ]
 
@@ -58,6 +62,10 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
         return get_constraints(database=db)["data"]
     if uri == "cad://drawing/current/validation-report":
         return {"validation_report": latest_validation_report(db)}
+    if uri == "cad://drawing/current/vlm-findings":
+        return get_vlm_findings(database=db)["data"]
+    if uri == "cad://drawing/current/engineering-interpretation":
+        return analyze_engineering_drawing_stages(database=db)["data"]
     if uri == "cad://drawing/current/tool-guide":
         return {
             "workflow": [

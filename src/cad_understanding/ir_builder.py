@@ -47,6 +47,7 @@ IR_SECTIONS = [
     "constraints",
     "validation",
     "views",
+    "vlm_findings",
     "quality",
 ]
 DEFAULT_ENTITY_LIMIT = 1000
@@ -227,6 +228,42 @@ def _read_views(database: CADDatabase) -> List[Dict[str, Any]]:
     return views
 
 
+def _read_vlm_findings(database: CADDatabase) -> List[Dict[str, Any]]:
+    ensure_understanding_schema(database)
+    scope = current_scope(database)
+    with database._conn() as conn:
+        rows = conn.execute('''
+            SELECT finding_id, snapshot_id, source_model, prompt_version,
+                   issue_type, severity, status, confidence, overlay_id,
+                   pixel_bbox, world_bbox, claimed_handles, grounded_handles,
+                   grounding_candidates, evidence, raw_finding, created_at
+            FROM cad_vlm_findings
+            WHERE workspace_id = ? AND drawing_id = ?
+              AND conversation_id = ? AND thread_id = ?
+            ORDER BY created_at DESC, finding_id
+            LIMIT 200
+        ''', (
+            scope["workspace_id"], scope["drawing_id"],
+            scope["conversation_id"], scope["thread_id"],
+        )).fetchall()
+    findings = []
+    for row in rows:
+        item = clean_row(dict(row))
+        for key in (
+            "pixel_bbox",
+            "world_bbox",
+            "claimed_handles",
+            "grounded_handles",
+            "grounding_candidates",
+            "evidence",
+            "raw_finding",
+        ):
+            default = [] if key in {"pixel_bbox", "claimed_handles", "grounded_handles", "grounding_candidates"} else {}
+            item[key] = decode_json(item.get(key), default)
+        findings.append(item)
+    return findings
+
+
 def _maybe_rescan(rescan: bool) -> Optional[str]:
     if not rescan:
         return None
@@ -262,6 +299,9 @@ def _normalize_sections(sections: Optional[Any]) -> Tuple[List[str], List[str]]:
         "constraint": "constraints",
         "validation_report": "validation",
         "view": "views",
+        "vlm": "vlm_findings",
+        "vlm_review": "vlm_findings",
+        "vlm_findings": "vlm_findings",
     }
     normalized: List[str] = []
     ignored: List[str] = []
@@ -498,6 +538,7 @@ def _build_quality(
     constraints: Sequence[Dict[str, Any]],
     validation: Dict[str, Any],
     views: Sequence[Dict[str, Any]],
+    vlm_findings: Sequence[Dict[str, Any]],
     entity_limit: int,
     included_entity_count: int,
     entity_truncated: bool,
@@ -635,6 +676,11 @@ def _build_quality(
         "views": {
             "snapshot_count": len(views),
         },
+        "vlm_findings": {
+            "finding_count": len(vlm_findings),
+            "status_counts": _counts_by_value(vlm_findings, "status"),
+            "grounded_count": sum(1 for item in vlm_findings if item.get("grounded_handles")),
+        },
     }
     return to_dict(CadIRQuality(
         scan_state=scan_state,
@@ -679,6 +725,7 @@ def build_drawing_ir(rescan: bool = False,
     constraints = _read_constraints(db)
     validation = latest_validation_report(db) or _default_validation()
     views = _read_views(db)
+    vlm_findings = _read_vlm_findings(db)
     constraint_flags = _constraint_flags_by_handle(constraints)
     validation_flags = _validation_flags_by_handle(validation)
 
@@ -717,6 +764,7 @@ def build_drawing_ir(rescan: bool = False,
             "constraints": len(constraints),
             "validation_issues": int(validation.get("issue_count") or 0),
             "views": len(views),
+            "vlm_findings": len(vlm_findings),
         },
     ))
     quality = _build_quality(
@@ -730,6 +778,7 @@ def build_drawing_ir(rescan: bool = False,
         constraints,
         validation,
         views,
+        vlm_findings,
         limit,
         included_entity_count,
         entity_truncated,
@@ -791,6 +840,12 @@ def build_drawing_ir(rescan: bool = False,
         payload_sections["views"] = {
             "count": len(views),
             "items": views,
+        }
+    if "vlm_findings" in requested_sections:
+        payload_sections["vlm_findings"] = {
+            "count": len(vlm_findings),
+            "items": vlm_findings,
+            "status_counts": _counts_by_value(vlm_findings, "status"),
         }
     if "quality" in requested_sections:
         payload_sections["quality"] = quality

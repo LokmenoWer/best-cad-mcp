@@ -537,6 +537,7 @@ from src.cad_tools import attribute_tools
 from src.cad_understanding import analysis as understanding_analysis
 from src.cad_understanding import constraints as understanding_constraints
 from src.cad_understanding import dimension_binding as understanding_dimensions
+from src.cad_understanding import engineering_review as understanding_engineering
 from src.cad_understanding import ir_builder as understanding_ir_builder
 from src.cad_understanding import plan as understanding_plan
 from src.cad_understanding import resources as understanding_resources
@@ -5006,6 +5007,19 @@ def get_vlm_findings(ctx: Context,
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
 )
+def fuse_vlm_findings_into_semantic_graph(ctx: Context,
+                                          finding_ids: Optional[List[str]] = None,
+                                          min_confidence: float = 0.5) -> Dict[str, Any]:
+    """Materialize VLM findings as SQLite semantic graph objects and relations."""
+    return understanding_vlm.fuse_vlm_findings_into_semantic_graph(
+        finding_ids=finding_ids,
+        min_confidence=min_confidence,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
 def promote_vlm_finding_to_validation_issue(ctx: Context,
                                             finding_ids: Optional[List[str]] = None,
                                             min_confidence: float = 0.0) -> Dict[str, Any]:
@@ -5013,6 +5027,19 @@ def promote_vlm_finding_to_validation_issue(ctx: Context,
     return understanding_vlm.promote_vlm_finding_to_validation_issue(
         finding_ids=finding_ids,
         min_confidence=min_confidence,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def analyze_engineering_drawing_stages(ctx: Context,
+                                       snapshot_id: Optional[str] = None,
+                                       domain: str = "mechanical") -> Dict[str, Any]:
+    """Build layout, annotation, VLM, and reconciliation stages as JSON."""
+    return understanding_engineering.analyze_engineering_drawing_stages(
+        snapshot_id=snapshot_id,
+        domain=domain,
     )
 
 

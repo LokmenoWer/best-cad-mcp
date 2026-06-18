@@ -119,6 +119,8 @@ def test_understanding_layer_end_to_end_without_autocad(tmp_path, monkeypatch):
     assert resources["ok"]
     assert "cad://drawing/current/ir/overview" in resources["data"]["resources"]
     assert "cad://drawing/current/ir/entities" in resources["data"]["resources"]
+    assert "cad://drawing/current/vlm-findings" in resources["data"]["resources"]
+    assert "cad://drawing/current/engineering-interpretation" in resources["data"]["resources"]
     assert ir_resource["ok"]
     assert ir_resource["data"]["payload"]["drawing_ir"]["schema_version"] == "cad-ir/v2"
     assert overview_resource["ok"]

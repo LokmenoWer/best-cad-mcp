@@ -9,6 +9,7 @@ from src.cad_database import CADDatabase
 
 from .common import (
     bbox_dict,
+    bbox_intersects,
     current_scope,
     decode_json,
     ensure_understanding_schema,
@@ -530,6 +531,223 @@ def _mark_findings(database: CADDatabase,
             ))
 
 
+def _public_bbox_to_tuple(value: Any) -> Optional[Tuple[float, float, float, float]]:
+    if isinstance(value, dict) and isinstance(value.get("min"), list) and isinstance(value.get("max"), list):
+        try:
+            return (
+                float(value["min"][0]),
+                float(value["min"][1]),
+                float(value["max"][0]),
+                float(value["max"][1]),
+            )
+        except Exception:
+            return None
+    if isinstance(value, (list, tuple)) and len(value) >= 4:
+        try:
+            return (float(value[0]), float(value[1]), float(value[2]), float(value[3]))
+        except Exception:
+            return None
+    return None
+
+
+def _semantic_type_from_finding(finding: Dict[str, Any]) -> str:
+    raw = finding.get("raw_finding") or {}
+    evidence = finding.get("evidence") or {}
+    for key in ("semantic_type", "object_type", "detected_object_type"):
+        value = raw.get(key) if isinstance(raw, dict) else None
+        if value:
+            return str(value).strip().lower()
+        value = evidence.get(key) if isinstance(evidence, dict) else None
+        if value:
+            return str(value).strip().lower()
+    issue = str(finding.get("issue_type") or "").lower()
+    if "title" in issue:
+        return "title_block"
+    if "bom" in issue or "parts" in issue:
+        return "bom_table"
+    if "revision" in issue or "rev" in issue:
+        return "revision_table"
+    if "dimension" in issue or "diameter" in issue or "radius" in issue:
+        return "dimension_annotation"
+    if "gdt" in issue or "tolerance" in issue:
+        return "gdt_annotation"
+    if "roughness" in issue or "surface" in issue:
+        return "surface_roughness"
+    if "section" in issue:
+        return "section_marker"
+    return "vlm_review_finding"
+
+
+def _insert_vlm_semantics(database: CADDatabase,
+                          objects: List[Dict[str, Any]],
+                          relations: List[Dict[str, Any]]) -> None:
+    ensure_understanding_schema(database)
+    scope = current_scope(database)
+    with database._conn() as conn:
+        conn.execute('''
+            DELETE FROM cad_semantic_relations
+            WHERE workspace_id = ? AND drawing_id = ?
+              AND conversation_id = ? AND thread_id = ?
+              AND relation_id LIKE 'rel_vlm_%'
+        ''', (
+            scope["workspace_id"], scope["drawing_id"],
+            scope["conversation_id"], scope["thread_id"],
+        ))
+        conn.execute('''
+            DELETE FROM cad_semantic_objects
+            WHERE workspace_id = ? AND drawing_id = ?
+              AND conversation_id = ? AND thread_id = ?
+              AND source LIKE 'vlm:%'
+        ''', (
+            scope["workspace_id"], scope["drawing_id"],
+            scope["conversation_id"], scope["thread_id"],
+        ))
+        for obj in objects:
+            bbox = obj.get("bbox")
+            conn.execute('''
+                INSERT OR REPLACE INTO cad_semantic_objects
+                    (object_id, object_type, label, source, confidence,
+                     bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y,
+                     entity_handles, properties, workspace_id, drawing_id,
+                     conversation_id, thread_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                obj["object_id"], obj["object_type"], obj["label"],
+                obj["source"], obj["confidence"],
+                bbox[0] if bbox else None, bbox[1] if bbox else None,
+                bbox[2] if bbox else None, bbox[3] if bbox else None,
+                json_text(obj.get("entity_handles", [])),
+                json_text(obj.get("properties", {})),
+                scope["workspace_id"], scope["drawing_id"],
+                scope["conversation_id"], scope["thread_id"],
+            ))
+        for rel in relations:
+            conn.execute('''
+                INSERT OR REPLACE INTO cad_semantic_relations
+                    (relation_id, from_object_id, to_object_id, relation_type,
+                     confidence, evidence, workspace_id, drawing_id,
+                     conversation_id, thread_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                rel["relation_id"], rel["from_object_id"], rel["to_object_id"],
+                rel["relation_type"], rel["confidence"], json_text(rel.get("evidence", {})),
+                scope["workspace_id"], scope["drawing_id"],
+                scope["conversation_id"], scope["thread_id"],
+            ))
+
+
+def _existing_semantic_objects(database: CADDatabase) -> List[Dict[str, Any]]:
+    scope = current_scope(database)
+    with database._conn() as conn:
+        rows = conn.execute('''
+            SELECT object_id, object_type, source, confidence,
+                   bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y,
+                   entity_handles
+            FROM cad_semantic_objects
+            WHERE workspace_id = ? AND drawing_id = ?
+              AND conversation_id = ? AND thread_id = ?
+              AND source NOT LIKE 'vlm:%'
+        ''', (
+            scope["workspace_id"], scope["drawing_id"],
+            scope["conversation_id"], scope["thread_id"],
+        )).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["entity_handles"] = decode_json(item.get("entity_handles"), [])
+        bbox = None
+        if item.get("bbox_min_x") is not None:
+            bbox = (
+                float(item["bbox_min_x"]),
+                float(item["bbox_min_y"]),
+                float(item["bbox_max_x"]),
+                float(item["bbox_max_y"]),
+            )
+        item["bbox"] = bbox
+        result.append(item)
+    return result
+
+
+def fuse_vlm_findings_into_semantic_graph(finding_ids: Optional[List[str]] = None,
+                                          min_confidence: float = 0.5,
+                                          database: Optional[CADDatabase] = None) -> ToolResult:
+    """Materialize VLM findings as semantic graph objects and overlap relations."""
+    db = get_db(database)
+    findings = _selected_findings(db, finding_ids, min_confidence)
+    existing_objects = _existing_semantic_objects(db)
+    objects: List[Dict[str, Any]] = []
+    relations: List[Dict[str, Any]] = []
+    for finding in findings:
+        object_type = _semantic_type_from_finding(finding)
+        handles = finding.get("grounded_handles") or finding.get("claimed_handles") or []
+        bbox = _public_bbox_to_tuple(finding.get("world_bbox"))
+        source_model = str(finding.get("source_model") or "unknown")
+        object_id = stable_id("sem", "vlm", finding.get("finding_id"))
+        label = str(
+            (finding.get("raw_finding") or {}).get("label")
+            or finding.get("issue_type")
+            or object_type
+        )[:120]
+        obj = {
+            "object_id": object_id,
+            "object_type": object_type,
+            "label": label,
+            "source": f"vlm:{source_model}",
+            "confidence": round(float(finding.get("confidence") or 0.0), 3),
+            "bbox": bbox,
+            "entity_handles": handles,
+            "properties": {
+                "finding_id": finding.get("finding_id"),
+                "snapshot_id": finding.get("snapshot_id"),
+                "issue_type": finding.get("issue_type"),
+                "severity": finding.get("severity"),
+                "evidence": finding.get("evidence"),
+                "prompt_version": finding.get("prompt_version"),
+                "grounding_candidates": finding.get("grounding_candidates", [])[:5],
+            },
+        }
+        objects.append(obj)
+        handle_set = set(str(handle) for handle in handles)
+        for existing in existing_objects:
+            existing_handles = set(str(handle) for handle in existing.get("entity_handles", []))
+            overlap = bool(handle_set and existing_handles and handle_set.intersection(existing_handles))
+            if not overlap and bbox and existing.get("bbox"):
+                overlap = bbox_intersects(bbox, existing.get("bbox"))
+            if not overlap:
+                continue
+            relation_type = (
+                "conflicts_with"
+                if object_type != existing.get("object_type")
+                else "supports"
+            )
+            relations.append({
+                "relation_id": stable_id("rel_vlm", relation_type, object_id, existing.get("object_id")),
+                "from_object_id": object_id,
+                "to_object_id": existing.get("object_id"),
+                "relation_type": relation_type,
+                "confidence": min(
+                    float(obj["confidence"]),
+                    float(existing.get("confidence") or 0.5),
+                ),
+                "evidence": {
+                    "reason": "VLM semantic object overlaps an existing semantic object.",
+                    "finding_id": finding.get("finding_id"),
+                    "vlm_object_type": object_type,
+                    "existing_object_type": existing.get("object_type"),
+                },
+            })
+    _insert_vlm_semantics(db, objects, relations)
+    return ok_result(
+        f"Fused {len(objects)} VLM finding(s) into the semantic graph.",
+        data={"semantic_objects": objects, "semantic_relations": relations},
+        handles=sorted({h for obj in objects for h in obj.get("entity_handles", [])}),
+        warnings=[
+            "VLM semantic objects are evidence-bearing hypotheses; keep low-confidence conflicts unresolved until reviewed."
+        ] if objects else [],
+        next_tools=["get_semantic_graph", "find_semantic_objects", "build_drawing_ir"],
+    )
+
+
 def promote_vlm_finding_to_validation_issue(finding_ids: Optional[List[str]] = None,
                                              min_confidence: float = 0.0,
                                              database: Optional[CADDatabase] = None) -> ToolResult:
@@ -589,5 +807,6 @@ __all__ = [
     "validate_vlm_review_output",
     "submit_vlm_review",
     "get_vlm_findings",
+    "fuse_vlm_findings_into_semantic_graph",
     "promote_vlm_finding_to_validation_issue",
 ]

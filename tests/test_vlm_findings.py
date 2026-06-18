@@ -1,7 +1,11 @@
 from src.cad_database import CADDatabase
+from src.cad_understanding.engineering_review import analyze_engineering_drawing_stages
+from src.cad_understanding.ir_builder import build_drawing_ir
+from src.cad_understanding.semantic_graph import get_semantic_graph
 from src.cad_understanding.validators import get_validation_report
 from src.cad_understanding.view_grounding import export_view_image_with_mapping
 from src.cad_understanding.vlm import (
+    fuse_vlm_findings_into_semantic_graph,
     get_vlm_findings,
     promote_vlm_finding_to_validation_issue,
     submit_vlm_review,
@@ -50,6 +54,7 @@ def test_vlm_review_validation_submit_and_promote(tmp_path, monkeypatch):
             {
                 "overlay_id": overlay_id,
                 "issue_type": "missing_diameter_dimension",
+                "semantic_type": "dimension_annotation",
                 "severity": "high",
                 "confidence": 0.91,
                 "evidence": {"text": "Hole has no diameter callout."},
@@ -65,6 +70,10 @@ def test_vlm_review_validation_submit_and_promote(tmp_path, monkeypatch):
         database=db,
     )
     findings = get_vlm_findings(snapshot_id=snapshot["snapshot_id"], database=db)
+    fused = fuse_vlm_findings_into_semantic_graph(database=db)
+    graph = get_semantic_graph(database=db)
+    drawing_ir = build_drawing_ir(database=db, sections=["vlm_findings"])
+    interpretation = analyze_engineering_drawing_stages(snapshot_id=snapshot["snapshot_id"], database=db)
     promoted = promote_vlm_finding_to_validation_issue(database=db)
     report = get_validation_report(database=db)
 
@@ -72,6 +81,13 @@ def test_vlm_review_validation_submit_and_promote(tmp_path, monkeypatch):
     assert submitted["ok"]
     assert findings["data"]["findings"][0]["status"] == "grounded"
     assert findings["data"]["findings"][0]["grounded_handles"] == ["C1"]
+    assert fused["ok"]
+    assert fused["data"]["semantic_objects"][0]["source"] == "vlm:unit-test-vlm"
+    assert "dimension_annotation" in {
+        obj["object_type"] for obj in graph["data"]["semantic_objects"]
+    }
+    assert drawing_ir["sections"]["vlm_findings"]["count"] == 1
+    assert interpretation["data"]["interpretation"]["summary"]["vlm_finding_count"] == 1
     assert promoted["ok"]
     assert promoted["data"]["promoted_issues"][0]["issue_type"] == "vlm_missing_diameter_dimension"
     assert report["data"]["validation_report"]["issue_count"] == 1
