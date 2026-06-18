@@ -345,6 +345,15 @@ def test_prepare_visual_semantic_context_returns_vlm_contract(tmp_path, monkeypa
     assert "recognize_components_from_image" in result["next_tools"]
 
 
+def test_prepare_visual_semantic_context_requires_image_trace(tmp_path):
+    db = make_db(tmp_path)
+
+    result = prepare_visual_semantic_context(image_id="missing", database=db)
+
+    assert not result["ok"]
+    assert "prepare_image_trace" in result["next_tools"]
+
+
 def test_validate_image_drawing_spec_rejects_bad_items(tmp_path):
     db = make_db(tmp_path)
     bad_spec = {
