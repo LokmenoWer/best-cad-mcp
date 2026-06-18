@@ -543,6 +543,7 @@ from src.cad_understanding import resources as understanding_resources
 from src.cad_understanding import semantic_graph as understanding_semantic
 from src.cad_understanding import validators as understanding_validators
 from src.cad_understanding import view_grounding as understanding_view
+from src.cad_understanding import vlm as understanding_vlm
 from src.cad_understanding.result import ok_result
 
 # Initialize subsystems
@@ -4944,6 +4945,65 @@ def ground_vlm_overlay_id(ctx: Context, snapshot_id: str,
                           overlay_id: str) -> Dict[str, Any]:
     """Ground a VLM overlay ID to an AutoCAD handle and primitive candidates."""
     return understanding_view.ground_vlm_overlay_id(snapshot_id, overlay_id)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def validate_vlm_review_output(ctx: Context,
+                               review: Dict[str, Any],
+                               snapshot_id: Optional[str] = None) -> Dict[str, Any]:
+    """Validate VLM review JSON before grounding or persistence."""
+    return understanding_vlm.validate_vlm_review_output(review, snapshot_id=snapshot_id)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
+def submit_vlm_review(ctx: Context,
+                      snapshot_id: str,
+                      review: Dict[str, Any],
+                      source_model: str = "unknown",
+                      prompt_version: str = "vlm_review_drawing/v2",
+                      top_k: int = 10) -> Dict[str, Any]:
+    """Validate, ground, and store VLM review findings in SQLite only."""
+    return understanding_vlm.submit_vlm_review(
+        snapshot_id=snapshot_id,
+        review=review,
+        source_model=source_model,
+        prompt_version=prompt_version,
+        top_k=top_k,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def get_vlm_findings(ctx: Context,
+                     snapshot_id: Optional[str] = None,
+                     status: Optional[str] = None,
+                     issue_type: Optional[str] = None,
+                     limit: int = 100) -> Dict[str, Any]:
+    """List persisted VLM review findings for the current drawing scope."""
+    return understanding_vlm.get_vlm_findings(
+        snapshot_id=snapshot_id,
+        status=status,
+        issue_type=issue_type,
+        limit=limit,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
+def promote_vlm_finding_to_validation_issue(ctx: Context,
+                                            finding_ids: Optional[List[str]] = None,
+                                            min_confidence: float = 0.0) -> Dict[str, Any]:
+    """Copy selected VLM findings into the cached validation report."""
+    return understanding_vlm.promote_vlm_finding_to_validation_issue(
+        finding_ids=finding_ids,
+        min_confidence=min_confidence,
+    )
 
 
 @mcp.tool(

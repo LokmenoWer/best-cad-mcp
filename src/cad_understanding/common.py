@@ -149,12 +149,38 @@ def ensure_understanding_schema(database: Optional[CADDatabase] = None) -> None:
                 thread_id TEXT DEFAULT ''
             )
         ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS cad_vlm_findings (
+                finding_id TEXT PRIMARY KEY,
+                snapshot_id TEXT,
+                source_model TEXT DEFAULT '',
+                prompt_version TEXT DEFAULT '',
+                issue_type TEXT,
+                severity TEXT DEFAULT 'medium',
+                status TEXT DEFAULT 'validated',
+                confidence REAL,
+                overlay_id TEXT DEFAULT '',
+                pixel_bbox TEXT DEFAULT '[]',
+                world_bbox TEXT DEFAULT '{}',
+                claimed_handles TEXT DEFAULT '[]',
+                grounded_handles TEXT DEFAULT '[]',
+                grounding_candidates TEXT DEFAULT '[]',
+                evidence TEXT DEFAULT '{}',
+                raw_finding TEXT DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                workspace_id TEXT DEFAULT '',
+                drawing_id TEXT DEFAULT '',
+                conversation_id TEXT DEFAULT '',
+                thread_id TEXT DEFAULT ''
+            )
+        ''')
         for table in (
             "cad_semantic_objects",
             "cad_semantic_relations",
             "cad_constraints",
             "cad_validation_reports",
             "cad_view_snapshots",
+            "cad_vlm_findings",
         ):
             conn.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{table}_scope "
