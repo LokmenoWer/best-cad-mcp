@@ -288,6 +288,26 @@ def polyline_ellipse_hint_spec():
     }
 
 
+def component_hypothesis_spec():
+    spec = sample_spec()
+    spec["component_hypotheses"] = [
+        {
+            "id": "hyp_flange_like",
+            "label": "flange_like_component",
+            "confidence": 0.67,
+            "pixel_bbox": [8, 8, 54, 42],
+            "evidence": [
+                "section hatching",
+                "coaxial stepped body",
+                "central bore",
+                "paired 30 mm dimensions",
+            ],
+            "missing_evidence": ["bolt hole circle not visible in this section view"],
+        }
+    ]
+    return spec
+
+
 def test_prepare_image_trace_with_bmp(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     db = make_db(tmp_path)
@@ -354,6 +374,35 @@ def test_compile_complex_spec_to_valid_dry_run_plan(tmp_path, monkeypatch):
     assert "edit_table_cell" in ops
     assert validate_cad_plan(plan)["ok"]
     assert dry_run_cad_plan(plan)["ok"]
+
+
+def test_validate_and_compile_component_hypotheses(tmp_path):
+    db = make_db(tmp_path)
+    spec = component_hypothesis_spec()
+
+    validation = validate_image_drawing_spec(spec, database=db)
+    compiled = compile_image_spec_to_cad_plan(spec=validation["data"]["spec"], database=db)
+
+    assert validation["ok"], validation
+    hypotheses = validation["data"]["spec"]["component_hypotheses"]
+    assert hypotheses[0]["label"] == "flange_like_component"
+    assert hypotheses[0]["confidence"] == 0.67
+    assert compiled["ok"], compiled
+    assert compiled["data"]["plan"]["metadata"]["component_hypothesis_count"] == 1
+
+
+def test_validate_component_hypothesis_requires_evidence(tmp_path):
+    db = make_db(tmp_path)
+    spec = sample_spec()
+    spec["component_hypotheses"] = [
+        {"id": "guess", "label": "flange", "confidence": 0.8}
+    ]
+
+    result = validate_image_drawing_spec(spec, database=db)
+
+    assert not result["ok"]
+    messages = " ".join(" ".join(err["errors"]) for err in result["data"]["errors"])
+    assert "evidence is required" in messages
 
 
 def test_compile_pattern_and_hatch_bind_to_plan_handles(tmp_path):

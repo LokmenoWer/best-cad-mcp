@@ -497,6 +497,60 @@ def _raw_items_for_section(spec: Dict[str, Any], section: str) -> List[Dict[str,
     return [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
 
 
+def _normalize_component_hypotheses(spec: Dict[str, Any],
+                                    image_width: int,
+                                    image_height: int) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    raw_hypotheses = spec.get("component_hypotheses", [])
+    errors: List[Dict[str, Any]] = []
+    normalized: List[Dict[str, Any]] = []
+    if raw_hypotheses in (None, ""):
+        return normalized, errors
+    if not isinstance(raw_hypotheses, list):
+        return normalized, [{"path": "component_hypotheses", "errors": ["component_hypotheses must be a list"]}]
+    seen = set()
+    for index, raw in enumerate(raw_hypotheses):
+        if not isinstance(raw, dict):
+            errors.append({"path": f"component_hypotheses[{index}]", "errors": ["hypothesis must be an object"], "item": raw})
+            continue
+        item_errors: List[str] = []
+        hyp_id = str(raw.get("id") or f"component_hypothesis_{index + 1}").strip()
+        if hyp_id in seen:
+            item_errors.append(f"duplicate id {hyp_id}")
+        seen.add(hyp_id)
+        label = str(raw.get("label") or raw.get("type") or raw.get("name") or "").strip()
+        if not label:
+            item_errors.append("label/type is required")
+        confidence = _confidence(raw.get("confidence"))
+        if confidence is None:
+            item_errors.append("confidence must be a number in [0, 1]")
+            confidence = 0.0
+        evidence = raw.get("evidence")
+        if not evidence:
+            item_errors.append("evidence is required")
+        missing = raw.get("missing_evidence", [])
+        if missing is None:
+            missing = []
+        if not isinstance(missing, list):
+            item_errors.append("missing_evidence must be a list when provided")
+            missing = []
+        bbox = _normalize_bbox(raw.get("pixel_bbox") or raw.get("bbox"))
+        if bbox and image_width > 0 and image_height > 0 and not _bbox_in_image(bbox, image_width, image_height):
+            item_errors.append("pixel_bbox is outside image bounds")
+        if item_errors:
+            errors.append({"path": f"component_hypotheses.{hyp_id or index}", "errors": item_errors, "item": raw})
+            continue
+        normalized.append({
+            **raw,
+            "id": hyp_id,
+            "label": label,
+            "confidence": round(float(confidence), 4),
+            "evidence": evidence,
+            "missing_evidence": [str(item) for item in missing],
+            **({"pixel_bbox": bbox} if bbox else {}),
+        })
+    return normalized, errors
+
+
 def _load_trace(database: CADDatabase, image_id: str) -> Optional[Dict[str, Any]]:
     ensure_understanding_schema(database)
     scope = current_scope(database)
@@ -662,6 +716,8 @@ def validate_image_drawing_spec(spec: Any,
             errors.append({"path": section, "message": f"{section} must be a list."})
     width = int((trace or {}).get("image_width") or 0)
     height = int((trace or {}).get("image_height") or 0)
+    component_hypotheses, component_errors = _normalize_component_hypotheses(spec, width, height)
+    errors.extend(component_errors)
     ids = set()
     normalized_items: Dict[str, List[Dict[str, Any]]] = {
         "features": [],
@@ -745,7 +801,14 @@ def validate_image_drawing_spec(spec: Any,
     if errors:
         return error_result(
             f"ImageDrawingSpec validation failed for {len(errors)} item(s).",
-            data={"errors": errors, "image_id": image_id, "valid_items": normalized_items},
+            data={
+                "errors": errors,
+                "image_id": image_id,
+                "valid_items": {
+                    **normalized_items,
+                    "component_hypotheses": component_hypotheses,
+                },
+            },
             warnings=warnings,
             next_tools=["copy_drawing_from_image", "validate_image_drawing_spec"],
         )
@@ -756,6 +819,7 @@ def validate_image_drawing_spec(spec: Any,
         "geometry": normalized_items["geometry"],
         "annotations": normalized_items["annotations"],
         "tables": normalized_items["tables"],
+        "component_hypotheses": component_hypotheses,
     }
     return ok_result(
         "Validated ImageDrawingSpec/v1.",
@@ -1955,6 +2019,7 @@ def compile_image_spec_to_cad_plan(image_id: Optional[str] = None,
             "geometry_count": len(_raw_items_for_section(spec_data, "geometry")),
             "annotation_count": len(_raw_items_for_section(spec_data, "annotations")),
             "table_count": len(_raw_items_for_section(spec_data, "tables")),
+            "component_hypothesis_count": len(_raw_items_for_section(spec_data, "component_hypotheses")),
         },
     }
     fidelity = validate_image_fidelity_contract(spec_data, plan, database=db)
