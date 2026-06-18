@@ -198,6 +198,45 @@ class DrawingIR:
     generated_at: str = ""
 
 
+CAD_IR_SCHEMA_VERSION = "cad-ir/v2"
+
+
+@dataclass
+class CadIRManifest:
+    profile: str = "agent"
+    sections: List[str] = field(default_factory=list)
+    counts: Dict[str, Any] = field(default_factory=dict)
+    limits: Dict[str, Any] = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class CadIRQuality:
+    scan_state: str = "unknown"
+    coverage: Dict[str, Any] = field(default_factory=dict)
+    issues: List[Dict[str, Any]] = field(default_factory=list)
+    recommended_next_tools: List[str] = field(default_factory=list)
+
+
+@dataclass
+class DrawingOverviewIR:
+    name: str = "active"
+    path: str = ""
+    units: str = "unknown"
+    extents: Dict[str, Any] = field(default_factory=dict)
+    counts: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class DrawingIRV2:
+    schema_version: str = CAD_IR_SCHEMA_VERSION
+    generated_at: str = ""
+    manifest: Dict[str, Any] = field(default_factory=dict)
+    drawing: Dict[str, Any] = field(default_factory=dict)
+    quality: Dict[str, Any] = field(default_factory=dict)
+    sections: Dict[str, Any] = field(default_factory=dict)
+
+
 def to_dict(value: Any) -> Dict[str, Any]:
     return asdict(value)
 
@@ -215,6 +254,11 @@ __all__ = [
     "ConstraintIR",
     "ViewSnapshotIR",
     "DrawingIR",
+    "CAD_IR_SCHEMA_VERSION",
+    "CadIRManifest",
+    "CadIRQuality",
+    "DrawingOverviewIR",
+    "DrawingIRV2",
     "ValidationIssueIR",
     "ValidationReportIR",
     "to_dict",

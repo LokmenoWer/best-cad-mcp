@@ -24,6 +24,8 @@ CAD_RESOURCE_URIS = [
     "cad://workspace/context",
     "cad://drawing/current/summary",
     "cad://drawing/current/ir",
+    "cad://drawing/current/ir/overview",
+    "cad://drawing/current/ir/entities",
     "cad://drawing/current/topology",
     "cad://drawing/current/semantic-graph",
     "cad://drawing/current/constraints",
@@ -40,6 +42,10 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
         return summarize_drawing("normal", db)["data"]
     if uri == "cad://drawing/current/ir":
         return {"drawing_ir": build_drawing_ir(False, db)}
+    if uri == "cad://drawing/current/ir/overview":
+        return {"drawing_ir": build_drawing_ir(False, db, sections=["overview"])}
+    if uri == "cad://drawing/current/ir/entities":
+        return {"drawing_ir": build_drawing_ir(False, db, sections=["entities"])}
     if uri == "cad://drawing/current/topology":
         return {
             "summary": topology_summary(db),
@@ -104,4 +110,3 @@ def get_cad_resource(uri: str,
         data={"uri": uri, "payload": payload},
         next_tools=["list_cad_resources"],
     )
-

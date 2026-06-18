@@ -22,9 +22,12 @@ def test_build_drawing_ir_empty_database(tmp_path):
 
     drawing_ir = build_drawing_ir(database=db)
 
-    assert drawing_ir["entity_count"] == 0
-    assert drawing_ir["entities"] == []
-    assert drawing_ir["semantic_objects"] == []
+    assert drawing_ir["schema_version"] == "cad-ir/v2"
+    assert drawing_ir["drawing"]["counts"]["entities"] == 0
+    assert drawing_ir["sections"]["entities"]["items"] == []
+    assert drawing_ir["sections"]["semantics"]["objects"] == []
+    assert drawing_ir["quality"]["scan_state"] == "empty"
+    assert "scan_all_entities" in drawing_ir["quality"]["recommended_next_tools"]
     json.dumps(drawing_ir)
 
 
@@ -41,14 +44,80 @@ def test_build_drawing_ir_exposes_native_handles_not_scoped_keys(tmp_path):
     )
 
     drawing_ir = build_drawing_ir(database=db)
-    entity = drawing_ir["entities"][0]
+    entity = drawing_ir["sections"]["entities"]["items"][0]
 
     assert entity["handle"] == "H1"
-    assert entity["native_handle"] == "H1"
+    assert "native_handle" not in entity
+    assert "geometry" not in entity
+    assert "properties" not in entity
     assert "workspace_id" not in entity
     assert "drawing_id" not in entity
-    assert drawing_ir["topology"]["primitives"]
+    assert entity["topology"]["detail"] == "full"
+    assert entity["flags"]["has_topology"] is True
+    assert drawing_ir["sections"]["topology"]["primitives"]
     json.dumps(drawing_ir)
+
+    raw_ir = build_drawing_ir(database=db, include_raw=True)
+    raw_entity = raw_ir["sections"]["entities"]["items"][0]
+    assert raw_entity["geometry"]["length"] == 10
+    assert raw_entity["properties"] == {}
+
+
+def test_build_drawing_ir_filters_sections_and_reports_truncation(tmp_path):
+    db = make_db(tmp_path)
+    db.upsert_entity(
+        "H1",
+        "Line",
+        "AcDbLine",
+        geometry={"start": [0, 0, 0], "end": [1, 0, 0]},
+        bbox=(0, 0, 1, 0),
+    )
+    db.upsert_entity(
+        "H2",
+        "Line",
+        "AcDbLine",
+        geometry={"start": [2, 0, 0], "end": [3, 0, 0]},
+        bbox=(2, 0, 3, 0),
+    )
+
+    drawing_ir = build_drawing_ir(
+        database=db,
+        sections=["entities"],
+        entity_limit=1,
+    )
+
+    assert drawing_ir["manifest"]["sections"] == ["entities"]
+    assert set(drawing_ir["sections"]) == {"entities"}
+    assert drawing_ir["sections"]["entities"]["total"] == 2
+    assert drawing_ir["sections"]["entities"]["count"] == 1
+    assert drawing_ir["sections"]["entities"]["truncated"] is True
+    assert drawing_ir["quality"]["coverage"]["entities"]["truncated"] is True
+    assert any("truncated" in warning for warning in drawing_ir["manifest"]["warnings"])
+
+
+def test_build_drawing_ir_quality_reports_missing_bbox_and_summary_topology(tmp_path):
+    db = make_db(tmp_path)
+    db.upsert_entity(
+        "S1",
+        "Line",
+        "AcDbLine",
+        geometry={"start": [0, 0, 0], "end": [5, 0, 0]},
+        bbox=None,
+        derive_bbox=False,
+        topology_detail="summary",
+    )
+
+    drawing_ir = build_drawing_ir(database=db)
+    issue_types = {
+        issue["issue_type"] for issue in drawing_ir["quality"]["issues"]
+    }
+    entity = drawing_ir["sections"]["entities"]["items"][0]
+
+    assert "missing_bbox" in issue_types
+    assert "summary_only_topology" in issue_types
+    assert entity["flags"]["has_bbox"] is False
+    assert entity["topology"]["detail"] == "summary"
+    assert drawing_ir["quality"]["coverage"]["topology"]["detail_level"] == "summary"
 
 
 def test_database_context_survives_fresh_async_task_context(tmp_path):
@@ -73,6 +142,9 @@ def test_database_context_survives_fresh_async_task_context(tmp_path):
     fresh_task = contextvars.Context()
     drawing_ir = fresh_task.run(lambda: build_drawing_ir(database=db))
 
-    assert drawing_ir["drawing_name"] == "Drawing4.dwg"
-    assert drawing_ir["entity_count"] == 1
-    assert [entity["handle"] for entity in drawing_ir["entities"]] == ["NEW"]
+    assert drawing_ir["drawing"]["name"] == "Drawing4.dwg"
+    assert drawing_ir["drawing"]["counts"]["entities"] == 1
+    assert [
+        entity["handle"]
+        for entity in drawing_ir["sections"]["entities"]["items"]
+    ] == ["NEW"]

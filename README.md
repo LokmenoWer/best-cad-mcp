@@ -361,6 +361,49 @@ Key understanding tools include:
 - `propose_repair_plan` and `propose_constraint_repair_plan`
 - `list_cad_resources` and `get_cad_resource`
 
+`build_drawing_ir` returns CAD-IR v2 by default. The top-level shape is stable
+for agents:
+
+```json
+{
+  "schema_version": "cad-ir/v2",
+  "generated_at": "...",
+  "manifest": {
+    "profile": "agent",
+    "sections": ["overview", "entities", "layers"],
+    "counts": {},
+    "limits": {},
+    "warnings": []
+  },
+  "drawing": {
+    "name": "active.dwg",
+    "path": "",
+    "units": "unknown",
+    "extents": {},
+    "counts": {}
+  },
+  "quality": {
+    "scan_state": "scanned",
+    "coverage": {},
+    "issues": [],
+    "recommended_next_tools": []
+  },
+  "sections": {}
+}
+```
+
+Use `sections` to request only the needed payloads:
+`overview`, `entities`, `layers`, `blocks`, `topology`, `semantics`,
+`constraints`, `validation`, `views`, and `quality`. The default entity index is
+compact and includes handles, entity type, layer, bbox, semantic tags, topology
+availability, and constraint/validation flags. Pass `include_raw=true` only when
+full decoded geometry and properties are needed. `entity_limit` defaults to
+`1000`; truncation is reported in both `manifest.warnings` and `quality.issues`.
+
+The CAD resource layer also exposes focused v2 slices:
+`cad://drawing/current/ir/overview` and
+`cad://drawing/current/ir/entities`.
+
 ### CADPlan
 
 CADPlan is the guarded path for multi-step drawing or repair. It is best for

@@ -70,6 +70,9 @@ def test_understanding_layer_end_to_end_without_autocad(tmp_path, monkeypatch):
     validation = validate_geometry(database=db)
     resources = list_cad_resources(database=db)
     ir_resource = get_cad_resource("cad://drawing/current/ir", database=db)
+    overview_resource = get_cad_resource("cad://drawing/current/ir/overview", database=db)
+    entities_resource = get_cad_resource("cad://drawing/current/ir/entities", database=db)
+    rich_ir = build_drawing_ir(database=db)
 
     snapshot_result = export_view_image_with_mapping(
         filepath=str(tmp_path / "view.wmf"),
@@ -101,13 +104,27 @@ def test_understanding_layer_end_to_end_without_autocad(tmp_path, monkeypatch):
     dry_run = dry_run_cad_plan(plan)
     repair = propose_repair_plan([], database=db)
 
-    assert drawing_ir["entity_count"] == 3
+    assert drawing_ir["schema_version"] == "cad-ir/v2"
+    assert drawing_ir["drawing"]["counts"]["entities"] == 3
+    assert {
+        entity["handle"] for entity in drawing_ir["sections"]["entities"]["items"]
+    } == {"P1", "C1", "L1"}
+    assert rich_ir["drawing"]["counts"]["semantic_objects"] > 0
+    assert rich_ir["drawing"]["counts"]["constraints"] > 0
+    assert rich_ir["quality"]["coverage"]["validation"]["has_report"] is True
     assert summary["ok"]
     assert semantics["ok"]
     assert constraints["ok"]
     assert validation["ok"]
     assert resources["ok"]
+    assert "cad://drawing/current/ir/overview" in resources["data"]["resources"]
+    assert "cad://drawing/current/ir/entities" in resources["data"]["resources"]
     assert ir_resource["ok"]
+    assert ir_resource["data"]["payload"]["drawing_ir"]["schema_version"] == "cad-ir/v2"
+    assert overview_resource["ok"]
+    assert set(overview_resource["data"]["payload"]["drawing_ir"]["sections"]) == {"overview"}
+    assert entities_resource["ok"]
+    assert entities_resource["data"]["payload"]["drawing_ir"]["sections"]["entities"]["total"] == 3
     assert snapshot_result["ok"]
     assert Path(snapshot["context_json_path"]).exists()
     assert Path(snapshot["overlay_image_path"]).exists()

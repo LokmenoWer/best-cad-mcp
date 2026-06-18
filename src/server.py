@@ -4667,14 +4667,29 @@ def polyline_get_segment_type(ctx: Context, handle: str,
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
-def build_drawing_ir(ctx: Context, rescan: bool = False) -> Dict[str, Any]:
-    """Build a structured CAD intermediate representation from scanned metadata."""
-    drawing_ir = understanding_ir_builder.build_drawing_ir(rescan=rescan)
+def build_drawing_ir(ctx: Context,
+                     rescan: bool = False,
+                     profile: str = "agent",
+                     sections: Optional[List[str]] = None,
+                     entity_limit: int = 1000,
+                     include_raw: bool = False) -> Dict[str, Any]:
+    """Build CAD-IR v2 from scanned metadata, with optional section filtering."""
+    drawing_ir = understanding_ir_builder.build_drawing_ir(
+        rescan=rescan,
+        profile=profile,
+        sections=sections,
+        entity_limit=entity_limit,
+        include_raw=include_raw,
+    )
     return ok_result(
         "Built CAD drawing IR.",
         data={"drawing_ir": drawing_ir},
-        handles=[entity["handle"] for entity in drawing_ir.get("entities", []) if entity.get("handle")],
-        warnings=["Called scan_all_entities first because rescan=True."] if rescan else [],
+        handles=[
+            str(entity["handle"])
+            for entity in drawing_ir.get("sections", {}).get("entities", {}).get("items", [])
+            if entity.get("handle")
+        ],
+        warnings=drawing_ir.get("manifest", {}).get("warnings", []),
         next_tools=["summarize_drawing", "detect_semantic_objects", "validate_geometry"],
     )
 
@@ -4682,13 +4697,30 @@ def build_drawing_ir(ctx: Context, rescan: bool = False) -> Dict[str, Any]:
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
-def export_drawing_ir(ctx: Context, filepath: str, rescan: bool = False) -> Dict[str, Any]:
-    """Export the current CAD-IR as JSON without modifying the DWG."""
-    exported = understanding_ir_builder.export_drawing_ir(filepath, rescan=rescan)
+def export_drawing_ir(ctx: Context,
+                      filepath: str,
+                      rescan: bool = False,
+                      profile: str = "agent",
+                      sections: Optional[List[str]] = None,
+                      entity_limit: int = 1000,
+                      include_raw: bool = False) -> Dict[str, Any]:
+    """Export the current CAD-IR v2 as JSON without modifying the DWG."""
+    exported = understanding_ir_builder.export_drawing_ir(
+        filepath,
+        rescan=rescan,
+        profile=profile,
+        sections=sections,
+        entity_limit=entity_limit,
+        include_raw=include_raw,
+    )
     return ok_result(
         "Exported CAD drawing IR.",
         data=exported,
-        handles=[entity["handle"] for entity in exported["drawing_ir"].get("entities", []) if entity.get("handle")],
+        handles=[
+            str(entity["handle"])
+            for entity in exported["drawing_ir"].get("sections", {}).get("entities", {}).get("items", [])
+            if entity.get("handle")
+        ],
         next_tools=["summarize_drawing", "validate_geometry"],
     )
 
@@ -4991,6 +5023,20 @@ def cad_current_drawing_summary_resource() -> str:
               mime_type="application/json")
 def cad_current_drawing_ir_resource() -> str:
     return understanding_resources.get_resource_json("cad://drawing/current/ir")
+
+
+@mcp.resource("cad://drawing/current/ir/overview",
+              name="Current Drawing CAD-IR Overview",
+              mime_type="application/json")
+def cad_current_drawing_ir_overview_resource() -> str:
+    return understanding_resources.get_resource_json("cad://drawing/current/ir/overview")
+
+
+@mcp.resource("cad://drawing/current/ir/entities",
+              name="Current Drawing CAD-IR Entity Index",
+              mime_type="application/json")
+def cad_current_drawing_ir_entities_resource() -> str:
+    return understanding_resources.get_resource_json("cad://drawing/current/ir/entities")
 
 
 @mcp.resource("cad://drawing/current/topology",
