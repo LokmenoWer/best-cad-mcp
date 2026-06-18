@@ -150,6 +150,15 @@ VIEW_SNAPSHOT_TOOLS = {
     "map_pixel_to_world",
     "map_world_to_pixel",
     "ground_vlm_region",
+    "ground_vlm_overlay_id",
+}
+VLM_REVIEW_TOOLS = {
+    "validate_vlm_review_output",
+    "submit_vlm_review",
+    "get_vlm_findings",
+    "fuse_vlm_findings_into_semantic_graph",
+    "promote_vlm_finding_to_validation_issue",
+    "analyze_engineering_drawing_stages",
 }
 CAD_PLAN_TOOLS = {"validate_cad_plan", "dry_run_cad_plan", "execute_cad_plan"}
 ERROR_TEXT_RE = re.compile(
@@ -251,6 +260,21 @@ def _status_for_payload(tool_name: str, payload: Any) -> str:
         if tool_name == "ground_vlm_region":
             if not data.get("candidates"):
                 return "semantic_error"
+        if tool_name == "ground_vlm_overlay_id":
+            if not data.get("candidate"):
+                return "semantic_error"
+        if tool_name in {"validate_vlm_review_output", "submit_vlm_review", "get_vlm_findings"}:
+            if not data.get("findings"):
+                return "semantic_error"
+        if tool_name == "fuse_vlm_findings_into_semantic_graph":
+            if not data.get("semantic_objects"):
+                return "semantic_error"
+        if tool_name == "promote_vlm_finding_to_validation_issue":
+            if "promoted_issues" not in data:
+                return "semantic_error"
+        if tool_name == "analyze_engineering_drawing_stages":
+            if not data.get("interpretation"):
+                return "semantic_error"
         if tool_name == "find_semantic_objects":
             if not data.get("semantic_objects"):
                 return "semantic_error"
@@ -336,6 +360,8 @@ def _prepare_view_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
         "filepath": str(path),
         "include_overlay": True,
         "include_entity_bboxes": True,
+        "overlay_granularity": "both",
+        "overlay_style": "som",
     })
     if not isinstance(payload, dict) or payload.get("ok") is False:
         ctx["view_snapshot_id"] = "MCP_VERIFY_MISSING_SNAPSHOT"
@@ -348,6 +374,9 @@ def _prepare_view_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
         float(image.get("height") or 1000) / 2.0,
     ]
     bboxes = snapshot.get("entity_screen_bboxes") or {}
+    overlay_items = snapshot.get("overlay_items") or []
+    if overlay_items:
+        ctx["view_overlay_id"] = str(overlay_items[0].get("overlay_id") or "")
     if bboxes:
         first_bbox = [float(value) for value in next(iter(bboxes.values()))]
         ctx["view_query_bbox"] = first_bbox
@@ -358,6 +387,33 @@ def _prepare_view_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
     else:
         cx, cy = ctx["view_pixel"]
         ctx["view_query_bbox"] = [cx - 25.0, cy - 25.0, cx + 25.0, cy + 25.0]
+    return ctx
+
+
+def _prepare_vlm_review(ctx: dict[str, Any], submit: bool = False) -> dict[str, Any]:
+    _prepare_view_snapshot(ctx)
+    overlay_id = ctx.get("view_overlay_id") or "E001"
+    review = {
+        "findings": [
+            {
+                "overlay_id": overlay_id,
+                "issue_type": "mcp_verify_visual_review",
+                "semantic_type": "vlm_review_finding",
+                "severity": "info",
+                "confidence": 0.8,
+                "evidence": {"reason": "Verifier synthetic VLM finding."},
+            }
+        ]
+    }
+    ctx["vlm_review_payload"] = review
+    if submit and not ctx.get("vlm_review_submitted"):
+        payload = _call_parent_tool("submit_vlm_review", {
+            "snapshot_id": ctx.get("view_snapshot_id", ""),
+            "review": review,
+            "source_model": "mcp-verifier",
+            "prompt_version": "verify/vlm",
+        })
+        ctx["vlm_review_submitted"] = bool(isinstance(payload, dict) and payload.get("ok") is not False)
     return ctx
 
 
@@ -885,6 +941,9 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
             "filepath": str(Path(ctx["tmp"]) / f"mcp_verify_view_{ctx.get('stamp', int(time.time()))}.wmf"),
             "include_overlay": True,
             "include_entity_bboxes": True,
+            "overlay_granularity": "both",
+            "overlay_style": "som",
+            "include_tiles": True,
         })
     if name in {"set_current_text_style"}:
         args.update({"name": "Standard"})
@@ -980,6 +1039,33 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
         args.update({"x": float(ctx.get("base_x", 1000)), "y": 0.0, "z": 0.0})
     if name in {"ground_vlm_region"}:
         args.update({"bbox": ctx.get("view_query_bbox", [775.0, 475.0, 825.0, 525.0]), "top_k": 5})
+    if name in {"ground_vlm_overlay_id"}:
+        args.update({"overlay_id": ctx.get("view_overlay_id", "E001")})
+    if name in {"validate_vlm_review_output"}:
+        _prepare_vlm_review(ctx, submit=False)
+        args.update({
+            "snapshot_id": ctx.get("view_snapshot_id", ""),
+            "review": ctx.get("vlm_review_payload", {}),
+        })
+    if name in {"submit_vlm_review"}:
+        _prepare_vlm_review(ctx, submit=False)
+        args.update({
+            "snapshot_id": ctx.get("view_snapshot_id", ""),
+            "review": ctx.get("vlm_review_payload", {}),
+            "source_model": "mcp-verifier",
+            "prompt_version": "verify/vlm",
+        })
+    if name in {"get_vlm_findings", "fuse_vlm_findings_into_semantic_graph",
+                "promote_vlm_finding_to_validation_issue", "analyze_engineering_drawing_stages"}:
+        _prepare_vlm_review(ctx, submit=True)
+    if name in {"get_vlm_findings"}:
+        args.update({"snapshot_id": ctx.get("view_snapshot_id", ""), "limit": 20})
+    if name in {"fuse_vlm_findings_into_semantic_graph"}:
+        args.update({"min_confidence": 0.1})
+    if name in {"promote_vlm_finding_to_validation_issue"}:
+        args.update({"min_confidence": 0.1})
+    if name in {"analyze_engineering_drawing_stages"}:
+        args.update({"snapshot_id": ctx.get("view_snapshot_id", ""), "domain": "mechanical"})
     if name in CAD_PLAN_TOOLS:
         args.update({"plan": _cad_plan(ctx)})
     if name in {"execute_cad_plan"}:

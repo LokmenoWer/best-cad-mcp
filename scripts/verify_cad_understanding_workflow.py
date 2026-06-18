@@ -24,8 +24,14 @@ from src.cad_understanding.constraints import extract_drawing_constraints
 from src.cad_understanding.ir_builder import build_drawing_ir
 from src.cad_understanding.plan import dry_run_cad_plan, execute_cad_plan
 from src.cad_understanding.semantic_graph import detect_semantic_objects
+from src.cad_understanding.engineering_review import analyze_engineering_drawing_stages
 from src.cad_understanding.validators import validate_geometry
 from src.cad_understanding.view_grounding import export_view_image_with_mapping, ground_vlm_overlay_id
+from src.cad_understanding.vlm import (
+    fuse_vlm_findings_into_semantic_graph,
+    submit_vlm_review,
+    validate_vlm_review_output,
+)
 
 
 def _json_safe(value: Any) -> Any:
@@ -166,6 +172,9 @@ def main() -> int:
             filepath=str(artifacts_dir / "smoke_view.wmf"),
             include_overlay=True,
             include_entity_bboxes=True,
+            overlay_granularity="both",
+            overlay_style="som",
+            include_tiles=True,
         ),
         required=False,
     )
@@ -178,9 +187,41 @@ def main() -> int:
         ])
         items = snap.get("overlay_items") or []
         if items:
+            review = {
+                "findings": [
+                    {
+                        "overlay_id": items[0]["overlay_id"],
+                        "issue_type": "smoke_visual_review",
+                        "semantic_type": "vlm_review_finding",
+                        "severity": "info",
+                        "confidence": 0.8,
+                        "evidence": {"reason": "Smoke test review finding for grounding workflow."},
+                    }
+                ]
+            }
             step(
                 "ground_vlm_overlay_id",
                 lambda: ground_vlm_overlay_id(snap["snapshot_id"], items[0]["overlay_id"]),
+                required=False,
+            )
+            step(
+                "validate_vlm_review_output",
+                lambda: validate_vlm_review_output(review, snapshot_id=snap["snapshot_id"]),
+                required=False,
+            )
+            step(
+                "submit_vlm_review",
+                lambda: submit_vlm_review(snap["snapshot_id"], review, source_model="smoke-vlm"),
+                required=False,
+            )
+            step(
+                "fuse_vlm_findings_into_semantic_graph",
+                lambda: fuse_vlm_findings_into_semantic_graph(min_confidence=0.1),
+                required=False,
+            )
+            step(
+                "analyze_engineering_drawing_stages",
+                lambda: analyze_engineering_drawing_stages(snapshot_id=snap["snapshot_id"]),
                 required=False,
             )
 

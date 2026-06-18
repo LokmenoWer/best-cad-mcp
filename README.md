@@ -460,9 +460,24 @@ attempts when rollback is enabled.
 - a sidecar JSON file with view parameters, visible handles, pixel boxes, and
   mapping data.
 
+For dense drawings, pass `overlay_granularity="both"` to include primitive
+overlay IDs such as `E001.P02`, `overlay_style="som"` for Set-of-Mark-style
+labels, and `include_tiles=true` to emit a tile index for large-view review.
+
 Use `ground_vlm_region(snapshot_id, bbox)` for VLM pixel boxes and
 `ground_vlm_overlay_id(snapshot_id, overlay_id)` for overlay IDs. Call
 `explain_entity` on top candidates before editing.
+
+Structured VLM review output can be validated and persisted with
+`validate_vlm_review_output`, `submit_vlm_review`, and `get_vlm_findings`.
+Confirmed findings can be fused into the semantic graph with
+`fuse_vlm_findings_into_semantic_graph` or promoted into validation reports with
+`promote_vlm_finding_to_validation_issue`. `analyze_engineering_drawing_stages`
+returns a staged engineering-drawing interpretation JSON covering layout
+segmentation, annotation detection, VLM parsing, and reconciliation. CAD-IR also
+exposes a `vlm_findings` section, and resources include
+`cad://drawing/current/vlm-findings` and
+`cad://drawing/current/engineering-interpretation`.
 
 Top/plan modelspace views are the most reliable. Twisted views, UCS changes, 3D
 views, and complex layout viewport cases can return warnings or lower
