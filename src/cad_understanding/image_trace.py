@@ -131,6 +131,44 @@ def _copy_or_normalize_image(source: Path, target: Path, max_dimension: int = 18
         return str(copied), warnings
 
 
+def _build_vision_artifacts(normalized_path: Path) -> Tuple[List[Dict[str, str]], List[str]]:
+    """Create auxiliary image views that make dense CAD drawings easier for VLMs."""
+    artifacts = [
+        {
+            "role": "normalized",
+            "image_path": str(normalized_path),
+            "description": "Normalized source image for global visual context.",
+        }
+    ]
+    warnings: List[str] = []
+    try:
+        from PIL import Image, ImageFilter, ImageOps
+
+        with Image.open(normalized_path) as image:
+            grayscale = ImageOps.grayscale(image)
+            high_contrast = ImageOps.autocontrast(grayscale)
+            high_contrast_path = normalized_path.with_name(f"{normalized_path.stem}_high_contrast.png")
+            high_contrast.save(high_contrast_path)
+            artifacts.append({
+                "role": "high_contrast",
+                "image_path": str(high_contrast_path),
+                "description": "Autocontrasted grayscale view for reading fine mechanical strokes and dimensions.",
+            })
+
+            edges = high_contrast.filter(ImageFilter.FIND_EDGES)
+            edges = ImageOps.autocontrast(edges)
+            edges_path = normalized_path.with_name(f"{normalized_path.stem}_edges.png")
+            edges.save(edges_path)
+            artifacts.append({
+                "role": "edges",
+                "image_path": str(edges_path),
+                "description": "Edge-emphasized view for separating contours, hatches, centerlines, and dimension lines.",
+            })
+    except Exception as exc:
+        warnings.append(f"Vision artifact generation unavailable; using normalized image only: {exc}")
+    return artifacts, warnings
+
+
 def _build_tiles(normalized_path: Path,
                  image_width: int,
                  image_height: int,
@@ -539,6 +577,8 @@ def prepare_image_trace(image_path: str,
         normalized_width, normalized_height = _image_size(Path(normalized_image))
     except Exception:
         warnings.append("Normalized image size could not be read; using source dimensions.")
+    vision_artifacts, artifact_warnings = _build_vision_artifacts(Path(normalized_image))
+    warnings.extend(artifact_warnings)
     tiles = _build_tiles(
         Path(normalized_image),
         normalized_width,
@@ -582,6 +622,7 @@ def prepare_image_trace(image_path: str,
             "tile_index_path": tiles.get("tile_index_path", ""),
             "image": {"width": normalized_width, "height": normalized_height},
             "domain": str(domain or "mechanical"),
+            "vision_artifacts": vision_artifacts,
             "tiles": tiles.get("tiles", []),
             "vlm_contract": "Use prompt copy_drawing_from_image and return ImageDrawingSpec/v1 JSON.",
         },

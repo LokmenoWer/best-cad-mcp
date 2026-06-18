@@ -301,6 +301,10 @@ def test_prepare_image_trace_with_bmp(tmp_path, monkeypatch):
     assert result["data"]["image"]["height"] == 48
     assert Path(result["data"]["normalized_image_path"]).exists()
     assert Path(result["data"]["tile_index_path"]).exists()
+    artifacts = result["data"]["vision_artifacts"]
+    assert artifacts
+    assert artifacts[0]["role"] == "normalized"
+    assert Path(artifacts[0]["image_path"]).exists()
     assert result["data"]["tiles"]
 
 
