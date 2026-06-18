@@ -14,6 +14,9 @@
   rows, or text. Put unresolved observations in `uncertainties`.
 - Every feature, geometry element, annotation, and table must include
   `confidence`, `evidence`, and either `pixel_bbox` or `pixel_geometry`.
+- Include `component_hypotheses` for open-vocabulary part recognition when the
+  view provides enough evidence. Use `*_like_component` labels when the exact
+  part name is ambiguous.
 - Use pixel coordinates from the supplied image or tile: origin at top-left,
   x right, y down.
 
@@ -49,6 +52,7 @@
   "annotations": [],
   "relations": [],
   "tables": [],
+  "component_hypotheses": [],
   "uncertainties": []
 }
 ```
@@ -85,6 +89,10 @@ dimension, text, leader, hatch, table, pattern, bulkhead
   boundary IDs when known.
 - `table`: include rows as nested arrays when readable; unreadable cells must
   be empty strings and recorded in `uncertainties`.
+- `component_hypotheses`: include top-k open-vocabulary component labels with
+  `id`, `label`, `confidence`, visible `evidence`, optional `pixel_bbox`,
+  optional `view_type`, and `missing_evidence`. Do not force exact names when
+  only a section, partial view, or cropped view is visible.
 
 ## Uncertainty Rules
 

@@ -811,6 +811,13 @@ TOOL_ROUTING_CATALOG = [
     },
     {
         "category": "Image trace",
+        "tool": "prepare_visual_semantic_context",
+        "use": "Build VLM-friendly artifacts and an open-vocabulary component hypothesis contract before asking a vision model to identify mechanical parts.",
+        "avoid": "Do not force exact part names from a partial or sectioned view without evidence and missing_evidence.",
+        "keywords": ["recognize component", "visual semantic context", "component hypotheses", "VLM part recognition", "open vocabulary", "零件识别", "视觉语义"],
+    },
+    {
+        "category": "Image trace",
         "tool": "validate_image_drawing_spec",
         "use": "Validate ImageDrawingSpec/v1 JSON before storing or compiling it into CADPlan.",
         "avoid": "Do not compile unvalidated VLM JSON or prose into CAD operations.",

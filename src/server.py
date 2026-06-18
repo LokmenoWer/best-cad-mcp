@@ -5249,6 +5249,19 @@ def prepare_image_trace(ctx: Context,
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
+def prepare_visual_semantic_context(ctx: Context,
+                                    image_id: Optional[str] = None,
+                                    spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Prepare VLM-friendly artifacts and schema for open-vocabulary component recognition."""
+    return understanding_image_trace.prepare_visual_semantic_context(
+        image_id=image_id,
+        spec=spec,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
 def validate_image_drawing_spec(ctx: Context,
                                 spec: Dict[str, Any],
                                 image_id: Optional[str] = None) -> Dict[str, Any]:
@@ -5591,6 +5604,17 @@ feature-level geometry: chamfers, fillets, holes, slots, patterns, hatches,
 dimensions, tables, and title block content must not be simplified into plain
 rectangles, loose lines, or text. Every item needs confidence, evidence, and
 pixel geometry or a pixel bbox. Put unclear details in uncertainties.
+""")
+
+
+@mcp.prompt()
+def recognize_components_from_image() -> str:
+    """Prompt for Agent-side VLM open-vocabulary component recognition."""
+    return _load_prompt_file("recognize_components_from_image.md", """## Recognize Components From Image
+
+Use VisualSemanticContext/v1 and return component_hypotheses with confidence,
+visible evidence, missing_evidence, and uncertainties. Prefer *_like labels
+when the view is partial or ambiguous.
 """)
 
 

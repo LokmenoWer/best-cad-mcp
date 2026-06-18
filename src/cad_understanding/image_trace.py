@@ -943,6 +943,64 @@ def submit_image_drawing_spec(image_id: str,
     )
 
 
+def prepare_visual_semantic_context(image_id: Optional[str] = None,
+                                    spec: Optional[Dict[str, Any]] = None,
+                                    database: Optional[CADDatabase] = None) -> ToolResult:
+    """Build a structured VLM input packet for open-vocabulary component recognition."""
+    db = get_db(database)
+    trace = _load_trace(db, image_id) if image_id else _latest_trace(db)
+    if not trace:
+        return error_result(
+            "No image trace is available for visual semantic context.",
+            data={"image_id": image_id},
+            next_tools=["prepare_image_trace"],
+        )
+    spec_data = spec if isinstance(spec, dict) else (trace.get("spec") or {})
+    normalized_path = Path(str(trace.get("normalized_image_path") or ""))
+    artifacts: List[Dict[str, str]] = []
+    warnings: List[str] = []
+    if normalized_path.exists():
+        artifacts, artifact_warnings = _build_vision_artifacts(normalized_path)
+        warnings.extend(artifact_warnings)
+    else:
+        warnings.append("Normalized image path is unavailable; visual artifacts could not be prepared.")
+
+    sections = {
+        section: len(_raw_items_for_section(spec_data, section))
+        for section in ("features", "geometry", "annotations", "tables", "component_hypotheses")
+    }
+    return ok_result(
+        "Prepared visual semantic context for Agent-side VLM recognition.",
+        data={
+            "schema_version": "VisualSemanticContext/v1",
+            "image_id": trace.get("image_id"),
+            "image": {
+                "width": int(trace.get("image_width") or 0),
+                "height": int(trace.get("image_height") or 0),
+                "normalized_image_path": str(normalized_path) if normalized_path else "",
+                "tile_index_path": trace.get("tile_index_path") or "",
+            },
+            "vision_artifacts": artifacts,
+            "existing_spec_summary": sections,
+            "vlm_tasks": [
+                "Inspect the normalized image for global mechanical layout and view type.",
+                "Use high_contrast and edges artifacts to separate contours, hatches, centerlines, dimensions, and text.",
+                "Return top-k open-vocabulary component_hypotheses with evidence and missing_evidence.",
+                "Keep uncertain or ambiguous component names as *_like hypotheses rather than forced labels.",
+            ],
+            "output_contract": {
+                "target": "ImageDrawingSpec/v1.component_hypotheses",
+                "required_fields": ["id", "label", "confidence", "evidence"],
+                "optional_fields": ["pixel_bbox", "missing_evidence", "related_feature_ids", "view_type"],
+                "label_policy": "Use open-vocabulary labels such as flange_like_component, bushing_or_hub_like_component, cover_like_component, bracket_like_component, shaft_like_component.",
+                "evidence_policy": "Every hypothesis must cite visible drawing evidence and name missing evidence when the view is partial or ambiguous.",
+            },
+        },
+        warnings=warnings,
+        next_tools=["recognize_components_from_image", "copy_drawing_from_image", "validate_image_drawing_spec"],
+    )
+
+
 def _trace_context(database: CADDatabase,
                    image_id: Optional[str],
                    spec: Optional[Dict[str, Any]],
@@ -2191,6 +2249,7 @@ __all__ = [
     "prepare_image_trace",
     "validate_image_drawing_spec",
     "submit_image_drawing_spec",
+    "prepare_visual_semantic_context",
     "validate_image_fidelity_contract",
     "compile_image_spec_to_cad_plan",
 ]

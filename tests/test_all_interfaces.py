@@ -1602,7 +1602,7 @@ class TestToolWiring(unittest.TestCase):
             'cad_registered_tools_resource', 'cad_workflow_guide',
             'cad_layer_planning', 'understand_existing_drawing',
             'precise_draw_from_spec', 'copy_drawing_from_image',
-            'vlm_review_drawing',
+            'recognize_components_from_image', 'vlm_review_drawing',
             'repair_drawing', 'main',
         }
 

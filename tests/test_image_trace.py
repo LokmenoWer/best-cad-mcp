@@ -6,6 +6,7 @@ from src.cad_database import CADDatabase
 from src.cad_understanding.image_trace import (
     compile_image_spec_to_cad_plan,
     prepare_image_trace,
+    prepare_visual_semantic_context,
     submit_image_drawing_spec,
     validate_image_drawing_spec,
     validate_image_fidelity_contract,
@@ -326,6 +327,22 @@ def test_prepare_image_trace_with_bmp(tmp_path, monkeypatch):
     assert artifacts[0]["role"] == "normalized"
     assert Path(artifacts[0]["image_path"]).exists()
     assert result["data"]["tiles"]
+
+
+def test_prepare_visual_semantic_context_returns_vlm_contract(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db = make_db(tmp_path)
+    image = tmp_path / "source.bmp"
+    write_bmp(image)
+    prepared = prepare_image_trace(str(image), database=db)
+
+    result = prepare_visual_semantic_context(image_id=prepared["data"]["image_id"], database=db)
+
+    assert result["ok"], result
+    assert result["data"]["schema_version"] == "VisualSemanticContext/v1"
+    assert result["data"]["vision_artifacts"]
+    assert result["data"]["output_contract"]["target"] == "ImageDrawingSpec/v1.component_hypotheses"
+    assert "recognize_components_from_image" in result["next_tools"]
 
 
 def test_validate_image_drawing_spec_rejects_bad_items(tmp_path):

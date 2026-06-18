@@ -88,6 +88,7 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
                 ],
                 "copy_mechanical_drawing_from_image": [
                     "prepare_image_trace(image_path, domain='mechanical')",
+                    "prepare_visual_semantic_context(image_id) before component-level VLM recognition",
                     "Agent-side VLM uses prompt copy_drawing_from_image and returns ImageDrawingSpec/v1 JSON",
                     "validate_image_drawing_spec -> submit_image_drawing_spec",
                     "compile_image_spec_to_cad_plan -> validate_image_fidelity_contract",
@@ -126,6 +127,7 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
                 "evaluate_vlm_grounding",
                 "ground_vlm_region",
                 "prepare_image_trace",
+                "prepare_visual_semantic_context",
                 "validate_image_drawing_spec",
                 "submit_image_drawing_spec",
                 "compile_image_spec_to_cad_plan",

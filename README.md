@@ -289,16 +289,19 @@ drawing. The VLM call stays on the agent side; MCP validates and compiles the
 structured result.
 
 1. `prepare_image_trace(image_path, domain="mechanical")`.
-2. Use the `copy_drawing_from_image` prompt with the normalized image and tile
+2. `prepare_visual_semantic_context(image_id)` to gather normalized,
+   high-contrast, and edge-emphasized VLM inputs plus the open-vocabulary
+   component hypothesis contract.
+3. Use the `copy_drawing_from_image` prompt with the normalized image and tile
    index, then ask the VLM for `ImageDrawingSpec/v1` JSON.
-3. `validate_image_drawing_spec(spec, image_id)`.
-4. `submit_image_drawing_spec(image_id, spec, source_model=...)`.
-5. `compile_image_spec_to_cad_plan(image_id)`.
-6. `validate_image_fidelity_contract(spec, cad_plan)`.
-7. `validate_cad_plan`, then `dry_run_cad_plan`.
-8. Execute only when modification is authorized:
+4. `validate_image_drawing_spec(spec, image_id)`.
+5. `submit_image_drawing_spec(image_id, spec, source_model=...)`.
+6. `compile_image_spec_to_cad_plan(image_id)`.
+7. `validate_image_fidelity_contract(spec, cad_plan)`.
+8. `validate_cad_plan`, then `dry_run_cad_plan`.
+9. Execute only when modification is authorized:
    `execute_cad_plan(..., allow_modify=true, transactional=true)`.
-9. `scan_all_entities`, `build_drawing_ir`, `validate_geometry`, and
+10. `scan_all_entities`, `build_drawing_ir`, `validate_geometry`, and
    `export_view_image_with_mapping(include_overlay=true)` for visual diff.
 
 Fidelity rules are strict. A chamfered square must not become a square, a
