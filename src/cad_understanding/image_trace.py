@@ -81,6 +81,12 @@ DEFAULT_LAYERS = {
 BBox = List[float]
 
 
+def _safe_step_id(value: Any, fallback: str) -> str:
+    raw = str(value or fallback)
+    safe = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in raw.lower()).strip("_")
+    return safe or fallback
+
+
 def _image_size(path: Path) -> Tuple[int, int]:
     try:
         from PIL import Image
@@ -654,6 +660,409 @@ def _layer_for(item: Dict[str, Any]) -> str:
     return DEFAULT_LAYERS["object"]
 
 
+def _unique_strings(values: Iterable[Any]) -> List[str]:
+    seen = set()
+    result = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def _refs_from_value(value: Any) -> List[str]:
+    refs: List[str] = []
+    if isinstance(value, str):
+        refs.append(value)
+    elif isinstance(value, dict):
+        for key in (
+            "id",
+            "member_id",
+            "feature_id",
+            "geometry_id",
+            "boundary_id",
+            "ref",
+            "ref_id",
+            "source_id",
+            "target_id",
+        ):
+            if key in value:
+                refs.extend(_refs_from_value(value.get(key)))
+                break
+        for key in ("ids", "member_ids", "boundary_ids", "members", "boundaries"):
+            if key in value:
+                refs.extend(_refs_from_value(value.get(key)))
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            refs.extend(_refs_from_value(item))
+    return _unique_strings(refs)
+
+
+def _refs_from_keys(item: Dict[str, Any], keys: Sequence[str]) -> List[str]:
+    refs: List[str] = []
+    geom = _pixel_geometry(item)
+    for container in (item, geom):
+        for key in keys:
+            if key in container:
+                refs.extend(_refs_from_value(container.get(key)))
+    return _unique_strings(refs)
+
+
+def _number_from_keys(item: Dict[str, Any], keys: Sequence[str]) -> Optional[float]:
+    geom = _pixel_geometry(item)
+    for container in (item, geom):
+        for key in keys:
+            value = container.get(key)
+            if value is None:
+                continue
+            try:
+                return float(value)
+            except Exception:
+                continue
+    return None
+
+
+def _point_from_keys(item: Dict[str, Any], keys: Sequence[str]) -> Optional[List[float]]:
+    geom = _pixel_geometry(item)
+    for container in (item, geom):
+        for key in keys:
+            point = _point(container.get(key))
+            if point:
+                return point
+    return None
+
+
+def _item_center(item: Dict[str, Any]) -> Optional[List[float]]:
+    geom = _pixel_geometry(item)
+    center = _point(geom.get("center") or item.get("center"))
+    if center:
+        return center
+    bbox = item.get("pixel_bbox")
+    if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+        try:
+            return [(float(bbox[0]) + float(bbox[2])) / 2.0, (float(bbox[1]) + float(bbox[3])) / 2.0]
+        except Exception:
+            return None
+    points = _points(geom.get("vertices") or geom.get("points") or item.get("points"))
+    if points:
+        return [sum(point[0] for point in points) / len(points), sum(point[1] for point in points) / len(points)]
+    return None
+
+
+def _cluster_values(values: Sequence[float], tolerance: float = 2.0) -> List[float]:
+    if not values:
+        return []
+    clusters: List[List[float]] = []
+    for value in sorted(float(v) for v in values):
+        if not clusters or abs(value - clusters[-1][-1]) > tolerance:
+            clusters.append([value])
+        else:
+            clusters[-1].append(value)
+    return [sum(cluster) / len(cluster) for cluster in clusters]
+
+
+def _median_spacing(values: Sequence[float]) -> Optional[float]:
+    ordered = sorted(values)
+    diffs = [ordered[i + 1] - ordered[i] for i in range(len(ordered) - 1) if ordered[i + 1] - ordered[i] > 1e-6]
+    if not diffs:
+        return None
+    mid = len(diffs) // 2
+    return sorted(diffs)[mid]
+
+
+def _pattern_member_ids(item: Dict[str, Any]) -> List[str]:
+    return _refs_from_keys(item, ("member_ids", "members", "instances"))
+
+
+def _source_member_id(item: Dict[str, Any], member_ids: Sequence[str]) -> Optional[str]:
+    explicit = _refs_from_keys(
+        item,
+        ("source_member_id", "seed_member_id", "prototype_id", "base_member_id", "prototype_member_id"),
+    )
+    for ref in explicit:
+        if not member_ids or ref in member_ids:
+            return ref
+    return member_ids[0] if member_ids else None
+
+
+def _pattern_mode(item: Dict[str, Any]) -> str:
+    geom = _pixel_geometry(item)
+    text = " ".join(
+        str(value or "").lower()
+        for value in (
+            item.get("pattern_type"),
+            item.get("array_type"),
+            item.get("relationship"),
+            item.get("layout"),
+            geom.get("pattern_type"),
+            geom.get("array_type"),
+            geom.get("relationship"),
+            geom.get("layout"),
+        )
+    )
+    if any(token in text for token in ("polar", "circular", "radial", "bolt_circle", "bolt circle")):
+        return "polar"
+    if any(token in text for token in ("rect", "grid", "row", "column", "tube_bundle", "tube bundle")):
+        return "rectangular"
+    if _number_from_keys(item, ("rows", "row_count", "num_rows", "columns", "cols", "column_count", "num_columns")):
+        return "rectangular"
+    if _point_from_keys(item, ("center", "array_center", "pattern_center", "polar_center")):
+        return "polar"
+    return ""
+
+
+def _relation_ref_maps(spec: Dict[str, Any]) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    pattern_members: Dict[str, List[str]] = {}
+    hatch_boundaries: Dict[str, List[str]] = {}
+    relations = spec.get("relations", [])
+    if not isinstance(relations, list):
+        return pattern_members, hatch_boundaries
+    for relation in relations:
+        if not isinstance(relation, dict):
+            continue
+        rtype = str(relation.get("type") or relation.get("relation_type") or relation.get("kind") or "").lower()
+        source_refs = _refs_from_value(
+            relation.get("source")
+            or relation.get("from")
+            or relation.get("from_id")
+            or relation.get("pattern_id")
+            or relation.get("hatch_id")
+        )
+        target_refs = _refs_from_value(
+            relation.get("target")
+            or relation.get("to")
+            or relation.get("to_id")
+            or relation.get("member_id")
+            or relation.get("boundary_id")
+        )
+        if not source_refs or not target_refs:
+            continue
+        if "boundary" in rtype or rtype in {"bounded_by", "hatch_boundary"}:
+            for source in source_refs:
+                hatch_boundaries.setdefault(source, [])
+                hatch_boundaries[source].extend(target_refs)
+        if "pattern" in rtype or "member" in rtype:
+            for source in source_refs:
+                pattern_members.setdefault(source, [])
+                pattern_members[source].extend(target_refs)
+    return (
+        {key: _unique_strings(value) for key, value in pattern_members.items()},
+        {key: _unique_strings(value) for key, value in hatch_boundaries.items()},
+    )
+
+
+def _member_centers(member_ids: Sequence[str], item_by_id: Dict[str, Dict[str, Any]]) -> List[List[float]]:
+    centers = []
+    for member_id in member_ids:
+        item = item_by_id.get(member_id)
+        if not item:
+            continue
+        center = _item_center(item)
+        if center:
+            centers.append(center)
+    return centers
+
+
+def _rectangular_pattern_args(item: Dict[str, Any],
+                              member_ids: Sequence[str],
+                              item_by_id: Dict[str, Dict[str, Any]],
+                              scale: float) -> Optional[Dict[str, Any]]:
+    rows = _number_from_keys(item, ("rows", "row_count", "num_rows"))
+    columns = _number_from_keys(item, ("columns", "cols", "column_count", "num_columns"))
+    row_spacing_world = _number_from_keys(item, ("row_spacing_world", "drawing_row_spacing"))
+    column_spacing_world = _number_from_keys(item, ("column_spacing_world", "drawing_column_spacing"))
+    row_spacing_px = _number_from_keys(item, ("row_spacing", "row_pitch", "pitch_y", "spacing_y", "y_spacing"))
+    column_spacing_px = _number_from_keys(item, ("column_spacing", "col_spacing", "column_pitch", "pitch_x", "spacing_x", "x_spacing"))
+    centers = _member_centers(member_ids, item_by_id)
+    if (rows is None or columns is None or row_spacing_px is None or column_spacing_px is None) and len(centers) >= 2:
+        xs = _cluster_values([point[0] for point in centers])
+        ys = _cluster_values([point[1] for point in centers])
+        if columns is None and len(xs) > 1:
+            columns = float(len(xs))
+        if rows is None and len(ys) > 1:
+            rows = float(len(ys))
+        if column_spacing_px is None:
+            column_spacing_px = _median_spacing(xs)
+        if row_spacing_px is None:
+            row_spacing_px = _median_spacing(ys)
+    if rows is None or columns is None:
+        count = _number_from_keys(item, ("count", "member_count", "instance_count"))
+        if count and columns is None:
+            columns = count
+            rows = rows or 1
+    if rows is None or columns is None:
+        return None
+    rows_i = max(1, int(round(rows)))
+    columns_i = max(1, int(round(columns)))
+    if rows_i <= 1 and columns_i <= 1:
+        return None
+    if row_spacing_world is None:
+        if row_spacing_px is None:
+            row_spacing_px = 0.0 if rows_i <= 1 else None
+        if row_spacing_px is None:
+            return None
+        row_spacing_world = -abs(float(row_spacing_px)) * scale
+    if column_spacing_world is None:
+        if column_spacing_px is None:
+            column_spacing_px = 0.0 if columns_i <= 1 else None
+        if column_spacing_px is None:
+            return None
+        column_spacing_world = abs(float(column_spacing_px)) * scale
+    return {
+        "rows": rows_i,
+        "columns": columns_i,
+        "row_spacing": row_spacing_world,
+        "column_spacing": column_spacing_world,
+    }
+
+
+def _polar_pattern_args(item: Dict[str, Any],
+                        member_ids: Sequence[str],
+                        item_by_id: Dict[str, Dict[str, Any]],
+                        image_height: float,
+                        scale: float) -> Optional[Dict[str, Any]]:
+    count = _number_from_keys(item, ("count", "member_count", "instance_count"))
+    if count is None and member_ids:
+        count = float(len(member_ids))
+    if count is None or count < 2:
+        return None
+    center = _point_from_keys(item, ("center", "array_center", "pattern_center", "polar_center"))
+    centers = _member_centers(member_ids, item_by_id)
+    if center is None and centers:
+        center = [sum(point[0] for point in centers) / len(centers), sum(point[1] for point in centers) / len(centers)]
+    if center is None:
+        return None
+    fill_angle = _number_from_keys(item, ("fill_angle", "angle", "angle_deg", "angle_degrees", "sweep_angle")) or 360.0
+    world_center = _scale_point(center, image_height, scale)
+    return {
+        "count": max(2, int(round(count))),
+        "fill_angle": float(fill_angle),
+        "center_x": world_center[0],
+        "center_y": world_center[1],
+        "center_z": world_center[2],
+    }
+
+
+def _pattern_plan_info(item: Dict[str, Any],
+                       step_id: str,
+                       id_to_step: Dict[str, str],
+                       item_by_id: Dict[str, Dict[str, Any]],
+                       extra_members: Sequence[str],
+                       image_height: float,
+                       scale: float) -> Tuple[List[Dict[str, Any]], List[str], set]:
+    warnings: List[str] = []
+    member_ids = _unique_strings([*_pattern_member_ids(item), *extra_members])
+    source_id = _source_member_id(item, member_ids)
+    if not source_id or source_id not in id_to_step:
+        warnings.append(f"{item.get('id')}: pattern could not bind a source member handle.")
+        return [], warnings, set()
+    mode = _pattern_mode(item)
+    if mode == "polar":
+        op = "array_polar"
+        args = _polar_pattern_args(item, member_ids, item_by_id, image_height, scale)
+        expected_count = int(args["count"]) if args else None
+    else:
+        op = "array_rectangular"
+        args = _rectangular_pattern_args(item, member_ids, item_by_id, scale)
+        expected_count = int(args["rows"]) * int(args["columns"]) if args else None
+    if not args:
+        warnings.append(f"{item.get('id')}: pattern has members but no rectangular/polar array relationship that CADPlan can bind.")
+        return [], warnings, set()
+    source_step = id_to_step[source_id]
+    step = {
+        "step_id": f"{step_id}_array",
+        "op": op,
+        "args": {"handle": f"${source_step}", **args},
+        "depends_on": [source_step],
+        "save_as": f"${step_id}",
+    }
+    skip_ids = set()
+    if expected_count == len(member_ids):
+        skip_ids = {member_id for member_id in member_ids if member_id != source_id and member_id in item_by_id}
+    elif member_ids:
+        warnings.append(
+            f"{item.get('id')}: array count does not match member id count; keeping explicit member geometry."
+        )
+    return [step], warnings, skip_ids
+
+
+def _hatch_boundary_ids(item: Dict[str, Any], extra_boundaries: Sequence[str]) -> List[str]:
+    keys = (
+        "boundary_ids",
+        "boundary_id",
+        "boundary_handles",
+        "related_boundary_ids",
+        "outer_boundary_ids",
+        "boundaries",
+        "outer_boundaries",
+    )
+    return _unique_strings([*_refs_from_keys(item, keys), *extra_boundaries])
+
+
+def _hatch_plan_steps(item: Dict[str, Any],
+                      step_id: str,
+                      id_to_step: Dict[str, str],
+                      extra_boundaries: Sequence[str],
+                      image_height: float,
+                      scale: float) -> Tuple[List[Dict[str, Any]], List[str]]:
+    warnings: List[str] = []
+    steps: List[Dict[str, Any]] = []
+    boundary_vars: List[str] = []
+    boundary_deps: List[str] = []
+    for boundary_id in _hatch_boundary_ids(item, extra_boundaries):
+        boundary_step = id_to_step.get(boundary_id)
+        if boundary_step:
+            boundary_vars.append(f"${boundary_step}")
+            boundary_deps.append(boundary_step)
+        elif boundary_id.startswith("$"):
+            boundary_vars.append(boundary_id)
+        else:
+            warnings.append(f"{item.get('id')}: hatch boundary id {boundary_id!r} was not compiled.")
+    if not boundary_vars and item.get("pixel_bbox"):
+        x1, y1, x2, y2 = _scale_bbox(item["pixel_bbox"], image_height, scale)
+        boundary_step = f"{step_id}_boundary"
+        steps.append({
+            "step_id": boundary_step,
+            "op": "draw_rectangle",
+            "args": {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "layer": DEFAULT_LAYERS["hatch"]},
+            "save_as": f"${boundary_step}",
+        })
+        boundary_vars.append(f"${boundary_step}")
+        boundary_deps.append(boundary_step)
+    if not boundary_vars:
+        warnings.append(f"{item.get('id')}: hatch could not bind a boundary handle.")
+        return steps, warnings
+    pattern_name = (
+        item.get("pattern_name")
+        or item.get("hatch_pattern")
+        or _pixel_geometry(item).get("pattern_name")
+        or _pixel_geometry(item).get("hatch_pattern")
+        or item.get("pattern")
+        or "ANSI31"
+    )
+    if not isinstance(pattern_name, str) or not pattern_name.strip():
+        pattern_name = "ANSI31"
+    add_step_id = step_id
+    steps.append({
+        "step_id": add_step_id,
+        "op": "add_hatch",
+        "args": {
+            "pattern_name": pattern_name.strip(),
+            "associativity": bool(item.get("associativity", True)),
+            "layer": DEFAULT_LAYERS["hatch"],
+        },
+        "save_as": f"${step_id}",
+    })
+    steps.append({
+        "step_id": f"{step_id}_add_boundary",
+        "op": "hatch_add_boundary",
+        "args": {"handle": f"${step_id}", "boundary_handles": boundary_vars},
+        "depends_on": [*boundary_deps, add_step_id],
+    })
+    return steps, warnings
+
+
 def _line_step(item: Dict[str, Any],
                image_height: float,
                scale: float,
@@ -942,19 +1351,81 @@ def compile_image_spec_to_cad_plan(image_id: Optional[str] = None,
             "args": {"name": layer},
             "writes": True,
         })
-    items: List[Dict[str, Any]] = []
+    items: List[Tuple[str, Dict[str, Any]]] = []
+    id_to_step: Dict[str, str] = {}
+    item_by_id: Dict[str, Dict[str, Any]] = {}
     for section in ("geometry", "features", "annotations", "tables"):
-        items.extend(_raw_items_for_section(spec_data, section))
+        for item in _raw_items_for_section(spec_data, section):
+            items.append((section, item))
     seen_ids = set()
-    for index, item in enumerate(items, start=1):
+    item_records: List[Tuple[str, str, Dict[str, Any]]] = []
+    for index, (_section, item) in enumerate(items, start=1):
         raw_id = str(item.get("id") or f"item_{index}")
-        safe_id = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in raw_id.lower()).strip("_") or f"item_{index}"
+        safe_id = _safe_step_id(raw_id, f"item_{index}")
         if safe_id in seen_ids:
             safe_id = f"{safe_id}_{index}"
         seen_ids.add(safe_id)
+        id_to_step[raw_id] = safe_id
+        item_by_id[raw_id] = item
+        item_records.append((raw_id, safe_id, item))
+
+    relation_pattern_members, relation_hatch_boundaries = _relation_ref_maps(spec_data)
+    pattern_steps: Dict[str, List[Dict[str, Any]]] = {}
+    skip_item_ids = set()
+    relation_warnings: List[str] = []
+    for raw_id, safe_id, item in item_records:
+        if str(item.get("kind") or "").lower() != "pattern":
+            continue
+        item_steps, item_warnings, pattern_skip_ids = _pattern_plan_info(
+            item,
+            safe_id,
+            id_to_step,
+            item_by_id,
+            relation_pattern_members.get(raw_id, []),
+            image_height,
+            scale,
+        )
+        if item_steps:
+            pattern_steps[raw_id] = item_steps
+            skip_item_ids.update(pattern_skip_ids)
+        relation_warnings.extend(item_warnings)
+
+    hatch_steps: Dict[str, List[Dict[str, Any]]] = {}
+    for raw_id, safe_id, item in item_records:
+        if str(item.get("kind") or "").lower() != "hatch":
+            continue
+        item_steps, item_warnings = _hatch_plan_steps(
+            item,
+            safe_id,
+            id_to_step,
+            relation_hatch_boundaries.get(raw_id, []),
+            image_height,
+            scale,
+        )
+        if item_steps:
+            hatch_steps[raw_id] = item_steps
+        relation_warnings.extend(item_warnings)
+
+    for raw_id, safe_id, item in item_records:
+        kind = str(item.get("kind") or "").lower()
+        if raw_id in skip_item_ids or kind in {"pattern", "hatch"}:
+            continue
         item_steps, item_warnings = _geometry_step(item, image_height, scale, safe_id)
         steps.extend(item_steps)
         warnings.extend(item_warnings)
+    for raw_id, _safe_id, item in item_records:
+        kind = str(item.get("kind") or "").lower()
+        if kind == "pattern":
+            if raw_id in pattern_steps:
+                steps.extend(pattern_steps[raw_id])
+            elif _pattern_member_ids(item) or relation_pattern_members.get(raw_id):
+                warnings.append(f"{item.get('id')}: pattern is preserved in spec but could not bind a CAD array handle.")
+        elif kind == "hatch":
+            if raw_id in hatch_steps:
+                steps.extend(hatch_steps[raw_id])
+            else:
+                warnings.append(f"{item.get('id')}: hatch is preserved in spec but could not bind a CAD hatch boundary handle.")
+    warnings.extend(relation_warnings)
     plan = {
         "plan_id": stable_id("plan", image_id or "", json.dumps(spec_data, sort_keys=True, default=str))[:24],
         "description": "Trace mechanical engineering drawing from ImageDrawingSpec/v1.",
@@ -1018,6 +1489,17 @@ def validate_image_fidelity_contract(spec: Dict[str, Any],
         return error_result("cad_plan must be a JSON object.")
     errors: List[Dict[str, Any]] = []
     warnings: List[str] = []
+    relation_pattern_members, _relation_hatch_boundaries = _relation_ref_maps(spec)
+    compiled_pattern_members = set()
+    for section in ("features", "geometry"):
+        for item in _raw_items_for_section(spec, section):
+            item_id = str(item.get("id") or "")
+            if str(item.get("kind") or "").lower() != "pattern":
+                continue
+            ops = _plan_ops_for_var(cad_plan, item_id)
+            if any(op in {"array_rectangular", "array_polar", "insert_minsert_block"} for op in ops):
+                compiled_pattern_members.update(_pattern_member_ids(item))
+                compiled_pattern_members.update(relation_pattern_members.get(item_id, []))
     for section in ("features", "geometry"):
         for item in _raw_items_for_section(spec, section):
             item_id = str(item.get("id") or "")
@@ -1043,9 +1525,9 @@ def validate_image_fidelity_contract(spec: Dict[str, Any],
                     })
                 if not ops:
                     errors.append({"id": item_id, "kind": kind, "message": "filleted_rectangle was not compiled.", "ops": ops})
-            if kind == "hole" and not ops:
+            if kind == "hole" and not ops and item_id not in compiled_pattern_members:
                 errors.append({"id": item_id, "kind": kind, "message": "hole feature was not compiled.", "ops": ops})
-            if kind == "slot" and not ops:
+            if kind == "slot" and not ops and item_id not in compiled_pattern_members:
                 errors.append({"id": item_id, "kind": kind, "message": "slot feature was not compiled.", "ops": ops})
             if kind == "pattern":
                 members = item.get("members") or item.get("member_ids") or item.get("instances")
@@ -1058,6 +1540,11 @@ def validate_image_fidelity_contract(spec: Dict[str, Any],
                     })
                 if not any(op in {"array_rectangular", "array_polar", "insert_minsert_block"} for op in ops):
                     warnings.append(f"Pattern {item_id} has no CAD array op yet; member relationship remains in the spec.")
+            if kind == "hatch":
+                if not ops:
+                    warnings.append(f"Hatch {item_id} has no CAD hatch op yet; boundary relationship remains in the spec.")
+                elif "hatch_add_boundary" not in ops:
+                    warnings.append(f"Hatch {item_id} has no hatch_add_boundary op yet; boundary relationship remains in the spec.")
     for item in _raw_items_for_section(spec, "annotations"):
         item_id = str(item.get("id") or "")
         kind = str(item.get("kind") or "").lower()

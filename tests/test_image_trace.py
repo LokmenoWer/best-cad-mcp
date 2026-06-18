@@ -112,6 +112,75 @@ def sample_spec():
     }
 
 
+def tube_bundle_hatch_spec():
+    holes = []
+    for row, y in enumerate((30, 40)):
+        for col, x in enumerate((30, 40, 50)):
+            holes.append({
+                "id": f"tube_{row}_{col}",
+                "kind": "hole",
+                "confidence": 0.91,
+                "pixel_bbox": [x - 2, y - 2, x + 2, y + 2],
+                "pixel_geometry": {"center": [x, y], "radius": 2},
+                "evidence": {"text": "repeated tube hole"},
+            })
+    member_ids = [hole["id"] for hole in holes]
+    return {
+        "schema_version": "ImageDrawingSpec/v1",
+        "domain": "mechanical",
+        "units": "mm",
+        "image_height": 100,
+        "calibration_candidates": [
+            {
+                "id": "cal_1",
+                "value": 100,
+                "pixel_distance": 100,
+                "confidence": 0.95,
+                "evidence": {"text": "100 mm scale"},
+            }
+        ],
+        "features": [
+            *holes,
+            {
+                "id": "tube_bundle",
+                "kind": "pattern",
+                "confidence": 0.92,
+                "pixel_bbox": [28, 28, 52, 42],
+                "member_ids": member_ids,
+                "pattern_type": "rectangular",
+                "rows": 2,
+                "columns": 3,
+                "row_spacing": 10,
+                "column_spacing": 10,
+                "evidence": {"text": "2 by 3 tube bundle pitch pattern"},
+            },
+            {
+                "id": "tube_sheet_hatch",
+                "kind": "hatch",
+                "confidence": 0.87,
+                "pixel_bbox": [20, 20, 60, 50],
+                "pattern_name": "ANSI31",
+                "evidence": {"text": "section hatch bounded by sheet outline"},
+            },
+        ],
+        "geometry": [
+            {
+                "id": "sheet_outline",
+                "kind": "rectangle",
+                "confidence": 0.94,
+                "pixel_bbox": [20, 20, 60, 50],
+                "evidence": {"text": "closed sheet outline"},
+            }
+        ],
+        "annotations": [],
+        "relations": [
+            {"type": "hatch_boundary", "source": "tube_sheet_hatch", "target": "sheet_outline"}
+        ],
+        "tables": [],
+        "uncertainties": [],
+    }
+
+
 def test_prepare_image_trace_with_bmp(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     db = make_db(tmp_path)
@@ -174,6 +243,33 @@ def test_compile_complex_spec_to_valid_dry_run_plan(tmp_path, monkeypatch):
     assert "edit_table_cell" in ops
     assert validate_cad_plan(plan)["ok"]
     assert dry_run_cad_plan(plan)["ok"]
+
+
+def test_compile_pattern_and_hatch_bind_to_plan_handles(tmp_path):
+    db = make_db(tmp_path)
+    compiled = compile_image_spec_to_cad_plan(spec=tube_bundle_hatch_spec(), database=db)
+
+    assert compiled["ok"], compiled
+    assert not [warning for warning in compiled["warnings"] if "remains in the spec" in warning]
+    assert not [warning for warning in compiled["warnings"] if "could not bind" in warning]
+    plan = compiled["data"]["plan"]
+    ops = [step["op"] for step in plan["steps"]]
+    assert ops.count("draw_circle") == 1
+    assert "array_rectangular" in ops
+    assert "add_hatch" in ops
+    assert "hatch_add_boundary" in ops
+
+    array_step = next(step for step in plan["steps"] if step["op"] == "array_rectangular")
+    assert array_step["args"]["handle"] == "$tube_0_0"
+    assert array_step["args"]["rows"] == 2
+    assert array_step["args"]["columns"] == 3
+
+    boundary_step = next(step for step in plan["steps"] if step["op"] == "hatch_add_boundary")
+    assert boundary_step["args"]["handle"] == "$tube_sheet_hatch"
+    assert boundary_step["args"]["boundary_handles"] == ["$sheet_outline"]
+    assert validate_cad_plan(plan)["ok"]
+    dry = dry_run_cad_plan(plan)
+    assert dry["ok"], dry
 
 
 def test_fidelity_rejects_chamfered_rectangle_downgrade():

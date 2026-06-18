@@ -78,9 +78,10 @@ def _tool_dispatch() -> Dict[str, Callable[..., Any]]:
         hatch_tools,
         layer_tools,
         text_tools,
+        utility_tools,
     )
 
-    modules = [drawing_tools, edit_tools, layer_tools, dimension_tools, hatch_tools, block_tools, text_tools]
+    modules = [drawing_tools, edit_tools, layer_tools, dimension_tools, hatch_tools, block_tools, text_tools, utility_tools]
     dispatch: Dict[str, Callable[..., Any]] = {}
     for module in modules:
         for op in SAFE_PLAN_OPS:
@@ -292,6 +293,7 @@ def _expected_entity_type(op: str) -> Optional[str]:
         "add_mleader": "AcDbMLeader",
         "add_table": "AcDbTable",
         "insert_block": "AcDbBlockReference",
+        "add_hatch": "AcDbHatch",
         "add_linear_dimension": "AcDbRotatedDimension",
         "add_radial_dimension": "AcDbRadialDimension",
         "add_diametric_dimension": "AcDbDiametricDimension",
@@ -304,8 +306,9 @@ def _handles_from_args(args: Dict[str, Any]) -> List[str]:
     for key in ("handle", "target_handle", "tool_handle"):
         if args.get(key) and not isinstance(args.get(key), dict):
             handles.append(str(args[key]))
-    if isinstance(args.get("handles"), list):
-        handles.extend(str(handle) for handle in args["handles"] if not isinstance(handle, dict))
+    for key in ("handles", "boundary_handles", "inner_handles", "cutting_handles", "entity_handles"):
+        if isinstance(args.get(key), list):
+            handles.extend(str(handle) for handle in args[key] if not isinstance(handle, dict))
     return handles
 
 
@@ -367,6 +370,8 @@ def parse_tool_result_handles(result: Any) -> List[str]:
         for item in result:
             handles.extend(parse_tool_result_handles(item))
     elif isinstance(result, str):
+        for list_match in re.finditer(r"(?:handles|new_handles|entity_handles)\s*:\s*\[([^\]]*)\]", result, re.IGNORECASE):
+            handles.extend(re.findall(r"\b[A-Fa-f0-9]+\b", list_match.group(1)))
         for match in HANDLE_RE.finditer(result):
             handles.append(match.group(1).strip(".,;()[]{}"))
         # Common terse CAD tool strings: "... H1 ..." after "created".

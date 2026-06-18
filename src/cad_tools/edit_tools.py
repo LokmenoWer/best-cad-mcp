@@ -178,7 +178,8 @@ def array_rectangular(handle: str, rows: int, columns: int,
     r = ctrl.array_rectangular(handle, rows, columns, row_spacing, column_spacing)
     if r["success"]:
         return format_success(f"已矩形阵列: {rows}行×{columns}列",
-                              total=r.get("new_handles", []))
+                              handles=r.get("new_handles", []),
+                              total=len(r.get("new_handles", [])))
     return f"阵列失败: {r['message']}"
 
 
@@ -197,7 +198,9 @@ def array_polar(handle: str, count: int, fill_angle: float,
     """
     r = ctrl.array_polar(handle, count, fill_angle, [center_x, center_y, center_z])
     if r["success"]:
-        return format_success(f"已环形阵列 {count} 个，角度: {fill_angle}°")
+        return format_success(f"已环形阵列 {count} 个，角度: {fill_angle}°",
+                              handles=r.get("new_handles", []),
+                              total=len(r.get("new_handles", [])))
     return f"阵列失败: {r['message']}"
 
 
