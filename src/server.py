@@ -5018,6 +5018,21 @@ def fuse_vlm_findings_into_semantic_graph(ctx: Context,
 
 
 @mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def evaluate_vlm_grounding(ctx: Context,
+                           ground_truth: List[Dict[str, Any]],
+                           snapshot_id: Optional[str] = None,
+                           top_k: int = 3) -> Dict[str, Any]:
+    """Score persisted VLM findings against expected handles and issue labels."""
+    return understanding_vlm.evaluate_vlm_grounding(
+        ground_truth=ground_truth,
+        snapshot_id=snapshot_id,
+        top_k=top_k,
+    )
+
+
+@mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
 )
 def promote_vlm_finding_to_validation_issue(ctx: Context,

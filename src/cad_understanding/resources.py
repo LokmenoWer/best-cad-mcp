@@ -80,6 +80,7 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
                 "submit_vlm_review",
                 "fuse_vlm_findings_into_semantic_graph",
                 "analyze_engineering_drawing_stages",
+                "evaluate_vlm_grounding",
                 "ground_vlm_region",
                 "propose_repair_plan",
                 "dry_run_cad_plan",

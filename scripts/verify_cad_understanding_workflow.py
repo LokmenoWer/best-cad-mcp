@@ -28,6 +28,7 @@ from src.cad_understanding.engineering_review import analyze_engineering_drawing
 from src.cad_understanding.validators import validate_geometry
 from src.cad_understanding.view_grounding import export_view_image_with_mapping, ground_vlm_overlay_id
 from src.cad_understanding.vlm import (
+    evaluate_vlm_grounding,
     fuse_vlm_findings_into_semantic_graph,
     submit_vlm_review,
     validate_vlm_review_output,
@@ -217,6 +218,18 @@ def main() -> int:
             step(
                 "fuse_vlm_findings_into_semantic_graph",
                 lambda: fuse_vlm_findings_into_semantic_graph(min_confidence=0.1),
+                required=False,
+            )
+            step(
+                "evaluate_vlm_grounding",
+                lambda: evaluate_vlm_grounding(
+                    [{
+                        "overlay_id": items[0]["overlay_id"],
+                        "issue_type": "smoke_visual_review",
+                        "expected_handles": [items[0].get("handle")],
+                    }],
+                    snapshot_id=snap["snapshot_id"],
+                ),
                 required=False,
             )
             step(

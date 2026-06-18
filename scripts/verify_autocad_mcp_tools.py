@@ -157,6 +157,7 @@ VLM_REVIEW_TOOLS = {
     "submit_vlm_review",
     "get_vlm_findings",
     "fuse_vlm_findings_into_semantic_graph",
+    "evaluate_vlm_grounding",
     "promote_vlm_finding_to_validation_issue",
     "analyze_engineering_drawing_stages",
 }
@@ -268,6 +269,9 @@ def _status_for_payload(tool_name: str, payload: Any) -> str:
                 return "semantic_error"
         if tool_name == "fuse_vlm_findings_into_semantic_graph":
             if not data.get("semantic_objects"):
+                return "semantic_error"
+        if tool_name == "evaluate_vlm_grounding":
+            if not data.get("metrics"):
                 return "semantic_error"
         if tool_name == "promote_vlm_finding_to_validation_issue":
             if "promoted_issues" not in data:
@@ -1056,12 +1060,23 @@ def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
             "prompt_version": "verify/vlm",
         })
     if name in {"get_vlm_findings", "fuse_vlm_findings_into_semantic_graph",
-                "promote_vlm_finding_to_validation_issue", "analyze_engineering_drawing_stages"}:
+                "evaluate_vlm_grounding", "promote_vlm_finding_to_validation_issue",
+                "analyze_engineering_drawing_stages"}:
         _prepare_vlm_review(ctx, submit=True)
     if name in {"get_vlm_findings"}:
         args.update({"snapshot_id": ctx.get("view_snapshot_id", ""), "limit": 20})
     if name in {"fuse_vlm_findings_into_semantic_graph"}:
         args.update({"min_confidence": 0.1})
+    if name in {"evaluate_vlm_grounding"}:
+        args.update({
+            "snapshot_id": ctx.get("view_snapshot_id", ""),
+            "ground_truth": [{
+                "overlay_id": ctx.get("view_overlay_id", "E001"),
+                "issue_type": "mcp_verify_visual_review",
+                "expected_handles": [ctx.get("line", "")],
+            }],
+            "top_k": 3,
+        })
     if name in {"promote_vlm_finding_to_validation_issue"}:
         args.update({"min_confidence": 0.1})
     if name in {"analyze_engineering_drawing_stages"}:

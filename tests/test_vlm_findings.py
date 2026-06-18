@@ -5,6 +5,7 @@ from src.cad_understanding.semantic_graph import get_semantic_graph
 from src.cad_understanding.validators import get_validation_report
 from src.cad_understanding.view_grounding import export_view_image_with_mapping
 from src.cad_understanding.vlm import (
+    evaluate_vlm_grounding,
     fuse_vlm_findings_into_semantic_graph,
     get_vlm_findings,
     promote_vlm_finding_to_validation_issue,
@@ -70,6 +71,17 @@ def test_vlm_review_validation_submit_and_promote(tmp_path, monkeypatch):
         database=db,
     )
     findings = get_vlm_findings(snapshot_id=snapshot["snapshot_id"], database=db)
+    evaluation = evaluate_vlm_grounding(
+        [
+            {
+                "overlay_id": overlay_id,
+                "issue_type": "missing_diameter_dimension",
+                "expected_handles": ["C1"],
+            }
+        ],
+        snapshot_id=snapshot["snapshot_id"],
+        database=db,
+    )
     fused = fuse_vlm_findings_into_semantic_graph(database=db)
     graph = get_semantic_graph(database=db)
     drawing_ir = build_drawing_ir(database=db, sections=["vlm_findings"])
@@ -81,6 +93,8 @@ def test_vlm_review_validation_submit_and_promote(tmp_path, monkeypatch):
     assert submitted["ok"]
     assert findings["data"]["findings"][0]["status"] == "grounded"
     assert findings["data"]["findings"][0]["grounded_handles"] == ["C1"]
+    assert evaluation["data"]["metrics"]["handle_top1_accuracy"] == 1.0
+    assert evaluation["data"]["metrics"]["issue_type_recall"] == 1.0
     assert fused["ok"]
     assert fused["data"]["semantic_objects"][0]["source"] == "vlm:unit-test-vlm"
     assert "dimension_annotation" in {

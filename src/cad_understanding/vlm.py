@@ -748,6 +748,106 @@ def fuse_vlm_findings_into_semantic_graph(finding_ids: Optional[List[str]] = Non
     )
 
 
+def _candidate_handles(finding: Dict[str, Any], top_k: int) -> List[str]:
+    candidates = finding.get("grounding_candidates") or []
+    handles = []
+    for candidate in candidates[:max(1, int(top_k or 1))]:
+        handle = candidate.get("handle")
+        if handle:
+            handles.append(str(handle))
+    if not handles:
+        handles = [str(handle) for handle in (finding.get("grounded_handles") or []) if handle]
+    return handles
+
+
+def _match_ground_truth(finding: Dict[str, Any],
+                        expected: Dict[str, Any]) -> bool:
+    if expected.get("finding_id") and expected.get("finding_id") == finding.get("finding_id"):
+        return True
+    if expected.get("overlay_id") and str(expected.get("overlay_id")).upper() != str(finding.get("overlay_id") or "").upper():
+        return False
+    if expected.get("issue_type") and str(expected.get("issue_type")).lower() != str(finding.get("issue_type") or "").lower():
+        return False
+    return bool(expected.get("overlay_id") or expected.get("issue_type"))
+
+
+def evaluate_vlm_grounding(ground_truth: List[Dict[str, Any]],
+                           snapshot_id: Optional[str] = None,
+                           top_k: int = 3,
+                           database: Optional[CADDatabase] = None) -> ToolResult:
+    """Score persisted VLM findings against expected handles and issue types."""
+    db = get_db(database)
+    findings_result = get_vlm_findings(snapshot_id=snapshot_id, database=db, limit=1000)
+    findings = findings_result["data"].get("findings", []) if findings_result.get("ok") else []
+    expected_items = [item for item in (ground_truth or []) if isinstance(item, dict)]
+    used_findings = set()
+    cases = []
+    top1_hits = 0
+    topk_hits = 0
+    issue_hits = 0
+    matched_count = 0
+    for index, expected in enumerate(expected_items, start=1):
+        expected_handles = set(_normalize_handles(expected.get("expected_handles") or expected.get("handles")))
+        match_index = None
+        matched_finding: Optional[Dict[str, Any]] = None
+        for finding_index, finding in enumerate(findings):
+            if finding_index in used_findings:
+                continue
+            if _match_ground_truth(finding, expected):
+                match_index = finding_index
+                matched_finding = finding
+                break
+        if matched_finding is not None and match_index is not None:
+            used_findings.add(match_index)
+            matched_count += 1
+        candidate_top1 = _candidate_handles(matched_finding or {}, 1)
+        candidate_topk = _candidate_handles(matched_finding or {}, top_k)
+        top1 = bool(expected_handles and candidate_top1 and expected_handles.intersection(candidate_top1[:1]))
+        topk = bool(expected_handles and candidate_topk and expected_handles.intersection(candidate_topk))
+        issue_match = bool(
+            matched_finding is not None
+            and (
+                not expected.get("issue_type")
+                or str(expected.get("issue_type")).lower() == str(matched_finding.get("issue_type") or "").lower()
+            )
+        )
+        top1_hits += int(top1)
+        topk_hits += int(topk)
+        issue_hits += int(issue_match)
+        cases.append({
+            "case_id": expected.get("case_id") or f"case_{index}",
+            "expected_handles": sorted(expected_handles),
+            "matched_finding_id": (matched_finding or {}).get("finding_id"),
+            "candidate_top1": candidate_top1[:1],
+            "candidate_topk": candidate_topk,
+            "top1_hit": top1,
+            "topk_hit": topk,
+            "issue_type_hit": issue_match,
+        })
+    total = len(expected_items)
+    finding_count = len(findings)
+    metrics = {
+        "case_count": total,
+        "finding_count": finding_count,
+        "matched_case_count": matched_count,
+        "handle_top1_accuracy": round(top1_hits / total, 4) if total else 0.0,
+        "handle_topk_accuracy": round(topk_hits / total, 4) if total else 0.0,
+        "issue_type_recall": round(issue_hits / total, 4) if total else 0.0,
+        "issue_precision": round(matched_count / finding_count, 4) if finding_count else 0.0,
+        "json_valid_rate": 1.0 if findings else 0.0,
+        "top_k": max(1, int(top_k or 3)),
+    }
+    return ok_result(
+        "Evaluated VLM grounding findings.",
+        data={"metrics": metrics, "cases": cases},
+        handles=sorted({h for case in cases for h in case.get("candidate_topk", [])}),
+        warnings=[
+            "Metrics are computed from persisted findings; invalid VLM JSON rejected before submit is not counted."
+        ],
+        next_tools=["get_vlm_findings", "export_view_image_with_mapping"],
+    )
+
+
 def promote_vlm_finding_to_validation_issue(finding_ids: Optional[List[str]] = None,
                                              min_confidence: float = 0.0,
                                              database: Optional[CADDatabase] = None) -> ToolResult:
@@ -808,5 +908,6 @@ __all__ = [
     "submit_vlm_review",
     "get_vlm_findings",
     "fuse_vlm_findings_into_semantic_graph",
+    "evaluate_vlm_grounding",
     "promote_vlm_finding_to_validation_issue",
 ]

@@ -67,6 +67,7 @@ def test_server_understanding_tool_functions_importable():
         "submit_vlm_review",
         "get_vlm_findings",
         "fuse_vlm_findings_into_semantic_graph",
+        "evaluate_vlm_grounding",
         "promote_vlm_finding_to_validation_issue",
         "analyze_engineering_drawing_stages",
         "validate_cad_plan",

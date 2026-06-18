@@ -474,8 +474,10 @@ Confirmed findings can be fused into the semantic graph with
 `fuse_vlm_findings_into_semantic_graph` or promoted into validation reports with
 `promote_vlm_finding_to_validation_issue`. `analyze_engineering_drawing_stages`
 returns a staged engineering-drawing interpretation JSON covering layout
-segmentation, annotation detection, VLM parsing, and reconciliation. CAD-IR also
-exposes a `vlm_findings` section, and resources include
+segmentation, annotation detection, VLM parsing, and reconciliation.
+`evaluate_vlm_grounding` scores persisted findings against expected handles and
+issue types for regression suites. CAD-IR also exposes a `vlm_findings` section,
+and resources include
 `cad://drawing/current/vlm-findings` and
 `cad://drawing/current/engineering-interpretation`.
 

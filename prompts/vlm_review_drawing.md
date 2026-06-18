@@ -19,12 +19,14 @@
    objects.
 8. Call `analyze_engineering_drawing_stages` to produce layout segmentation,
    annotation detection, VLM parsing, and reconciliation JSON.
-9. Call `promote_vlm_finding_to_validation_issue` only for findings that should
+9. Call `evaluate_vlm_grounding` when a benchmark or expected handle set is
+   available.
+10. Call `promote_vlm_finding_to_validation_issue` only for findings that should
    enter validation/repair planning.
-10. Call `explain_entity` for likely handles and inspect primitive candidates.
-11. Call `propose_repair_plan` or `propose_constraint_repair_plan` for selected
+11. Call `explain_entity` for likely handles and inspect primitive candidates.
+12. Call `propose_repair_plan` or `propose_constraint_repair_plan` for selected
     validation, constraint, or VLM issues.
-12. Validate and dry-run any CADPlan before execution.
+13. Validate and dry-run any CADPlan before execution.
 
 Do not draw helper geometry or labels into the DWG for VLM grounding.
 Do not claim exact grounding when the snapshot returns limitations or low
