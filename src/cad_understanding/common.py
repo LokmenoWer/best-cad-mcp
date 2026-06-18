@@ -174,6 +174,26 @@ def ensure_understanding_schema(database: Optional[CADDatabase] = None) -> None:
                 thread_id TEXT DEFAULT ''
             )
         ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS cad_image_traces (
+                image_id TEXT PRIMARY KEY,
+                image_path TEXT DEFAULT '',
+                normalized_image_path TEXT DEFAULT '',
+                tile_index_path TEXT DEFAULT '',
+                image_width INTEGER,
+                image_height INTEGER,
+                domain TEXT DEFAULT 'mechanical',
+                units TEXT DEFAULT '',
+                calibration TEXT DEFAULT '{}',
+                spec_json TEXT DEFAULT '{}',
+                warnings TEXT DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                workspace_id TEXT DEFAULT '',
+                drawing_id TEXT DEFAULT '',
+                conversation_id TEXT DEFAULT '',
+                thread_id TEXT DEFAULT ''
+            )
+        ''')
         for table in (
             "cad_semantic_objects",
             "cad_semantic_relations",
@@ -181,6 +201,7 @@ def ensure_understanding_schema(database: Optional[CADDatabase] = None) -> None:
             "cad_validation_reports",
             "cad_view_snapshots",
             "cad_vlm_findings",
+            "cad_image_traces",
         ):
             conn.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{table}_scope "

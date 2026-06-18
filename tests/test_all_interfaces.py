@@ -85,6 +85,7 @@ with patch('src.cad_controller.CADController', autospec=True) as mock_ctrl_cls, 
     from src.cad_understanding import constraints as understanding_constraints
     from src.cad_understanding import dimension_binding as understanding_dimensions
     from src.cad_understanding import engineering_review as understanding_engineering
+    from src.cad_understanding import image_trace as understanding_image_trace
     from src.cad_understanding import ir_builder as understanding_ir_builder
     from src.cad_understanding import plan as understanding_plan
     from src.cad_understanding import resources as understanding_resources
@@ -1503,7 +1504,7 @@ class TestToolWiring(unittest.TestCase):
             'polyline_tools', 'hatch_tools', 'attribute_tools',
             'understanding_analysis', 'understanding_constraints',
             'understanding_dimensions', 'understanding_engineering',
-            'understanding_ir_builder', 'understanding_plan',
+            'understanding_image_trace', 'understanding_ir_builder', 'understanding_plan',
             'understanding_resources', 'understanding_semantic',
             'understanding_validators', 'understanding_view', 'understanding_vlm',
         }
@@ -1549,6 +1550,7 @@ class TestToolWiring(unittest.TestCase):
             'understanding_constraints': understanding_constraints,
             'understanding_dimensions': understanding_dimensions,
             'understanding_engineering': understanding_engineering,
+            'understanding_image_trace': understanding_image_trace,
             'understanding_ir_builder': understanding_ir_builder,
             'understanding_plan': understanding_plan,
             'understanding_resources': understanding_resources,
@@ -1598,7 +1600,8 @@ class TestToolWiring(unittest.TestCase):
             'cad_tool_selection_resource',
             'cad_registered_tools_resource', 'cad_workflow_guide',
             'cad_layer_planning', 'understand_existing_drawing',
-            'precise_draw_from_spec', 'vlm_review_drawing',
+            'precise_draw_from_spec', 'copy_drawing_from_image',
+            'vlm_review_drawing',
             'repair_drawing', 'main',
         }
 

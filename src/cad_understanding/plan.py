@@ -10,10 +10,14 @@ from .result import ToolResult, error_result, ok_result
 
 SAFE_PLAN_OPS = {
     "draw_line",
+    "draw_arc",
     "draw_circle",
+    "draw_donut",
+    "draw_ellipse",
     "draw_rectangle",
     "draw_polyline",
     "draw_polygon",
+    "draw_spline",
     "draw_text",
     "draw_mtext",
     "move_entity",
@@ -29,11 +33,16 @@ SAFE_PLAN_OPS = {
     "set_entity_properties",
     "create_layer",
     "set_current_layer",
+    "add_mleader",
+    "add_table",
+    "edit_table_cell",
     "add_linear_dimension",
     "add_radial_dimension",
     "add_diametric_dimension",
     "add_hatch",
     "hatch_add_boundary",
+    "chamfer_polyline",
+    "fillet_polyline",
     "create_block",
     "insert_block",
     "set_dimension_text_override",
@@ -68,9 +77,10 @@ def _tool_dispatch() -> Dict[str, Callable[..., Any]]:
         edit_tools,
         hatch_tools,
         layer_tools,
+        text_tools,
     )
 
-    modules = [drawing_tools, edit_tools, layer_tools, dimension_tools, hatch_tools, block_tools]
+    modules = [drawing_tools, edit_tools, layer_tools, dimension_tools, hatch_tools, block_tools, text_tools]
     dispatch: Dict[str, Callable[..., Any]] = {}
     for module in modules:
         for op in SAFE_PLAN_OPS:
@@ -269,12 +279,18 @@ def validate_cad_plan(plan: Dict[str, Any]) -> ToolResult:
 def _expected_entity_type(op: str) -> Optional[str]:
     mapping = {
         "draw_line": "AcDbLine",
+        "draw_arc": "AcDbArc",
         "draw_circle": "AcDbCircle",
+        "draw_donut": "AcDbPolyline",
+        "draw_ellipse": "AcDbEllipse",
         "draw_rectangle": "AcDbPolyline",
         "draw_polyline": "AcDbPolyline",
         "draw_polygon": "AcDbPolyline",
+        "draw_spline": "AcDbSpline",
         "draw_text": "AcDbText",
         "draw_mtext": "AcDbMText",
+        "add_mleader": "AcDbMLeader",
+        "add_table": "AcDbTable",
         "insert_block": "AcDbBlockReference",
         "add_linear_dimension": "AcDbRotatedDimension",
         "add_radial_dimension": "AcDbRadialDimension",

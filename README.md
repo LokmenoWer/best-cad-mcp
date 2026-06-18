@@ -282,6 +282,31 @@ is connected.
 7. `scan_all_entities`, `build_drawing_ir`, `validate_geometry`, and export a review image.
 8. Save or export the final DWG, PDF, DXF, or DWF deliverable.
 
+### Copy A Mechanical Drawing From One Image
+
+This workflow is for a single external image of a mechanical part or assembly
+drawing. The VLM call stays on the agent side; MCP validates and compiles the
+structured result.
+
+1. `prepare_image_trace(image_path, domain="mechanical")`.
+2. Use the `copy_drawing_from_image` prompt with the normalized image and tile
+   index, then ask the VLM for `ImageDrawingSpec/v1` JSON.
+3. `validate_image_drawing_spec(spec, image_id)`.
+4. `submit_image_drawing_spec(image_id, spec, source_model=...)`.
+5. `compile_image_spec_to_cad_plan(image_id)`.
+6. `validate_image_fidelity_contract(spec, cad_plan)`.
+7. `validate_cad_plan`, then `dry_run_cad_plan`.
+8. Execute only when modification is authorized:
+   `execute_cad_plan(..., allow_modify=true, transactional=true)`.
+9. `scan_all_entities`, `build_drawing_ir`, `validate_geometry`, and
+   `export_view_image_with_mapping(include_overlay=true)` for visual diff.
+
+Fidelity rules are strict. A chamfered square must not become a square, a
+filleted rectangle must keep its radii or arc segments, hole patterns must keep
+their repeated-feature relationship, and dimensions must become real dimension
+entities rather than text. If the image is unclear, the spec should record an
+uncertainty instead of silently guessing or simplifying.
+
 ### Review With Vision
 
 1. `export_view_image_with_mapping(include_overlay=true)`.

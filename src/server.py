@@ -144,6 +144,12 @@ Tool-choice rules:
   finish notes, section/detail views, or exploded views, call
   analyze_engineering_drawing_stages and export_view_image_with_mapping with
   overlays. Do not reduce these artifacts to generic lines and labels.
+- For one-image mechanical drawing tracing, call prepare_image_trace, use the
+  copy_drawing_from_image prompt with an Agent-side VLM, validate and submit
+  ImageDrawingSpec/v1, compile it to a CADPlan, and run
+  validate_image_fidelity_contract before CADPlan validation/dry-run/execution.
+  Do not simplify chamfers, fillets, holes, slots, arrays, dimensions, hatches,
+  BOMs, or title blocks into plain rectangles, loose lines, or text.
 - For new complex drawings, start with recommend_cad_tools(intent), then create
   a CADPlan using semantic operations, variables, handle capture, dependencies,
   expectations, and postconditions. Validate and dry-run before execution.
@@ -381,6 +387,12 @@ def _registration_category(name: str) -> str:
         "analyze_engineering_drawing_stages",
     }:
         return "visual grounding and engineering review"
+    if name in {
+        "prepare_image_trace", "validate_image_drawing_spec",
+        "submit_image_drawing_spec", "compile_image_spec_to_cad_plan",
+        "validate_image_fidelity_contract",
+    }:
+        return "image trace to CAD"
     if name in {
         "propose_constraint_repair_plan", "propose_repair_plan",
         "validate_cad_plan", "dry_run_cad_plan", "execute_cad_plan",
@@ -646,6 +658,7 @@ from src.cad_understanding import analysis as understanding_analysis
 from src.cad_understanding import constraints as understanding_constraints
 from src.cad_understanding import dimension_binding as understanding_dimensions
 from src.cad_understanding import engineering_review as understanding_engineering
+from src.cad_understanding import image_trace as understanding_image_trace
 from src.cad_understanding import ir_builder as understanding_ir_builder
 from src.cad_understanding import plan as understanding_plan
 from src.cad_understanding import resources as understanding_resources
@@ -5194,6 +5207,83 @@ def analyze_engineering_drawing_stages(ctx: Context,
 
 
 @mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
+def prepare_image_trace(ctx: Context,
+                        image_path: str,
+                        domain: str = "mechanical",
+                        tile_size: int = 768,
+                        tile_overlap: float = 0.2) -> Dict[str, Any]:
+    """Prepare a single external image for Agent-side VLM tracing."""
+    return understanding_image_trace.prepare_image_trace(
+        image_path=image_path,
+        domain=domain,
+        tile_size=tile_size,
+        tile_overlap=tile_overlap,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def validate_image_drawing_spec(ctx: Context,
+                                spec: Dict[str, Any],
+                                image_id: Optional[str] = None) -> Dict[str, Any]:
+    """Validate ImageDrawingSpec/v1 before CADPlan compilation."""
+    return understanding_image_trace.validate_image_drawing_spec(
+        spec=spec,
+        image_id=image_id,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
+def submit_image_drawing_spec(ctx: Context,
+                              image_id: str,
+                              spec: Dict[str, Any],
+                              source_model: str = "unknown",
+                              prompt_version: str = "copy_drawing_from_image/v1") -> Dict[str, Any]:
+    """Validate and store an Agent-side VLM ImageDrawingSpec."""
+    return understanding_image_trace.submit_image_drawing_spec(
+        image_id=image_id,
+        spec=spec,
+        source_model=source_model,
+        prompt_version=prompt_version,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def compile_image_spec_to_cad_plan(ctx: Context,
+                                   image_id: Optional[str] = None,
+                                   spec: Optional[Dict[str, Any]] = None,
+                                   units: str = "mm",
+                                   scale_mode: str = "dimension_first") -> Dict[str, Any]:
+    """Compile ImageDrawingSpec/v1 to a guarded CADPlan without modifying DWG."""
+    return understanding_image_trace.compile_image_spec_to_cad_plan(
+        image_id=image_id,
+        spec=spec,
+        units=units,
+        scale_mode=scale_mode,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def validate_image_fidelity_contract(ctx: Context,
+                                     spec: Dict[str, Any],
+                                     cad_plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Reject silent feature simplification in image-trace CADPlans."""
+    return understanding_image_trace.validate_image_fidelity_contract(
+        spec=spec,
+        cad_plan=cad_plan,
+    )
+
+
+@mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
 def validate_cad_plan(ctx: Context, plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -5344,20 +5434,24 @@ def cad_workflow_guide() -> str:
    analyze_engineering_drawing_stages and export_view_image_with_mapping.
 4. New complex drawing: use recommend_cad_tools(intent), then CADPlan with
    variables, save_as handles, dependencies, expectations, and postconditions.
-5. Plan layers before drawing: create_layer and draw with color="bylayer".
-6. Pick the named tool for the intent: rectangle, polygon, block, hatch,
+5. One-image mechanical trace: prepare_image_trace, use the
+   copy_drawing_from_image prompt with an Agent-side VLM, validate/submit
+   ImageDrawingSpec/v1, compile_image_spec_to_cad_plan, and run
+   validate_image_fidelity_contract before CADPlan validation and dry-run.
+6. Plan layers before drawing: create_layer and draw with color="bylayer".
+7. Pick the named tool for the intent: rectangle, polygon, block, hatch,
    dimension, leader, array, fillet, chamfer, trim, offset, 3D solid, etc.
-7. Edit by handle with editing tools; do not delete and redraw just to move,
+8. Edit by handle with editing tools; do not delete and redraw just to move,
    mirror, scale, offset, trim, or array.
-8. Dimension with add_*_dimension or add_qdim; never fake dimensions with text
+9. Dimension with add_*_dimension or add_qdim; never fake dimensions with text
    and lines.
-9. Vision-capable verification: call export_view_image_with_mapping whenever
+10. Vision-capable verification: call export_view_image_with_mapping whenever
    seeing the current view would reduce ambiguity; use overlays and tiles for
    dense drawings.
-10. Model-private context: use add_spatial_annotation/list_spatial_annotations
+11. Model-private context: use add_spatial_annotation/list_spatial_annotations
    for hidden part labels or pointer-style references; do not draw helper
    labels into the DWG for model memory.
-11. Verify with scan_all_entities, validate_geometry, visual mapping, and only
+12. Verify with scan_all_entities, validate_geometry, visual mapping, and only
     save/export when requested.
 
 When unsure, call recommend_cad_tools(intent). For a full generated index, use
@@ -5461,6 +5555,19 @@ def precise_draw_from_spec() -> str:
 Do not put send_command in a plan unless the user explicitly approves a
 dangerous operation.
 If execution fails, inspect failed_step, completed_steps, and rollback_status.
+""")
+
+
+@mcp.prompt()
+def copy_drawing_from_image() -> str:
+    """Prompt for Agent-side VLM extraction of ImageDrawingSpec/v1."""
+    return _load_prompt_file("copy_drawing_from_image.md", """## Copy Drawing From Image
+
+Output only ImageDrawingSpec/v1 JSON for a mechanical drawing image. Preserve
+feature-level geometry: chamfers, fillets, holes, slots, patterns, hatches,
+dimensions, tables, and title block content must not be simplified into plain
+rectangles, loose lines, or text. Every item needs confidence, evidence, and
+pixel geometry or a pixel bbox. Put unclear details in uncertainties.
 """)
 
 

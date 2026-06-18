@@ -60,6 +60,7 @@ _THREAD_SCOPED_TABLES = {
     "cad_constraints",
     "cad_validation_reports",
     "cad_view_snapshots",
+    "cad_image_traces",
 }
 _WORKSPACE_SCOPED_TABLES = {
     "cad_workspaces",
@@ -1445,6 +1446,7 @@ class CADDatabase:
             "cad_constraints",
             "cad_validation_reports",
             "cad_view_snapshots",
+            "cad_image_traces",
         ):
             if not self._table_exists(conn, table):
                 deleted[table] = 0
@@ -1513,6 +1515,7 @@ class CADDatabase:
             large_payloads: Dict[str, Dict[str, Any]] = {}
             for table, column in (
                 ("cad_view_snapshots", "snapshot_data"),
+                ("cad_image_traces", "spec_json"),
                 ("cad_validation_reports", "issues"),
                 ("cad_semantic_objects", "entity_handles"),
                 ("cad_entities", "geometry"),
@@ -2198,6 +2201,7 @@ class CADDatabase:
             "cad_constraints",
             "cad_validation_reports",
             "cad_view_snapshots",
+            "cad_image_traces",
         ):
             if not self._table_exists(conn, table):
                 continue

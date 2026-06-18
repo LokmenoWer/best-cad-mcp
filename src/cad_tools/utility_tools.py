@@ -693,6 +693,27 @@ WORKFLOW_PLAYBOOKS = [
             "Do not draw helper labels into the DWG for visual grounding.",
         ],
     },
+    {
+        "name": "Copy mechanical drawing from one image",
+        "keywords": [
+            "copy drawing", "trace image", "image to cad", "image-to-cad",
+            "draw from image", "single image", "mechanical image",
+            "one image", "blueprint image", "抄图", "图片转cad", "一张图片",
+            "机械图还原", "图像抄图",
+        ],
+        "steps": [
+            "prepare_image_trace(image_path, domain='mechanical')",
+            "Agent-side VLM uses copy_drawing_from_image prompt to emit ImageDrawingSpec/v1 JSON",
+            "validate_image_drawing_spec -> submit_image_drawing_spec",
+            "compile_image_spec_to_cad_plan -> validate_image_fidelity_contract",
+            "validate_cad_plan -> dry_run_cad_plan before any execution",
+            "scan_all_entities -> validate_geometry -> export_view_image_with_mapping for visual diff after execution",
+        ],
+        "fidelity": [
+            "Do not simplify chamfers, fillets, holes, slots, hatches, dimensions, tables, or patterns into plain rectangles, loose lines, or text.",
+            "Unclear image details must be reported as uncertainties instead of silently guessed.",
+        ],
+    },
 ]
 
 
@@ -780,6 +801,41 @@ TOOL_ROUTING_CATALOG = [
         "use": "Fuse grounded VLM findings into the semantic graph as evidence-bearing hypotheses.",
         "avoid": "Do not overwrite lower-level CAD evidence with unreviewed visual hypotheses.",
         "keywords": ["fuse vlm", "semantic graph", "visual semantics", "语义图", "融合"],
+    },
+    {
+        "category": "Image trace",
+        "tool": "prepare_image_trace",
+        "use": "Prepare one external mechanical drawing image for Agent-side VLM extraction, including normalized image and tile index.",
+        "avoid": "Do not ask a VLM to freehand CAD without a prepared image trace context.",
+        "keywords": ["copy drawing", "trace image", "image to cad", "image trace", "single image", "抄图", "图片转cad", "一张图片"],
+    },
+    {
+        "category": "Image trace",
+        "tool": "validate_image_drawing_spec",
+        "use": "Validate ImageDrawingSpec/v1 JSON before storing or compiling it into CADPlan.",
+        "avoid": "Do not compile unvalidated VLM JSON or prose into CAD operations.",
+        "keywords": ["image drawing spec", "validate image spec", "ImageDrawingSpec", "抄图校验"],
+    },
+    {
+        "category": "Image trace",
+        "tool": "submit_image_drawing_spec",
+        "use": "Store validated Agent-side VLM extraction and calibration evidence in SQLite.",
+        "avoid": "Do not lose the source VLM evidence before visual diff or repair iterations.",
+        "keywords": ["submit image spec", "store image trace", "calibration candidates", "抄图规格"],
+    },
+    {
+        "category": "Image trace",
+        "tool": "compile_image_spec_to_cad_plan",
+        "use": "Compile ImageDrawingSpec/v1 to a guarded CADPlan without modifying the DWG.",
+        "avoid": "Do not directly draw from pixels without CADPlan validation and dry-run.",
+        "keywords": ["compile image spec", "image to cadplan", "trace to cadplan", "抄图计划"],
+    },
+    {
+        "category": "Image trace",
+        "tool": "validate_image_fidelity_contract",
+        "use": "Reject CADPlans that silently downgrade chamfers, fillets, holes, slots, dimensions, tables, hatches, or patterns.",
+        "avoid": "Do not accept a plain rectangle for a chamfered or filleted shape.",
+        "keywords": ["fidelity", "no simplification", "chamfer", "fillet", "feature fidelity", "保真", "倒角", "圆角"],
     },
     {
         "category": "CADPlan",
@@ -1162,6 +1218,23 @@ def _recommended_workflow_playbooks(intent: str) -> List[Dict[str, Any]]:
         bool({"repair", "fix"} & words)
         or "修复" in query
     )
+    asks_image_trace = (
+        "image to cad" in query
+        or "image-to-cad" in query
+        or "trace image" in query
+        or "draw from image" in query
+        or "copy drawing" in query
+        or "抄图" in query
+        or "图片转cad" in query
+        or "一张图片" in query
+    )
+    if asks_image_trace:
+        image_matches = [
+            playbook for playbook in matches
+            if playbook["name"] == "Copy mechanical drawing from one image"
+        ]
+        if image_matches:
+            return image_matches
     if asks_repair and not asks_creation:
         repair_matches = [playbook for playbook in matches if playbook["name"] == "Validation-led repair"]
         if repair_matches:

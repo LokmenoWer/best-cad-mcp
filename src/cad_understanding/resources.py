@@ -86,6 +86,14 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
                     "fuse_vlm_findings_into_semantic_graph when grounded findings add semantic objects",
                     "build_drawing_ir(sections=['overview', 'entities'])",
                 ],
+                "copy_mechanical_drawing_from_image": [
+                    "prepare_image_trace(image_path, domain='mechanical')",
+                    "Agent-side VLM uses prompt copy_drawing_from_image and returns ImageDrawingSpec/v1 JSON",
+                    "validate_image_drawing_spec -> submit_image_drawing_spec",
+                    "compile_image_spec_to_cad_plan -> validate_image_fidelity_contract",
+                    "validate_cad_plan -> dry_run_cad_plan -> execute_cad_plan only with allow_modify=True",
+                    "scan_all_entities -> validate_geometry -> export_view_image_with_mapping for visual diff",
+                ],
                 "new_complex_drawing": [
                     "recommend_cad_tools(intent)",
                     "validate_cad_plan",
@@ -117,6 +125,11 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
                 "analyze_engineering_drawing_stages",
                 "evaluate_vlm_grounding",
                 "ground_vlm_region",
+                "prepare_image_trace",
+                "validate_image_drawing_spec",
+                "submit_image_drawing_spec",
+                "compile_image_spec_to_cad_plan",
+                "validate_image_fidelity_contract",
                 "propose_repair_plan",
                 "dry_run_cad_plan",
                 "execute_cad_plan only with allow_modify=True",
@@ -129,6 +142,7 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
             "fidelity": [
                 "Do not flatten assemblies, section views, exploded views, BOMs, title blocks, or dimensions into generic lines and text.",
                 "Use blocks/arrays for repeated parts, CAD tables for BOMs, associative dimensions for measurements, hatches for sections, and solids/regions/booleans for 3D intent.",
+                "Image trace must preserve feature-level geometry: chamfers, fillets, holes, slots, patterns, hatches, dimensions, and tables must not silently degrade to plain rectangles, loose lines, or text.",
                 "When no exposed tool preserves the requested feature, state the gap and request guidance instead of silently simplifying.",
             ],
         }
