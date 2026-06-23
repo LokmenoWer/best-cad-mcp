@@ -122,7 +122,7 @@ def _overlay_ids(snapshot: Optional[Dict[str, Any]]) -> List[str]:
     if not snapshot:
         return []
     return [
-        str(item.get("overlay_id"))
+        str(item.get("overlay_id")).strip().upper()
         for item in snapshot.get("overlay_items", [])
         if item.get("overlay_id")
     ]
@@ -219,26 +219,37 @@ def validate_vlm_review_output(review: Any,
         else:
             normalized.append(normalized_item)
 
-    if errors:
+    if errors and not normalized:
         return error_result(
-            f"VLM review output failed validation for {len(errors)} finding(s).",
+            f"VLM review output failed validation for all {len(errors)} finding(s).",
             data={
-                "valid_findings": normalized,
+                "findings": [],
                 "errors": errors,
+                "rejected_findings": errors,
                 "snapshot_id": snapshot_id,
             },
             warnings=warnings,
             next_tools=["export_view_image_with_mapping", "validate_vlm_review_output"],
         )
+    rejection_warnings = [
+        f"Rejected {len(errors)} finding(s) with validation errors: "
+        + "; ".join(
+            f"finding #{e['index']}: {', '.join(e['errors'])}"
+            for e in errors[:3]
+        )
+        + ("..." if len(errors) > 3 else "")
+    ] if errors else []
     return ok_result(
-        f"Validated {len(normalized)} VLM finding(s).",
+        f"Validated {len(normalized)} VLM finding(s)"
+        + (f"; rejected {len(errors)} invalid finding(s)." if errors else "."),
         data={
             "findings": normalized,
+            "rejected_findings": errors,
             "snapshot_id": snapshot_id,
             "available_overlay_ids": sorted(available_overlay_ids),
         },
         handles=sorted({h for item in normalized for h in item.get("claimed_handles", [])}),
-        warnings=warnings,
+        warnings=warnings + rejection_warnings,
         next_tools=["submit_vlm_review", "ground_vlm_region", "ground_vlm_overlay_id"],
     )
 

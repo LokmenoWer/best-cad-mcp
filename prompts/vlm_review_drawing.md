@@ -17,8 +17,18 @@
 1. Call `export_view_image_with_mapping` with `include_overlay=true`.
    Use `overlay_granularity="both"` and `overlay_style="som"` for dense
    review, and `include_tiles=true` for large drawings.
-2. Give the clean image, overlay image, tile index when present, and sidecar
-   JSON to the VLM.
+2. Check `snapshot.vlm_ready` in the result before proceeding:
+   - If `vlm_ready=true`: use `snapshot.vlm_image_path` (PNG/JPEG) as the
+     image to send to the VLM. Also send the `overlay_image_path` overlay
+     and the `overlay_items_path` sidecar JSON.
+   - If `vlm_ready=false`: WMF→PNG conversion failed because ImageMagick,
+     wand, and Inkscape are all unavailable. You cannot perform VLM visual
+     review in this state. Report the issue to the user and suggest installing
+     one of those tools before retrying.
+   Do not pass `.wmf` or `.svg` files to the VLM — they are not raster images
+   and will be rejected or silently misread by all major VLM APIs.
+3. Give the PNG clean image, PNG overlay image, tile index when present, and
+   sidecar JSON to the VLM.
 3. Require VLM output as JSON with a top-level `findings` array. Each finding
    must include one of `overlay_id`, `bbox`, or `claimed_handles`, plus
    `issue_type`, `confidence`, `severity`, `evidence`, and optional

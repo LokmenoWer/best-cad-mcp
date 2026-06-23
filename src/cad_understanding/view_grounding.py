@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import math
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -261,10 +263,86 @@ def _read_bmp_size(filepath: str) -> Optional[Tuple[int, int]]:
         return None
 
 
+def _read_wmf_size(filepath: str) -> Optional[Tuple[int, int]]:
+    """Read pixel dimensions from a Placeable WMF (APM) header."""
+    try:
+        with open(filepath, "rb") as fh:
+            header = fh.read(22)
+        if len(header) < 22:
+            return None
+        magic = int.from_bytes(header[:4], "little")
+        if magic != 0x9AC6CDD7:
+            return None
+        left = int.from_bytes(header[2:4], "little", signed=True)
+        top = int.from_bytes(header[4:6], "little", signed=True)
+        right = int.from_bytes(header[6:8], "little", signed=True)
+        bottom = int.from_bytes(header[8:10], "little", signed=True)
+        units_per_inch = int.from_bytes(header[10:12], "little") or 96
+        width = int(abs(right - left) * 96 / units_per_inch)
+        height = int(abs(bottom - top) * 96 / units_per_inch)
+        if width > 0 and height > 0:
+            return width, height
+    except Exception:
+        pass
+    return None
+
+
+def _try_convert_wmf_to_raster(wmf_path: Path) -> Optional[Path]:
+    """Convert a WMF file to PNG using available system tools.
+
+    Tries ImageMagick, then cairosvg (via SVG intermediate), then wand.
+    Returns the PNG path on success, None if all attempts fail.
+    """
+    png_path = wmf_path.with_suffix(".png")
+
+    magick = shutil.which("magick") or shutil.which("convert")
+    if magick:
+        try:
+            result = subprocess.run(
+                [magick, str(wmf_path), str(png_path)],
+                capture_output=True,
+                timeout=30,
+            )
+            if result.returncode == 0 and png_path.exists() and png_path.stat().st_size > 0:
+                return png_path
+        except Exception:
+            pass
+
+    try:
+        from wand.image import Image as WandImage
+
+        with WandImage(filename=str(wmf_path)) as img:
+            img.format = "png"
+            img.save(filename=str(png_path))
+        if png_path.exists() and png_path.stat().st_size > 0:
+            return png_path
+    except Exception:
+        pass
+
+    inkscape = shutil.which("inkscape")
+    if inkscape:
+        try:
+            result = subprocess.run(
+                [inkscape, str(wmf_path), "--export-type=png", f"--export-filename={png_path}"],
+                capture_output=True,
+                timeout=30,
+            )
+            if result.returncode == 0 and png_path.exists() and png_path.stat().st_size > 0:
+                return png_path
+        except Exception:
+            pass
+
+    return None
+
+
 def _image_size(filepath: str) -> Tuple[int, int]:
     suffix = Path(filepath).suffix.lower()
     if suffix == ".bmp":
         size = _read_bmp_size(filepath)
+        if size:
+            return size
+    if suffix == ".wmf":
+        size = _read_wmf_size(filepath)
         if size:
             return size
     try:
@@ -809,7 +887,25 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     except Exception as exc:
         warnings.append(f"View export failed or AutoCAD is unavailable: {exc}")
 
-    image_width, image_height = _image_size(str(path))
+    # Attempt WMF→PNG conversion so VLMs can receive a raster image.
+    # Overlay, tile, and coordinate mapping all use the raster path when available.
+    raster_path = path
+    vlm_ready = False
+    if path.suffix.lower() == ".wmf" and path.exists():
+        converted = _try_convert_wmf_to_raster(path)
+        if converted:
+            raster_path = converted
+            vlm_ready = True
+        else:
+            warnings.append(
+                "WMF→PNG conversion unavailable (ImageMagick, wand, and Inkscape not found). "
+                "VLMs cannot directly read WMF; install one of those tools to enable VLM image input. "
+                "Coordinate mapping will use WMF header dimensions where possible."
+            )
+    elif path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
+        vlm_ready = path.exists()
+
+    image_width, image_height = _image_size(str(raster_path))
     context = get_current_view_context(str(path), (image_width, image_height))
     warnings.extend(context.get("warnings", []))
     scanned_extent = _scanned_entity_extent(db)
@@ -863,7 +959,7 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     overlay_items_path = ""
     if include_overlay:
         overlay = create_overlay_artifact(
-            str(path),
+            str(raster_path),
             overlay_items,
             {**context, "warnings": warnings, "image": {"width": image_width, "height": image_height}},
             overlay_style=overlay_style,
@@ -880,7 +976,7 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     }
     if include_tiles:
         tile_index = _build_tile_index(
-            str(path),
+            str(raster_path),
             overlay_path,
             image_width,
             image_height,
@@ -892,8 +988,11 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
 
     snapshot = {
         "snapshot_id": stable_id("snapshot", str(path), now_iso()),
-        "clean_image_path": str(path),
-        "image_path": str(path),
+        "clean_image_path": str(raster_path),
+        "image_path": str(raster_path),
+        "autocad_export_path": str(path),
+        "vlm_ready": vlm_ready,
+        "vlm_image_path": str(raster_path) if vlm_ready else "",
         "overlay_image_path": overlay_path,
         "context_json_path": "",
         "overlay_items_path": overlay_items_path,
@@ -925,7 +1024,8 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     context_path.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     _store_snapshot(db, snapshot)
     return ok_result(
-        "Exported view image mapping snapshot.",
+        "Exported view image mapping snapshot."
+        + (" VLM-ready PNG available." if vlm_ready else " VLM image conversion unavailable; see warnings."),
         data={"snapshot": snapshot},
         handles=visible_handles,
         warnings=sorted(set(warnings)),
