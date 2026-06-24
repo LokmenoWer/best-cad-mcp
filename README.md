@@ -253,6 +253,35 @@ to:
 Use `claude mcp list` or `/mcp` inside Claude Code to confirm that the server
 is connected.
 
+## Tool Profiles
+
+The server registers a very large tool surface. Exposing all of it at once
+overwhelms model tool selection and some MCP clients cap how many tools they
+will load, so the most common cause of "I gave the agent lots of tools but they
+do not work well" is simply too many tools. Pick a profile with the
+`CAD_MCP_TOOL_PROFILE` environment variable:
+
+| Profile | Exposed tools | Use when |
+| --- | --- | --- |
+| `core` | curated subset (~205) | Default for the shipped client configs. Covers every documented workflow: scan, understand, draw, edit, dimension, block, hatch, layout, query, CADPlan, visual grounding, and the VLM pipeline. |
+| `lean` | essential subset (~110) | You want the smallest reliable surface for inspection and straightforward drawing/editing. |
+| `full` | every tool | You explicitly need exotic 3D primitives, preference/plot/material introspection, low-level polyline editing, UCS/viewport/named-view minutiae, and other long-tail tools. |
+
+The shipped `.mcp.json` and `.codex/config.toml` set `CAD_MCP_TOOL_PROFILE=core`.
+The Python default when the variable is unset is `full` for backward
+compatibility. Every profile is a strict superset of the tools referenced by
+`recommend_cad_tools`, the workflow playbooks, and tool `next_tools` hints, so a
+smaller profile never points the agent at a tool that is not registered.
+
+Fine-tune any profile without editing code:
+
+- `CAD_MCP_TOOLS_INCLUDE="draw_torus, get_materials"` force-exposes named tools.
+- `CAD_MCP_TOOLS_EXCLUDE="send_command, purge_drawing"` force-hides named tools.
+
+`get_tool_help()` and `cad://tools` always reflect the tools that are actually
+registered under the active profile, and the server logs the active profile and
+tool count at startup.
+
 ## Recommended Workflows
 
 ### Inspect Or Repair An Existing DWG
@@ -492,6 +521,17 @@ For dense drawings, pass `overlay_granularity="both"` to include primitive
 overlay IDs such as `E001.P02`, `overlay_style="som"` for Set-of-Mark-style
 labels, and `include_tiles=true` to emit a tile index for large-view review.
 
+AutoCAD COM exports WMF, which no VLM API can read. The snapshot reports
+`vlm_ready`, `vlm_image_path`, and `vlm_blocked_reason` so the agent knows
+whether the exported file can be sent to a VLM. When a raster converter
+(ImageMagick, wand, Inkscape, or LibreOffice) is available the WMF is converted
+to PNG automatically; otherwise `vlm_ready` is `false`, the result message says
+so explicitly, and coordinate grounding still works. The overlay carries
+`overlay_vlm_ready` (SVG fallbacks are flagged as not VLM-ingestible), and
+degraded snapshots set `transform_confidence="low"` when image dimensions had
+to be estimated. Run `check_runtime_environment(require_visual_export=true)` to
+detect missing renderers before relying on VLM review.
+
 Use `ground_vlm_region(snapshot_id, bbox)` for VLM pixel boxes and
 `ground_vlm_overlay_id(snapshot_id, overlay_id)` for overlay IDs. Call
 `explain_entity` on top candidates before editing.
@@ -629,6 +669,15 @@ for tagged releases.
 
 ## Troubleshooting
 
+- **Too many tools / the agent picks the wrong tool**: set
+  `CAD_MCP_TOOL_PROFILE=core` (or `lean`) to expose a curated subset instead of
+  the full surface. See [Tool Profiles](#tool-profiles).
+- **A tool failed with an `ERROR:` string**: the message now ends with a hint.
+  For AutoCAD/COM errors run `check_runtime_environment(check_autocad=true)`;
+  otherwise call `recommend_cad_tools(intent)` or `get_tool_help('<tool>')`.
+- **VLM cannot read the exported image**: AutoCAD exports WMF. Check the
+  snapshot's `vlm_ready`/`vlm_blocked_reason`, and install ImageMagick, wand,
+  Inkscape, or LibreOffice so the WMF is converted to PNG.
 - **The server starts but tools fail**: make sure AutoCAD is installed,
   licensed, and able to open normally on the same Windows account.
 - **The MCP client cannot import `src`**: set the server `cwd` to the repository

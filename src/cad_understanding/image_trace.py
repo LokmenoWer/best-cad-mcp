@@ -700,24 +700,29 @@ def validate_image_drawing_spec(spec: Any,
             return error_result(f"spec is not valid JSON: {exc}")
     if not isinstance(spec, dict):
         return error_result("spec must be a JSON object.")
-    errors: List[Dict[str, Any]] = []
+    # Structural errors describe a spec that is fundamentally malformed
+    # (wrong schema, missing sections, broken component hypotheses). They fail
+    # the whole spec. Per-item errors only drop the offending item so the rest
+    # of a good-faith VLM spec can still be compiled (partial success).
+    structural_errors: List[Dict[str, Any]] = []
+    item_errors_list: List[Dict[str, Any]] = []
     warnings: List[str] = []
     if spec.get("schema_version") != "ImageDrawingSpec/v1":
-        errors.append({"path": "schema_version", "message": "schema_version must be ImageDrawingSpec/v1."})
+        structural_errors.append({"path": "schema_version", "message": "schema_version must be ImageDrawingSpec/v1."})
     domain = str(spec.get("domain") or "").strip().lower()
     if not domain:
-        errors.append({"path": "domain", "message": "domain is required."})
+        structural_errors.append({"path": "domain", "message": "domain is required."})
     elif domain != "mechanical":
         warnings.append(f"Domain {domain!r} is accepted but v1 is optimized for mechanical drawings.")
     for section in ("features", "geometry", "annotations", "tables", "uncertainties"):
         if section not in spec:
-            errors.append({"path": section, "message": f"{section} is required."})
+            structural_errors.append({"path": section, "message": f"{section} is required."})
         elif not isinstance(spec.get(section), list):
-            errors.append({"path": section, "message": f"{section} must be a list."})
+            structural_errors.append({"path": section, "message": f"{section} must be a list."})
     width = int((trace or {}).get("image_width") or 0)
     height = int((trace or {}).get("image_height") or 0)
     component_hypotheses, component_errors = _normalize_component_hypotheses(spec, width, height)
-    errors.extend(component_errors)
+    structural_errors.extend(component_errors)
     ids = set()
     normalized_items: Dict[str, List[Dict[str, Any]]] = {
         "features": [],
@@ -776,8 +781,14 @@ def validate_image_drawing_spec(spec: Any,
             has_fit_points = isinstance(pixel_geometry, dict) and (
                 pixel_geometry.get("points") or pixel_geometry.get("vertices") or pixel_geometry.get("samples")
             )
-            if not (has_params or has_fit_points):
-                item_errors.append("ellipse_arc requires explicit ellipse parameters or fit points")
+            has_candidates = bool(
+                raw.get("geometry_candidates")
+                or (isinstance(pixel_geometry, dict) and pixel_geometry.get("geometry_candidates"))
+            )
+            if not (has_params or has_fit_points or has_candidates):
+                item_errors.append(
+                    "ellipse_arc requires explicit ellipse parameters, fit points, or geometry_candidates"
+                )
         if kind in {"paired_ellipse_arcs", "bulkhead"}:
             curves = pixel_geometry.get("curves") if isinstance(pixel_geometry, dict) else None
             candidates = raw.get("geometry_candidates") or (pixel_geometry.get("geometry_candidates") if isinstance(pixel_geometry, dict) else None)
@@ -788,7 +799,7 @@ def validate_image_drawing_spec(spec: Any,
             if not members:
                 item_errors.append("pattern requires members/member_ids/instances so repeated features are not flattened")
         if item_errors:
-            errors.append({"path": f"{section}.{item_id or '<missing>'}", "errors": item_errors, "item": raw})
+            item_errors_list.append({"path": f"{section}.{item_id or '<missing>'}", "errors": item_errors, "item": raw})
         else:
             normalized_items[section].append({
                 **raw,
@@ -798,11 +809,18 @@ def validate_image_drawing_spec(spec: Any,
                 "pixel_bbox": bbox,
                 "evidence": evidence,
             })
-    if errors:
+    valid_count = sum(len(items) for items in normalized_items.values())
+    all_errors = structural_errors + item_errors_list
+    # Hard-fail only when the spec is structurally broken, or when not a single
+    # item survived validation (nothing usable to compile). Otherwise keep the
+    # valid items and report the rejected ones as warnings.
+    if structural_errors or (item_errors_list and valid_count == 0):
         return error_result(
-            f"ImageDrawingSpec validation failed for {len(errors)} item(s).",
+            f"ImageDrawingSpec validation failed for {len(all_errors)} item(s).",
             data={
-                "errors": errors,
+                "errors": all_errors,
+                "structural_errors": structural_errors,
+                "rejected_items": item_errors_list,
                 "image_id": image_id,
                 "valid_items": {
                     **normalized_items,
@@ -811,6 +829,13 @@ def validate_image_drawing_spec(spec: Any,
             },
             warnings=warnings,
             next_tools=["copy_drawing_from_image", "validate_image_drawing_spec"],
+        )
+    if item_errors_list:
+        preview = "; ".join(
+            f"{err['path']}: {', '.join(err['errors'])}" for err in item_errors_list[:3]
+        ) + ("..." if len(item_errors_list) > 3 else "")
+        warnings.append(
+            f"Accepted {valid_count} item(s); rejected {len(item_errors_list)} invalid item(s): {preview}"
         )
     normalized = {
         **spec,
@@ -822,8 +847,14 @@ def validate_image_drawing_spec(spec: Any,
         "component_hypotheses": component_hypotheses,
     }
     return ok_result(
-        "Validated ImageDrawingSpec/v1.",
-        data={"spec": normalized, "image_id": image_id},
+        f"Validated ImageDrawingSpec/v1 ({valid_count} item(s)"
+        + (f"; {len(item_errors_list)} rejected" if item_errors_list else "")
+        + ").",
+        data={
+            "spec": normalized,
+            "image_id": image_id,
+            "rejected_items": item_errors_list,
+        },
         warnings=warnings,
         next_tools=["submit_image_drawing_spec", "compile_image_spec_to_cad_plan"],
     )
@@ -1294,8 +1325,8 @@ def _ellipse_arcs_for_item(item: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], 
         arc = _ellipse_arc_candidate(item, item)
         if arc:
             return [arc], warnings
-        warnings.append(f"{item.get('id')}: ellipse_arc requires center, major_axis, radius_ratio, start_angle, and end_angle.")
-        return [], warnings
+        # No direct parameters: fall through to geometry_candidates and the
+        # point-fit fallback below instead of failing immediately.
 
     for candidate in _iter_curve_candidates(item):
         candidate_kind = _candidate_kind(candidate)
@@ -1313,14 +1344,19 @@ def _ellipse_arcs_for_item(item: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], 
             if arc:
                 return [arc], warnings
 
-    if kind == "polyline" and _should_attempt_curve_fit(item):
+    if kind == "ellipse_arc" or (kind == "polyline" and _should_attempt_curve_fit(item)):
         points = _points_from_candidate(item)
         fit = _ellipse_fit_from_points(points, _curve_fit_threshold(item)) if points else None
         if fit:
             return [fit], warnings
         if points:
-            warnings.append(f"{item.get('id')}: curve hint present but polyline points did not fit an ellipse arc within tolerance.")
+            warnings.append(f"{item.get('id')}: curve hint present but points did not fit an ellipse arc within tolerance.")
 
+    if kind == "ellipse_arc":
+        warnings.append(
+            f"{item.get('id')}: ellipse_arc could not be resolved; provide center, major_axis, "
+            "radius_ratio, start_angle, and end_angle, or geometry_candidates / fit points."
+        )
     return [], warnings
 
 

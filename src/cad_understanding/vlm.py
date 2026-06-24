@@ -196,8 +196,14 @@ def validate_vlm_review_output(review: Any,
             item_errors.append(f"severity must be one of {sorted(VALID_SEVERITIES)}")
             severity = "medium"
         evidence = _evidence_payload(raw.get("evidence"))
-        if not evidence:
-            item_errors.append("evidence is required")
+        # Evidence is helpful but not mandatory: a finding that is already
+        # localized by overlay_id / bbox / claimed handles is actionable even
+        # when the VLM omits supporting text (the overlay itself is evidence).
+        # Only require it when nothing else pins the finding to the drawing.
+        if not evidence and not overlay_id and not bbox and not claimed_handles:
+            item_errors.append(
+                "evidence or a localization (overlay_id, bbox, or claimed_handles) is required"
+            )
 
         finding_id = str(raw.get("finding_id") or "").strip()
         if not finding_id:
