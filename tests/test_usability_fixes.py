@@ -100,6 +100,38 @@ def test_spec_validation_hard_fails_on_structural_error(tmp_path):
     assert any(err.get("path") == "tables" for err in result["data"]["errors"])
 
 
+def test_bad_component_hypothesis_is_per_item_not_structural(tmp_path):
+    db = make_db(tmp_path)
+    spec = _good_and_bad_spec()
+    spec["features"] = [spec["features"][0]]  # one valid drawable feature
+    spec["component_hypotheses"] = [
+        {"id": "guess", "label": "flange", "confidence": 0.8}  # missing evidence
+    ]
+    result = validate_image_drawing_spec(spec, database=db)
+
+    # Valid CAD items survive; the optional bad hypothesis is dropped + reported.
+    assert result["ok"], result
+    assert [f["id"] for f in result["data"]["spec"]["features"]] == ["good_hole"]
+    assert result["data"]["spec"]["component_hypotheses"] == []
+    assert any(
+        "component_hypotheses" in err.get("path", "")
+        for err in result["data"]["rejected_items"]
+    )
+
+
+def test_component_hypotheses_not_a_list_is_structural(tmp_path):
+    db = make_db(tmp_path)
+    spec = _good_and_bad_spec()
+    spec["features"] = [spec["features"][0]]
+    spec["component_hypotheses"] = "flange"  # whole section malformed
+    result = validate_image_drawing_spec(spec, database=db)
+
+    assert not result["ok"]
+    assert any(
+        err.get("path") == "component_hypotheses" for err in result["data"]["errors"]
+    )
+
+
 def test_ellipse_arc_accepts_geometry_candidates(tmp_path):
     db = make_db(tmp_path)
     spec = {

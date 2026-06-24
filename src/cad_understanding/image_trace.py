@@ -722,7 +722,14 @@ def validate_image_drawing_spec(spec: Any,
     width = int((trace or {}).get("image_width") or 0)
     height = int((trace or {}).get("image_height") or 0)
     component_hypotheses, component_errors = _normalize_component_hypotheses(spec, width, height)
-    structural_errors.extend(component_errors)
+    # component_hypotheses is optional open-vocabulary recognition. A whole
+    # section that is not a list is structural; a single malformed hypothesis is
+    # a per-item error so valid drawable CAD items still compile.
+    for component_error in component_errors:
+        if component_error.get("path") == "component_hypotheses":
+            structural_errors.append(component_error)
+        else:
+            item_errors_list.append(component_error)
     ids = set()
     normalized_items: Dict[str, List[Dict[str, Any]]] = {
         "features": [],

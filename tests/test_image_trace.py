@@ -426,8 +426,13 @@ def test_validate_component_hypothesis_requires_evidence(tmp_path):
 
     result = validate_image_drawing_spec(spec, database=db)
 
-    assert not result["ok"]
-    messages = " ".join(" ".join(err["errors"]) for err in result["data"]["errors"])
+    # A malformed OPTIONAL component hypothesis no longer fails the whole spec:
+    # valid drawable items survive and the bad hypothesis is reported as rejected.
+    assert result["ok"], result
+    assert result["data"]["spec"]["component_hypotheses"] == []
+    messages = " ".join(
+        " ".join(err.get("errors", [])) for err in result["data"]["rejected_items"]
+    )
     assert "evidence is required" in messages
 
 
