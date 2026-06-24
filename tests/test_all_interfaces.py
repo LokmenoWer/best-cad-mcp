@@ -115,7 +115,7 @@ class TestModuleImports(unittest.TestCase):
             'draw_spline', 'draw_point', 'draw_text', 'draw_mtext',
             'draw_donut', 'draw_ray', 'draw_xline', 'draw_mline',
             'draw_2d_solid', 'draw_raster_image', 'draw_tolerance',
-            'draw_trace', 'insert_minert_block', 'insert_minsert_block',
+            'draw_trace', 'insert_minsert_block',
             'add_shape',
         ]
         for name in expected:
@@ -1598,6 +1598,8 @@ class TestToolWiring(unittest.TestCase):
             '_load_prompt_file', '_env_flag',
             '_env_int', '_configure_logging', '_safe_log_value',
             '_tool_call_log_context',
+            '_split_env_names', '_tool_profile', '_tool_enabled',
+            '_log_tool_profile', '_error_recovery_hint',
             'cad_tool_selection_resource',
             'cad_registered_tools_resource', 'cad_workflow_guide',
             'cad_layer_planning', 'understand_existing_drawing',

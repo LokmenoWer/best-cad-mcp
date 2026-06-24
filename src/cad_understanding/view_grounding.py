@@ -332,6 +332,21 @@ def _try_convert_wmf_to_raster(wmf_path: Path) -> Optional[Path]:
         except Exception:
             pass
 
+    # LibreOffice is commonly installed and can rasterize WMF headlessly.
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if soffice:
+        try:
+            result = subprocess.run(
+                [soffice, "--headless", "--convert-to", "png", "--outdir",
+                 str(png_path.parent), str(wmf_path)],
+                capture_output=True,
+                timeout=45,
+            )
+            if result.returncode == 0 and png_path.exists() and png_path.stat().st_size > 0:
+                return png_path
+        except Exception:
+            pass
+
     return None
 
 
@@ -691,17 +706,25 @@ def create_overlay_artifact(clean_image_path: str,
 
     style = "som" if str(overlay_style or "").lower().strip() in {"som", "set_of_mark", "set-of-mark"} else "bbox"
     overlay_path = _draw_raster_overlay(path, image_width, image_height, items, overlay_style=style)
+    overlay_vlm_ready = bool(overlay_path)
     if overlay_path:
         artifact_warnings = []
     else:
+        # SVG is a useful human/record artifact but NO VLM API accepts SVG as
+        # image input. Emit it, but flag clearly that it must not be sent to a
+        # VLM; coordinate grounding still works via ground_vlm_region.
         artifact_warnings = [
-            "Raster overlay was unavailable; generated an external SVG overlay fallback."
+            "Raster overlay unavailable (Pillow not installed or source is not a raster image); "
+            "wrote an SVG overlay for human review only. Do NOT send the SVG to a VLM API — "
+            "install Pillow for a PNG overlay, or use ground_vlm_region / map_pixel_region_to_world_bbox "
+            "for coordinate-based grounding without an overlay image."
         ]
         overlay_path = _write_svg_overlay(path, image_width, image_height, items, warnings=artifact_warnings, overlay_style=style)
 
     sidecar = {
         "clean_image_path": str(path),
         "overlay_image_path": overlay_path,
+        "overlay_vlm_ready": overlay_vlm_ready,
         "overlay_items": items,
         "overlay_style": style,
         "image": {"width": image_width, "height": image_height},
@@ -712,6 +735,7 @@ def create_overlay_artifact(clean_image_path: str,
     return {
         "overlay_image_path": overlay_path,
         "overlay_items_path": str(sidecar_path),
+        "overlay_vlm_ready": overlay_vlm_ready,
         "overlay_items": items,
         "warnings": artifact_warnings,
     }
@@ -891,21 +915,49 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     # Overlay, tile, and coordinate mapping all use the raster path when available.
     raster_path = path
     vlm_ready = False
+    vlm_blocked_reason = ""
     if path.suffix.lower() == ".wmf" and path.exists():
         converted = _try_convert_wmf_to_raster(path)
         if converted:
             raster_path = converted
             vlm_ready = True
         else:
+            vlm_blocked_reason = (
+                "AutoCAD exported WMF and no WMF→PNG converter is installed "
+                "(ImageMagick, wand, Inkscape, or LibreOffice). VLM APIs cannot read WMF."
+            )
             warnings.append(
-                "WMF→PNG conversion unavailable (ImageMagick, wand, and Inkscape not found). "
-                "VLMs cannot directly read WMF; install one of those tools to enable VLM image input. "
-                "Coordinate mapping will use WMF header dimensions where possible."
+                vlm_blocked_reason
+                + " Install one of those tools to enable VLM image input, or export a PDF and "
+                "render it externally. Coordinate grounding (ground_vlm_region / "
+                "map_pixel_region_to_world_bbox) still works without a VLM-readable image."
             )
     elif path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
         vlm_ready = path.exists()
+        if not vlm_ready:
+            vlm_blocked_reason = f"Expected raster image was not produced at {path}."
 
     image_width, image_height = _image_size(str(raster_path))
+    # Degraded mode: if the image dimensions had to fall back to the hardcoded
+    # default (e.g. unreadable WMF header and no PIL), the aspect ratio is wrong
+    # and every pixel↔world transform would be skewed. Recover the aspect ratio
+    # from the scanned entity extent so grounding stays usable.
+    image_size_source = "image_file" if vlm_ready else "wmf_header_or_file"
+    if (image_width, image_height) == DEFAULT_IMAGE_SIZE:
+        recovered = _scanned_entity_extent(db)
+        if recovered:
+            ex_w = float(recovered[2]) - float(recovered[0])
+            ex_h = float(recovered[3]) - float(recovered[1])
+            if ex_w > 0 and ex_h > 0:
+                image_height = max(1, int(round(DEFAULT_IMAGE_SIZE[0] * ex_h / ex_w)))
+                image_width = DEFAULT_IMAGE_SIZE[0]
+                image_size_source = "estimated_from_scanned_extent"
+                warnings.append(
+                    "Image dimensions were unreadable; estimated the aspect ratio from scanned "
+                    "entity extents. Pixel mapping is approximate (transform_confidence=low)."
+                )
+        else:
+            image_size_source = "default_fallback"
     context = get_current_view_context(str(path), (image_width, image_height))
     warnings.extend(context.get("warnings", []))
     scanned_extent = _scanned_entity_extent(db)
@@ -957,6 +1009,7 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     )
     overlay_path = ""
     overlay_items_path = ""
+    overlay_vlm_ready = False
     if include_overlay:
         overlay = create_overlay_artifact(
             str(raster_path),
@@ -966,6 +1019,7 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
         )
         overlay_path = overlay["overlay_image_path"]
         overlay_items_path = overlay["overlay_items_path"]
+        overlay_vlm_ready = bool(overlay.get("overlay_vlm_ready"))
         warnings.extend(overlay.get("warnings", []))
     tile_index = {
         "tile_index_path": "",
@@ -992,8 +1046,12 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
         "image_path": str(raster_path),
         "autocad_export_path": str(path),
         "vlm_ready": vlm_ready,
+        "vlm_blocked_reason": vlm_blocked_reason,
         "vlm_image_path": str(raster_path) if vlm_ready else "",
+        "image_size_source": image_size_source,
+        "transform_confidence": "low" if image_size_source.startswith("estimated") or image_size_source == "default_fallback" else "normal",
         "overlay_image_path": overlay_path,
+        "overlay_vlm_ready": overlay_vlm_ready,
         "context_json_path": "",
         "overlay_items_path": overlay_items_path,
         "overlay_items": overlay_items,
@@ -1023,13 +1081,23 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     snapshot["context_json_path"] = str(context_path)
     context_path.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     _store_snapshot(db, snapshot)
+    if vlm_ready:
+        readiness = f" VLM-ready image at {snapshot['vlm_image_path']} (send THIS file to the VLM)."
+    else:
+        readiness = (
+            " NOT VLM-ready: do not send the exported file to a VLM. "
+            + (vlm_blocked_reason or "No VLM-readable raster was produced.")
+            + " Use ground_vlm_region/map_pixel_region_to_world_bbox for coordinate grounding instead."
+        )
+    next_tools = ["ground_vlm_region", "ground_vlm_overlay_id", "get_visible_entities_in_view", "explain_entity"]
+    if not vlm_ready:
+        next_tools = ["check_runtime_environment"] + next_tools
     return ok_result(
-        "Exported view image mapping snapshot."
-        + (" VLM-ready PNG available." if vlm_ready else " VLM image conversion unavailable; see warnings."),
+        "Exported view image mapping snapshot." + readiness,
         data={"snapshot": snapshot},
         handles=visible_handles,
         warnings=sorted(set(warnings)),
-        next_tools=["ground_vlm_region", "ground_vlm_overlay_id", "get_visible_entities_in_view", "explain_entity"],
+        next_tools=next_tools,
     )
 
 

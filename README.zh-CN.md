@@ -221,6 +221,31 @@ approval_mode = "prompt"
 
 使用 `claude mcp list` 或 Claude Code 内的 `/mcp` 确认服务已连接。
 
+## 工具档位（Tool Profiles）
+
+服务注册了非常多的工具。一次性全部暴露会让模型难以正确选择工具，部分 MCP
+客户端还会对可加载的工具数量设上限——"我明明提供了很多工具，但却不好用"
+最常见的原因正是工具太多。用 `CAD_MCP_TOOL_PROFILE` 环境变量选择档位：
+
+| 档位 | 暴露工具数 | 适用场景 |
+| --- | --- | --- |
+| `core` | 精选子集（约 205 个） | 随仓库配置默认启用。覆盖全部文档化工作流：扫描、理解、绘制、编辑、标注、块、填充、布局、查询、CADPlan、视觉定位和 VLM 流水线。 |
+| `lean` | 精简子集（约 110 个） | 只需要最小可靠工具面来做检查和常规绘制/编辑。 |
+| `full` | 全部工具 | 确实需要冷门的 3D 图元、偏好/打印/材质查询、低层 polyline 编辑、UCS/视口/命名视图等长尾工具。 |
+
+随仓库提供的 `.mcp.json` 与 `.codex/config.toml` 已设置
+`CAD_MCP_TOOL_PROFILE=core`；变量未设置时 Python 默认值为 `full`（保持向后
+兼容）。每个档位都是 `recommend_cad_tools`、工作流剧本和工具 `next_tools`
+提示所引用工具的超集，因此缩小档位不会让 agent 被引导去调用未注册的工具。
+
+无需改代码即可微调：
+
+- `CAD_MCP_TOOLS_INCLUDE="draw_torus, get_materials"` 强制暴露指定工具。
+- `CAD_MCP_TOOLS_EXCLUDE="send_command, purge_drawing"` 强制隐藏指定工具。
+
+`get_tool_help()` 与 `cad://tools` 始终只反映当前档位下真正注册的工具，服务
+启动时也会在日志中记录当前档位与工具数量。
+
 ## 推荐工作流
 
 ### 检查或修复已有 DWG
@@ -366,6 +391,15 @@ CADPlan 校验默认禁止原始 `send_command`、SQL mutation、purge 和 audit
 - 带数字 ID 的可选 overlay 图；
 - 记录视图参数、可见 handle、像素框和映射数据的 sidecar JSON。
 
+AutoCAD COM 导出的是 WMF，而 VLM 接口无法读取 WMF。快照会给出 `vlm_ready`、
+`vlm_image_path` 和 `vlm_blocked_reason`，让 agent 明确知道导出的文件能否发给
+VLM。当系统存在栅格转换器（ImageMagick、wand、Inkscape 或 LibreOffice）时会
+自动把 WMF 转成 PNG；否则 `vlm_ready` 为 `false`，返回信息会明确说明，且坐标
+定位仍然可用。overlay 会带 `overlay_vlm_ready`（SVG 兜底图会被标记为不可直接
+喂给 VLM）；当图像尺寸只能估算时，降级快照会设置 `transform_confidence="low"`。
+依赖 VLM 审阅前可运行 `check_runtime_environment(require_visual_export=true)`
+检测缺失的渲染器。
+
 VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；返回 overlay ID 时使用 `ground_vlm_overlay_id(snapshot_id, overlay_id)`。编辑前应对最可能的候选实体调用 `explain_entity`。
 
 顶视或平面模型空间视图最可靠。带 twist、UCS、三维视图或复杂布局视口的场景会返回警告或较低置信度。
@@ -474,6 +508,9 @@ python scripts\verify_cad_understanding_workflow.py
 
 ## 常见问题
 
+- **工具太多 / agent 选错工具**：设置 `CAD_MCP_TOOL_PROFILE=core`（或 `lean`）只暴露精选子集，而非全部工具。参见[工具档位](#工具档位tool-profiles)。
+- **工具返回了 `ERROR:` 字符串**：错误信息末尾现在带有修复提示。AutoCAD/COM 错误请运行 `check_runtime_environment(check_autocad=true)`；其他情况调用 `recommend_cad_tools(intent)` 或 `get_tool_help('<tool>')`。
+- **VLM 读不了导出的图像**：AutoCAD 导出的是 WMF。检查快照的 `vlm_ready`/`vlm_blocked_reason`，并安装 ImageMagick、wand、Inkscape 或 LibreOffice 以把 WMF 转成 PNG。
 - **服务启动了但工具调用失败**：确认 AutoCAD 已安装、已授权，并能在同一 Windows 用户下正常打开。
 - **MCP 客户端无法导入 `src`**：把服务 `cwd` 设置为仓库根目录，或将 `PYTHONPATH` 指向仓库根目录。
 - **工作区数据写到了错误目录**：从目标工作区启动 MCP 客户端，或设置 `CAD_MCP_WORKSPACE_ROOT`。

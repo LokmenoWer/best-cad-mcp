@@ -212,7 +212,7 @@ def extract_dimension_constraints(database: Optional[CADDatabase] = None) -> Too
         data={"constraints": constraints},
         handles=[h for c in constraints for h in c["target_handles"]],
         warnings=warnings,
-        next_tools=["bind_all_dimensions", "infer_geometric_constraints", "check_drawing_constraints"],
+        next_tools=["bind_all_dimensions", "extract_drawing_constraints", "check_drawing_constraints"],
     )
 
 

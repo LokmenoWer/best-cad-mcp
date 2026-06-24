@@ -714,7 +714,7 @@ def draw_trace(points: List[float],
     return format_success(f"已绘制宽线(Trace)", handle=trace.Handle)
 
 
-def insert_minert_block(block_name: str, x: float, y: float,
+def insert_minsert_block(block_name: str, x: float, y: float,
                          z: float = 0.0, x_scale: float = 1.0,
                          y_scale: float = 1.0, z_scale: float = 1.0,
                          rotation: float = 0.0, rows: int = 1,
@@ -756,20 +756,6 @@ def insert_minert_block(block_name: str, x: float, y: float,
     return format_success(f"已阵列插入图块 '{block_name}'",
                           handle=blk_ref.Handle,
                           array=f"{rows}×{cols}")
-
-
-def insert_minsert_block(block_name: str, x: float, y: float,
-                         z: float = 0.0, x_scale: float = 1.0,
-                         y_scale: float = 1.0, z_scale: float = 1.0,
-                         rotation: float = 0.0, rows: int = 1,
-                         cols: int = 1, row_spacing: float = 0.0,
-                         col_spacing: float = 0.0,
-                         layer: Optional[str] = None) -> str:
-    """Insert a block as an AutoCAD MInsert rectangular block array."""
-    return insert_minert_block(
-        block_name, x, y, z, x_scale, y_scale, z_scale, rotation,
-        rows, cols, row_spacing, col_spacing, layer
-    )
 
 
 def add_shape(shape_name: str, x: float, y: float,

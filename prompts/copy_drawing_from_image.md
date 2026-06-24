@@ -65,6 +65,51 @@ ellipse_arc, paired_ellipse_arcs, filleted_rectangle, hole, slot, centerline,
 dimension, text, leader, hatch, table, pattern, bulkhead
 ```
 
+## Worked Example (copy this structure)
+
+`evidence` is a short object or string describing what you saw. `confidence`
+is a number in [0, 1]. Every item needs `id`, `kind`, `confidence`,
+`evidence`, and either `pixel_bbox` ([x1, y1, x2, y2]) or `pixel_geometry`.
+
+```json
+{
+  "schema_version": "ImageDrawingSpec/v1",
+  "domain": "mechanical",
+  "units": "mm",
+  "calibration_candidates": [
+    {"id": "cal_1", "value": 80, "pixel_distance": 320,
+     "confidence": 0.9, "evidence": {"text": "80 mm overall width dimension"}}
+  ],
+  "features": [
+    {"id": "hole_1", "kind": "hole", "confidence": 0.92,
+     "pixel_bbox": [120, 96, 140, 116],
+     "pixel_geometry": {"center": [130, 106], "radius": 10},
+     "evidence": {"text": "circular hole, upper-left of plate"}}
+  ],
+  "geometry": [
+    {"id": "plate", "kind": "rectangle", "confidence": 0.95,
+     "pixel_bbox": [40, 40, 360, 220],
+     "evidence": {"text": "outer plate outline"}}
+  ],
+  "annotations": [
+    {"id": "dim_w", "kind": "dimension", "confidence": 0.88,
+     "pixel_bbox": [40, 230, 360, 250],
+     "pixel_geometry": {"measure_points": [[40, 220], [360, 220]],
+                        "text_point": [200, 245]},
+     "evidence": {"text": "horizontal 80 mm dimension below the plate"}}
+  ],
+  "relations": [],
+  "tables": [],
+  "component_hypotheses": [],
+  "uncertainties": []
+}
+```
+
+The validator accepts a partial spec: items that fail validation are reported
+in `rejected_items` and dropped, while valid items still compile. Prefer
+emitting a slightly-uncertain item with `evidence` and `confidence` over
+omitting it, but never invent geometry.
+
 ## Feature Rules
 
 - `chamfered_rectangle`: include explicit `pixel_geometry.vertices`,

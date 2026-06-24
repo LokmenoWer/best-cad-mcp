@@ -575,6 +575,28 @@ def _tool_call_log_context(fn, args, kwargs) -> str:
     return json.dumps(data, ensure_ascii=False, default=str)
 
 
+def _error_recovery_hint(exc: Exception) -> str:
+    """Turn an opaque exception into an actionable next step for the agent."""
+    text = f"{type(exc).__name__}: {exc}".lower()
+    com_markers = (
+        "com_error", "com error", "0x8", "-2147", "rpc", "dispatch",
+        "no open document", "no active document", "has no document",
+        "no document", "automation", "createinstance", "moniker",
+        "call was rejected", "application is busy", "acad", "autocad",
+        "win32", "pywintypes",
+    )
+    if any(marker in text for marker in com_markers):
+        return (
+            "Hint: AutoCAD may be unavailable, busy, or have no open drawing. "
+            "Run check_runtime_environment(check_autocad=True), make sure AutoCAD is "
+            "running with a drawing open (open_drawing/create_new_drawing), then retry."
+        )
+    return (
+        "Hint: call recommend_cad_tools(intent) or get_tool_help('<tool>') to confirm "
+        "the right tool and arguments, or check_runtime_environment for environment issues."
+    )
+
+
 def _wrap_tool_errors(fn):
     if inspect.iscoroutinefunction(fn):
         @functools.wraps(fn)
@@ -591,7 +613,10 @@ def _wrap_tool_errors(fn):
                     type(exc).__name__,
                     exc,
                 )
-                return f"ERROR: {fn.__name__} failed: {exc} (call_id={call_id})"
+                return (
+                    f"ERROR: {fn.__name__} failed: {exc} (call_id={call_id})\n"
+                    + _error_recovery_hint(exc)
+                )
 
         async_wrapper.__signature__ = inspect.signature(fn)
         return async_wrapper
@@ -610,7 +635,10 @@ def _wrap_tool_errors(fn):
                 type(exc).__name__,
                 exc,
             )
-            return f"ERROR: {fn.__name__} failed: {exc} (call_id={call_id})"
+            return (
+                f"ERROR: {fn.__name__} failed: {exc} (call_id={call_id})\n"
+                + _error_recovery_hint(exc)
+            )
 
     wrapper.__signature__ = inspect.signature(fn)
     return wrapper
@@ -619,12 +647,128 @@ def _wrap_tool_errors(fn):
 _raw_mcp_tool = mcp.tool
 
 
+# ── Tool exposure profiles ──────────────────────────────────────────
+# A 300+ tool surface overwhelms MCP clients and degrades LLM tool
+# selection (some clients also hard-cap the number of tools). Profiles
+# expose a curated subset by default and keep the full surface one env
+# var away. Every profile is a strict superset of the tools referenced by
+# recommend_cad_tools, the workflow playbooks, and any next_tools hint, so
+# narrowing the surface never points an agent at a tool that is not
+# registered.
+#
+#   CAD_MCP_TOOL_PROFILE = core (default) | lean | full
+#   CAD_MCP_TOOLS_INCLUDE = comma/space separated tool names to force on
+#   CAD_MCP_TOOLS_EXCLUDE = comma/space separated tool names to force off
+#
+# core hides rarely used long-tail tools; lean also hides secondary tools
+# and keeps only the essential scan/understand/draw/edit/plan/VLM workflow.
+
+_CORE_HIDDEN_TOOLS = frozenset({
+    'add_3point_angular_dimension', 'add_arc_dimension', 'add_hyperlink', 'add_ordinate_dimension',
+    'add_shape', 'add_viewport', 'align_entities', 'angle_from_xaxis',
+    'angle_to_real', 'angle_to_string', 'check_interference', 'copy_dimension_style',
+    'create_group', 'create_material', 'create_registered_application', 'create_snapshot',
+    'create_ucs', 'delete_named_view', 'delete_selection_set', 'distance_to_real',
+    'divide_entity', 'draw_2d_solid', 'draw_3d_face', 'draw_3d_mesh',
+    'draw_3d_polyline', 'draw_elliptical_cone', 'draw_elliptical_cylinder', 'draw_point',
+    'draw_polyface_mesh', 'draw_raster_image', 'draw_ray', 'draw_tolerance',
+    'draw_torus', 'draw_trace', 'draw_wedge', 'draw_wipeout',
+    'draw_xline', 'export_image', 'extrude_region_along_path', 'get_active_space_info',
+    'get_active_ucs', 'get_all_groups', 'get_all_ucs', 'get_application_info',
+    'get_dictionaries', 'get_dimension_measurement', 'get_extension_dictionary', 'get_file_dependencies',
+    'get_hyperlinks', 'get_linetypes', 'get_materials', 'get_named_views',
+    'get_plot_configurations', 'get_plot_devices', 'get_plot_style_tables', 'get_preference',
+    'get_preferences_display', 'get_preferences_drafting', 'get_preferences_files', 'get_preferences_opensave',
+    'get_preferences_selection', 'get_preferences_system', 'get_preferences_user', 'get_registered_applications',
+    'get_snapshots', 'get_viewports', 'get_xdata', 'intersect_with',
+    'is_autocad_idle', 'lengthen_entity', 'load_linetype', 'measure_entity',
+    'mirror_3d', 'plot_preview', 'plot_to_device', 'polar_point',
+    'polyline_add_vertex', 'polyline_constant_width', 'polyline_get_bulge', 'polyline_get_point_at_param',
+    'polyline_get_segment_type', 'polyline_get_width', 'polyline_num_vertices', 'polyline_set_width',
+    'real_to_string', 'reload_xref', 'remove_hyperlink', 'restore_named_view',
+    'rotate_3d', 'save_named_view', 'section_solid', 'select_at_point',
+    'select_by_cpolygon', 'select_by_fence', 'select_by_wpolygon', 'select_on_screen',
+    'set_active_material', 'set_active_ucs', 'set_dimension_text_override', 'set_document_properties',
+    'set_drawing_password', 'set_entity_material', 'set_entity_plot_style', 'set_entity_transparency',
+    'set_entity_truecolor', 'set_preference', 'set_viewport_properties', 'set_xdata',
+    'slice_solid', 'translate_coordinates', 'unload_xref',
+})
+
+_LEAN_EXTRA_HIDDEN_TOOLS = frozenset({
+    'activate_workspace_drawing', 'add_angular_dimension', 'add_baseline_dimension', 'add_continue_dimension',
+    'add_leader', 'add_rotated_dimension', 'analyze_drawing_intent', 'attach_xref',
+    'audit_drawing', 'begin_undo_group', 'bind_dimension_to_geometry', 'break_entity',
+    'clear_selection_set', 'clear_understanding_cache', 'copy_entity', 'create_layout',
+    'create_text_style', 'delete_layer', 'draw_cone', 'draw_ellipse',
+    'draw_ellipse_arc', 'draw_sphere', 'edit_table_cell', 'end_undo_group',
+    'erase_selection_entities', 'evaluate_vlm_grounding', 'execute_sql_query', 'explode_block',
+    'explode_entity', 'export_drawing_ir', 'export_dwf', 'export_dxf',
+    'find_text', 'freeze_layer', 'get_all_blocks', 'get_all_tables',
+    'get_block_attributes', 'get_bounding_box', 'get_database_maintenance_status', 'get_dimension_styles',
+    'get_layouts', 'get_legacy_database_status', 'get_table_schema', 'get_text_styles',
+    'get_variable', 'get_workspace_context', 'get_xrefs', 'hatch_add_boundary',
+    'hatch_add_inner_loop', 'hatch_get_properties', 'hatch_set_gradient', 'hatch_set_properties',
+    'highlight_entities', 'highlight_query_results', 'insert_block_with_attributes', 'isolate_layer',
+    'join_entities', 'list_workspace_drawings', 'lock_layer', 'maintain_database',
+    'map_pixel_region_to_world_bbox', 'map_pixel_to_world', 'map_world_to_pixel', 'measure_distance',
+    'pan', 'plot_to_file', 'purge_drawing', 'rename_layer',
+    'replace_text', 'reset_entity_color', 'rollback_undo_group', 'rotate_entity',
+    'scale_entity', 'scan_entities_in_area', 'select_all', 'select_by_crossing',
+    'select_by_window', 'set_active_layout', 'set_block_attribute', 'set_current_dimension_style',
+    'set_current_text_style', 'set_text_alignment', 'set_text_properties', 'set_variable',
+    'set_workspace_context', 'stretch_entities', 'thaw_layer', 'transform_entity',
+    'turn_off_layer', 'turn_on_layer', 'unisolate_layers', 'unlock_layer',
+    'zoom_all', 'zoom_center', 'zoom_previous', 'zoom_scale',
+    'zoom_window',
+})
+
+
+def _split_env_names(var_name: str) -> set:
+    raw = os.environ.get(var_name, "") or ""
+    return {token.strip() for token in raw.replace(",", " ").split() if token.strip()}
+
+
+def _tool_profile() -> str:
+    # Code default is "full" for backward compatibility; the shipped MCP
+    # client configs (.mcp.json / .codex/config.toml) opt into "core" so the
+    # out-of-the-box client surface is curated. Override with
+    # CAD_MCP_TOOL_PROFILE.
+    profile = (os.environ.get("CAD_MCP_TOOL_PROFILE") or "full").strip().lower()
+    if profile in {"all", "everything", "max"}:
+        return "full"
+    if profile not in {"core", "lean", "full"}:
+        return "full"
+    return profile
+
+
+def _tool_enabled(tool_name: str) -> bool:
+    """Decide whether a tool is exposed under the active profile."""
+    if tool_name in _split_env_names("CAD_MCP_TOOLS_EXCLUDE"):
+        return False
+    if tool_name in _split_env_names("CAD_MCP_TOOLS_INCLUDE"):
+        return True
+    profile = _tool_profile()
+    if profile == "full":
+        return True
+    if profile == "lean":
+        return tool_name not in _CORE_HIDDEN_TOOLS and tool_name not in _LEAN_EXTRA_HIDDEN_TOOLS
+    return tool_name not in _CORE_HIDDEN_TOOLS
+
+
+_DISABLED_TOOL_NAMES: List[str] = []
+
+
 def _safe_mcp_tool(name=None, title=None, description=None, annotations=None,
                    icons=None, meta=None, structured_output=None):
     def decorator(fn):
         tool_name = name or fn.__name__
-        tool_description = description or _default_tool_description(tool_name)
         wrapped = _wrap_tool_errors(fn)
+        if not _tool_enabled(tool_name):
+            # Keep the callable available for internal use, but do not
+            # register it with the MCP host under the active profile.
+            _DISABLED_TOOL_NAMES.append(tool_name)
+            return wrapped
+        tool_description = description or _default_tool_description(tool_name)
         _raw_mcp_tool(
             name=name,
             title=title,
@@ -1216,38 +1360,6 @@ def insert_minsert_block(ctx: Context, block_name: str, x: float,
         layer: Optional layer name.
     """
     return drawing_tools.insert_minsert_block(block_name, x, y, z, x_scale,
-                                              y_scale, z_scale, rotation,
-                                              rows, cols, row_spacing,
-                                              col_spacing, layer)
-
-
-@mcp.tool(description=TOOL_DESCRIPTIONS["insert_minsert_block"])
-def insert_minert_block(ctx: Context, block_name: str, x: float,
-                          y: float, z: float = 0.0, x_scale: float = 1.0,
-                          y_scale: float = 1.0, z_scale: float = 1.0,
-                          rotation: float = 0.0, rows: int = 1,
-                          cols: int = 1, row_spacing: float = 0.0,
-                          col_spacing: float = 0.0,
-                          layer: Optional[str] = None) -> str:
-    """以矩形阵列方式插入图块 (MInsert)。
-
-    将图块插入 + 矩形阵列组合为一个不可分解的实体。
-    比单独 insert_block + array 更高效。
-
-    Args:
-        block_name:  图块名称
-        x, y, z:     插入点坐标
-        x_scale:     X缩放（默认1，负值=镜像）
-        y_scale:     Y缩放（默认1）
-        z_scale:     Z缩放（默认1）
-        rotation:    旋转角度（度，默认0）
-        rows:        阵列行数（默认1）
-        cols:        阵列列数（默认1）
-        row_spacing: 行间距
-        col_spacing: 列间距
-        layer:       图层名称
-    """
-    return drawing_tools.insert_minert_block(block_name, x, y, z, x_scale,
                                               y_scale, z_scale, rotation,
                                               rows, cols, row_spacing,
                                               col_spacing, layer)
@@ -5663,9 +5775,32 @@ Never execute a repair automatically; ambiguous issues should return alternative
 #  MAIN
 # ══════════════════════════════════════════════════════════════════
 
+def _log_tool_profile() -> None:
+    """Report the active tool profile so the surface size is explicit."""
+    try:
+        active = len(_registered_tools())
+    except Exception:
+        active = -1
+    profile = _tool_profile()
+    hidden = len(_DISABLED_TOOL_NAMES)
+    logger.info(
+        "CAD MCP tool profile=%s exposed=%s hidden=%s "
+        "(set CAD_MCP_TOOL_PROFILE=core|lean|full; "
+        "CAD_MCP_TOOLS_INCLUDE / CAD_MCP_TOOLS_EXCLUDE for fine control)",
+        profile, active, hidden,
+    )
+    if profile == "full" and active > 150:
+        logger.info(
+            "Exposing the full %s-tool surface can degrade MCP tool selection; "
+            "CAD_MCP_TOOL_PROFILE=core (default) or =lean exposes a curated subset.",
+            active,
+        )
+
+
 def main():
     """Entry point for the cad-mcp console script."""
     logger.info("CAD服务已初始化")
+    _log_tool_profile()
     logger.info("服务器正在使用 stdio 传输运行")
     mcp.run()
 

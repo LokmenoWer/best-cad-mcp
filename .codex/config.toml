@@ -10,6 +10,11 @@ startup_timeout_sec = 30
 tool_timeout_sec = 120
 default_tools_approval_mode = "approve"
 
+# Expose a curated tool surface by default so tool selection stays reliable.
+# Use "lean" for an even smaller set, or "full" for all tools.
+[mcp_servers.best-cad-mcp.env]
+CAD_MCP_TOOL_PROFILE = "core"
+
 # Keep raw or destructive escape hatches interactive even when routine CAD
 # drawing/query tools are auto-approved.
 [mcp_servers.best-cad-mcp.tools.send_command]
