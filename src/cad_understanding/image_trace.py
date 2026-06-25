@@ -681,7 +681,7 @@ def prepare_image_trace(image_path: str,
             "vlm_contract": "Use prompt copy_drawing_from_image and return ImageDrawingSpec/v1 JSON.",
         },
         warnings=warnings,
-        next_tools=["copy_drawing_from_image", "validate_image_drawing_spec", "submit_image_drawing_spec"],
+        next_tools=["get_trace_source_image", "prepare_visual_semantic_context", "copy_drawing_from_image", "validate_image_drawing_spec", "submit_image_drawing_spec"],
     )
 
 
@@ -1028,7 +1028,7 @@ def prepare_visual_semantic_context(image_id: Optional[str] = None,
             },
         },
         warnings=warnings,
-        next_tools=["recognize_components_from_image", "copy_drawing_from_image", "validate_image_drawing_spec"],
+        next_tools=["get_trace_source_image", "recognize_components_from_image", "copy_drawing_from_image", "validate_image_drawing_spec"],
     )
 
 

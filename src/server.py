@@ -168,9 +168,15 @@ Tool-choice rules:
 - For existing drawings, scan first with scan_all_entities and query with
   get_entity_statistics/execute_query before editing. Capture returned handles;
   edits operate on handles.
-- Vision-capable models may call export_view_image at any point to export the
-  current AutoCAD view for visual confirmation. This writes a review artifact
-  only and must not be replaced with visible helper geometry.
+- Vision-capable models can SEE the drawing directly through the MCP. Call
+  render_drawing_view to export the current view AND receive it as inline image
+  content in one step, get_snapshot_image to look at the latest exported view,
+  view_image to look at any local file (e.g. a source drawing to copy), and
+  get_trace_source_image to look at a prepared image-trace source. Use this
+  perceive→act-by-handle→re-render→verify loop instead of editing blind. These
+  tools only read/export review artifacts and must not be replaced with visible
+  helper geometry. (export_view_image / export_view_image_with_mapping still
+  exist for path-only export when the model does not need to look.)
 - Use add_spatial_annotation/list_spatial_annotations for model-private labels,
   pointers, and part names. These annotations live only in the MCP SQLite
   database and must not create layers, XData, blocks, or visible marks in DWG.
@@ -355,6 +361,39 @@ TOOL_DESCRIPTIONS = {
         "Use this after updating the server code so the MCP host can launch a "
         "fresh process with the latest version."
     ),
+    "view_image": (
+        "SEE any local image directly. Returns the image as MCP image content so "
+        "a vision-capable model perceives it in the tool result instead of only "
+        "getting a path. Use for the source drawing in an image-trace workflow, a "
+        "reference picture, or any exported PNG/JPG/WMF/BMP/TIFF (WMF and "
+        "BMP/TIFF are auto-converted; large images are downscaled). This is how "
+        "the model looks at a picture — do not guess at file contents from the path."
+    ),
+    "get_snapshot_image": (
+        "SEE a previously exported view snapshot. Embeds the clean or numbered "
+        "overlay image inline so the model can visually review the current "
+        "drawing and ground VLM findings. snapshot_id defaults to the latest "
+        "snapshot. Pair with ground_vlm_region/ground_vlm_overlay_id and confirm "
+        "candidates with explain_entity."
+    ),
+    "render_drawing_view": (
+        "Render the current AutoCAD view AND see it in one call: exports a mapped "
+        "view snapshot (world/pixel/handle mapping, overlay IDs) and embeds the "
+        "rendered image inline. The fastest way to verify drawing state after "
+        "edits — perceive, act by handle, re-render, verify. Preferred over "
+        "export_view_image_with_mapping when the model itself needs to look."
+    ),
+    "get_trace_source_image": (
+        "SEE a prepared image-trace artifact (normalized, high_contrast, or edges) "
+        "for the active trace. Call after prepare_image_trace so the model looks "
+        "at the real source it is copying before producing ImageDrawingSpec/v1, "
+        "instead of working blind from a path."
+    ),
+    "get_vision_capabilities": (
+        "Report whether this server can show images to the model and which "
+        "converters/Pillow are installed. Call once if unsure the model can see "
+        "drawings; it lists the vision tools and the perceive→act→verify workflow."
+    ),
 }
 
 # Create the MCP server
@@ -389,6 +428,8 @@ def _registration_category(name: str) -> str:
         "fuse_vlm_findings_into_semantic_graph", "evaluate_vlm_grounding",
         "promote_vlm_finding_to_validation_issue",
         "analyze_engineering_drawing_stages",
+        "view_image", "get_snapshot_image", "render_drawing_view",
+        "get_trace_source_image", "get_vision_capabilities",
     }:
         return "visual grounding and engineering review"
     if name in {
@@ -813,8 +854,53 @@ from src.cad_understanding import resources as understanding_resources
 from src.cad_understanding import semantic_graph as understanding_semantic
 from src.cad_understanding import validators as understanding_validators
 from src.cad_understanding import view_grounding as understanding_view
+from src.cad_understanding import vision as understanding_vision
 from src.cad_understanding import vlm as understanding_vlm
 from src.cad_understanding.result import ok_result
+
+# Direct model vision: FastMCP's Image helper turns a PNG/JPEG into an MCP
+# ImageContent block the model can actually SEE inside a tool result, instead of
+# only receiving a file path. This is what lets a vision-capable model perceive
+# its own CAD work and close the perceive→act→verify loop.
+from mcp.server.fastmcp.utilities.types import Image as _MCPImage
+
+
+def _vision_image_blocks(result: Dict[str, Any]) -> List[Any]:
+    """Build MCP Image content blocks from a cad_understanding.vision ToolResult.
+
+    Reads the prepared image payload(s) the vision layer attached under
+    ``data.images`` / ``data.vision`` and returns one ``Image`` per embeddable
+    artifact. Non-embeddable payloads (e.g. WMF with no converter) are silently
+    skipped — the caller still returns the textual ToolResult so the model learns
+    why no image is available.
+    """
+    blocks: List[Any] = []
+    data = result.get("data") or {}
+    preps: List[Any] = []
+    if isinstance(data.get("images"), list):
+        preps.extend(data["images"])
+    if isinstance(data.get("vision"), dict):
+        preps.append(data["vision"])
+    for prep in preps:
+        if not isinstance(prep, dict):
+            continue
+        path = prep.get("image_path")
+        if prep.get("embeddable") and path and os.path.exists(path):
+            try:
+                blocks.append(_MCPImage(path=path))
+            except Exception as exc:  # pragma: no cover - file race / unreadable
+                result.setdefault("warnings", []).append(f"Failed to embed image: {exc}")
+    return blocks
+
+
+def _vision_tool_result(result: Dict[str, Any]) -> List[Any]:
+    """Return ``[summary_dict, Image...]`` content for a vision tool.
+
+    FastMCP converts the dict to text and each ``Image`` to ImageContent, so the
+    model receives the structured summary *and* sees the image(s) directly.
+    """
+    return [result, *_vision_image_blocks(result)]
+
 
 # Initialize subsystems
 from src.cad_controller import get_controller
@@ -5184,6 +5270,131 @@ def export_view_image_with_mapping(ctx: Context,
         include_tiles=include_tiles,
         tile_size=tile_size,
         tile_overlap=tile_overlap,
+    )
+
+
+# ── Direct model vision ─────────────────────────────────────────────
+# These tools return real MCP image content so a vision-capable model SEES the
+# drawing/source/overlay in the tool result, instead of only receiving a path.
+
+
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["view_image"],
+    structured_output=False,
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def view_image(ctx: Context, path: str, max_dim: int = 1568, label: str = "") -> Any:
+    """Show any local image to the model as inline image content.
+
+    Args:
+        path: Local image file (png/jpg/jpeg/gif/webp, or auto-converted wmf/bmp/tiff).
+        max_dim: Long-edge pixel cap; larger images are downscaled (default 1568).
+        label: Optional caption shown with the image summary.
+    """
+    result = understanding_vision.view_image(path, max_dim=max_dim, label=label)
+    return _vision_tool_result(result)
+
+
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["get_snapshot_image"],
+    structured_output=False,
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def get_snapshot_image(ctx: Context, snapshot_id: Optional[str] = None,
+                       which: str = "auto", max_dim: int = 1568) -> Any:
+    """Embed a prior view snapshot's image(s) so the model can review them.
+
+    Args:
+        snapshot_id: Snapshot to view; None uses the most recent snapshot.
+        which: "auto" (overlay if present else clean), "clean", "overlay", or "both".
+        max_dim: Long-edge pixel cap for downscaling (default 1568).
+    """
+    result = understanding_vision.resolve_snapshot_images(
+        snapshot_id=snapshot_id, which=which, max_dim=max_dim)
+    return _vision_tool_result(result)
+
+
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["render_drawing_view"],
+    structured_output=False,
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+)
+def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
+                        which: str = "auto", include_overlay: bool = True,
+                        overlay_style: str = "bbox",
+                        overlay_granularity: str = "entity",
+                        max_dim: int = 1568) -> Any:
+    """Export the current AutoCAD view with mapping AND embed the rendered image.
+
+    Returns the world/pixel/handle mapping summary as text plus the rendered
+    view as inline image content, so the model both grounds coordinates and sees
+    the drawing in a single call. If no raster could be produced (e.g. WMF with
+    no converter), the mapping summary still explains why.
+
+    Args:
+        filepath: Optional export path; defaults to an auto-named file under
+            cad_visual_exports/.
+        which: Which image(s) to show: "auto", "clean", "overlay", or "both".
+        include_overlay: Render the numbered overlay image for ID grounding.
+        overlay_style: "bbox" or "som" (Set-of-Mark style labels).
+        overlay_granularity: "entity", "primitive", or "both".
+        max_dim: Long-edge pixel cap for the embedded image (default 1568).
+    """
+    export = understanding_view.export_view_image_with_mapping(
+        filepath=filepath,
+        include_overlay=include_overlay,
+        include_entity_bboxes=True,
+        overlay_granularity=overlay_granularity,
+        overlay_style=overlay_style,
+    )
+    if not export.get("ok"):
+        return [export]
+    snapshot = (export.get("data") or {}).get("snapshot") or {}
+    snapshot_id = snapshot.get("snapshot_id")
+    if not snapshot_id:
+        return [export]
+    vision_result = understanding_vision.resolve_snapshot_images(
+        snapshot_id=snapshot_id, which=which, max_dim=max_dim)
+    image_blocks = _vision_image_blocks(vision_result)
+    # Lead with the export mapping (handles, transforms, vlm readiness, next_tools)
+    # then attach the rendered image(s) the model should look at. If no raster
+    # could be embedded (e.g. WMF with no converter), include the vision result
+    # so the model still learns exactly why and what to install.
+    if not image_blocks:
+        return [export, vision_result]
+    return [export, *image_blocks]
+
+
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["get_trace_source_image"],
+    structured_output=False,
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def get_trace_source_image(ctx: Context, image_id: Optional[str] = None,
+                           role: str = "normalized", max_dim: int = 1568) -> Any:
+    """Embed a prepared image-trace artifact so the model sees the real source.
+
+    Args:
+        image_id: Trace to view; None uses the most recent prepared trace.
+        role: "normalized", "high_contrast", "edges", or "source".
+        max_dim: Long-edge pixel cap for downscaling (default 1568).
+    """
+    result = understanding_vision.resolve_trace_image(
+        image_id=image_id, role=role, max_dim=max_dim)
+    return _vision_tool_result(result)
+
+
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["get_vision_capabilities"],
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def get_vision_capabilities(ctx: Context) -> Dict[str, Any]:
+    """Report direct-vision support (embeddable formats, converters, workflow)."""
+    return ok_result(
+        "Direct model vision is available. Use render_drawing_view / "
+        "get_snapshot_image / view_image / get_trace_source_image to SEE images.",
+        data=understanding_vision.vision_capabilities(),
+        next_tools=["render_drawing_view", "view_image"],
     )
 
 

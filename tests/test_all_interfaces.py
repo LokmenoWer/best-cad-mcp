@@ -92,6 +92,7 @@ with patch('src.cad_controller.CADController', autospec=True) as mock_ctrl_cls, 
     from src.cad_understanding import semantic_graph as understanding_semantic
     from src.cad_understanding import validators as understanding_validators
     from src.cad_understanding import view_grounding as understanding_view
+    from src.cad_understanding import vision as understanding_vision
     from src.cad_understanding import vlm as understanding_vlm
 
     # Import shared modules
@@ -1507,7 +1508,8 @@ class TestToolWiring(unittest.TestCase):
             'understanding_dimensions', 'understanding_engineering',
             'understanding_image_trace', 'understanding_ir_builder', 'understanding_plan',
             'understanding_resources', 'understanding_semantic',
-            'understanding_validators', 'understanding_view', 'understanding_vlm',
+            'understanding_validators', 'understanding_view',
+            'understanding_vision', 'understanding_vlm',
         }
         # Find pattern: def tool_name(...): ... module.func(...)
         # This is heuristic but effective for this codebase
@@ -1558,6 +1560,7 @@ class TestToolWiring(unittest.TestCase):
             'understanding_semantic': understanding_semantic,
             'understanding_validators': understanding_validators,
             'understanding_view': understanding_view,
+            'understanding_vision': understanding_vision,
             'understanding_vlm': understanding_vlm,
         }
 
@@ -1600,6 +1603,7 @@ class TestToolWiring(unittest.TestCase):
             '_tool_call_log_context',
             '_split_env_names', '_tool_profile', '_tool_enabled',
             '_log_tool_profile', '_error_recovery_hint',
+            '_vision_image_blocks', '_vision_tool_result',
             'cad_tool_selection_resource',
             'cad_registered_tools_resource', 'cad_workflow_guide',
             'cad_layer_planning', 'understand_existing_drawing',

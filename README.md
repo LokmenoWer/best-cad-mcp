@@ -42,6 +42,7 @@ path.
 | Handle-first inspection | Scan a drawing into SQLite, query structured metadata, explain entities, and edit by the handles returned by AutoCAD. |
 | CAD understanding | CAD-IR, drawing summaries, semantic objects, semantic graphs, dimension binding, extracted constraints, validation reports, and MCP resources. |
 | Visual review | Export clean view images, optional numeric overlays, and sidecar mapping data for pixel/world/entity grounding. |
+| Direct model vision | Return rendered views, overlays, source images, and trace artifacts as inline MCP image content so a vision-capable model SEES the drawing in the tool result instead of only receiving a file path. |
 | CADPlan | Validate, dry-run, and explicitly execute multi-step drawing or repair plans with variables, dependencies, captured handles, postconditions, transactional execution, and rollback attempts. |
 | Agent memory | Store workspace context and model-private spatial annotations in SQLite instead of hiding helper geometry, XData, labels, or marks inside the DWG. |
 | Prompt and skill assets | Prompt files for understanding, precise drawing, VLM review, and repair; assembly drawing skill references for standards-aware workflows. |
@@ -263,8 +264,8 @@ do not work well" is simply too many tools. Pick a profile with the
 
 | Profile | Exposed tools | Use when |
 | --- | --- | --- |
-| `core` | curated subset (~205) | Default for the shipped client configs. Covers every documented workflow: scan, understand, draw, edit, dimension, block, hatch, layout, query, CADPlan, visual grounding, and the VLM pipeline. |
-| `lean` | essential subset (~110) | You want the smallest reliable surface for inspection and straightforward drawing/editing. |
+| `core` | curated subset (~210) | Default for the shipped client configs. Covers every documented workflow: scan, understand, draw, edit, dimension, block, hatch, layout, query, CADPlan, visual grounding, direct model vision, and the VLM pipeline. |
+| `lean` | essential subset (~113) | You want the smallest reliable surface for inspection and straightforward drawing/editing. |
 | `full` | every tool | You explicitly need exotic 3D primitives, preference/plot/material introspection, low-level polyline editing, UCS/viewport/named-view minutiae, and other long-tail tools. |
 
 The shipped `.mcp.json` and `.codex/config.toml` set `CAD_MCP_TOOL_PROFILE=core`.
@@ -552,6 +553,34 @@ and resources include
 Top/plan modelspace views are the most reliable. Twisted views, UCS changes, 3D
 views, and complex layout viewport cases can return warnings or lower
 confidence.
+
+### Direct Model Vision
+
+`export_view_image_with_mapping` and the trace tools historically returned only
+file *paths*. A vision-capable model driving the server (Claude, GPT-4o, Gemini,
+...) therefore never actually *saw* the drawing through the tool result; it had
+to rely on a separate, agent-side VLM call. These tools return the image as
+inline MCP image content so the driving model perceives the drawing directly and
+can run a real perceive → act-by-handle → re-render → verify loop:
+
+- `render_drawing_view(...)` exports the current AutoCAD view *and* returns the
+  rendered image inline in one call, alongside the world/pixel/handle mapping.
+  This is the fastest way to confirm drawing state after edits.
+- `get_snapshot_image(snapshot_id=None, which="auto")` shows a previously
+  exported view (clean or numbered overlay); `snapshot_id=None` uses the latest.
+- `view_image(path)` shows any local image — the source drawing to copy in an
+  image-trace workflow, a reference picture, or any exported file.
+- `get_trace_source_image(role="normalized")` shows a prepared image-trace
+  artifact so the tracing model looks at the real source before producing
+  `ImageDrawingSpec/v1`.
+- `get_vision_capabilities()` reports embeddable formats and installed renderers.
+
+WMF (AutoCAD's native COM export) is auto-converted to PNG when a renderer is
+available, BMP/TIFF are transcoded, and oversized rasters are downscaled to a
+model-friendly long edge (default 1568 px). When no raster can be produced the
+tool still returns a textual summary explaining why, and coordinate grounding
+(`ground_vlm_region`, `map_pixel_region_to_world_bbox`) keeps working. Automatic
+downscaling and BMP/TIFF transcoding require the `visual` extra (Pillow).
 
 ### Prompts And Assembly Skills
 

@@ -769,8 +769,22 @@ TOOL_ROUTING_CATALOG = [
     },
     {
         "category": "Visual grounding",
+        "tool": "render_drawing_view",
+        "use": "Render the current AutoCAD view and SEE it inline (export + image content in one call) so a vision-capable model can verify drawing state after edits.",
+        "avoid": "Do not edit blind; do not add visible helper geometry to inspect the drawing.",
+        "keywords": ["see drawing", "look at", "render view", "verify visually", "screenshot", "show me", "view image", "perceive", "看", "查看", "渲染", "可视化", "确认"],
+    },
+    {
+        "category": "Visual grounding",
+        "tool": "view_image",
+        "use": "Show any local image (source drawing to copy, reference, exported PNG/WMF) to the model as inline image content.",
+        "avoid": "Do not guess at an image's contents from its file path.",
+        "keywords": ["see image", "view file", "source image", "reference image", "look at picture", "open image", "图片", "查看图像", "参考图"],
+    },
+    {
+        "category": "Visual grounding",
         "tool": "export_view_image_with_mapping",
-        "use": "Export clean image, overlay, pixel/world mapping, visible handles, and optional tiles for dense visual review.",
+        "use": "Export clean image, overlay, pixel/world mapping, visible handles, and optional tiles for dense visual review (path-only; pair with get_snapshot_image to actually see it).",
         "avoid": "Do not use visible helper geometry to label or ground model observations.",
         "keywords": ["visual mapping", "overlay", "pixel", "world mapping", "tiles", "view image", "grounding", "视觉", "叠加", "像素", "定位"],
     },
@@ -1338,7 +1352,7 @@ def recommend_cad_tools(intent: str, max_results: int = 8) -> str:
     lines.append("")
     lines.append("Workflow guards:")
     lines.append("- Existing drawing: scan_all_entities -> get_entity_statistics/execute_query before edits.")
-    lines.append("- Vision-capable model: call export_view_image_with_mapping whenever the visible CAD state needs confirmation.")
+    lines.append("- Vision-capable model: call render_drawing_view (or get_snapshot_image) to SEE the drawing inline whenever the visible CAD state needs confirmation; use view_image to see a source/reference file.")
     lines.append("- Dense/complex drawing: use CAD-IR, semantic objects, constraints, validation, and overlay mapping before simplifying.")
     lines.append("- New complex drawing: use CADPlan validation and dry-run before execution.")
     lines.append("- Model-only context: use add_spatial_annotation/list_spatial_annotations instead of drawing helper labels.")

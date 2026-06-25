@@ -290,8 +290,9 @@ def _read_wmf_size(filepath: str) -> Optional[Tuple[int, int]]:
 def _try_convert_wmf_to_raster(wmf_path: Path) -> Optional[Path]:
     """Convert a WMF file to PNG using available system tools.
 
-    Tries ImageMagick, then cairosvg (via SVG intermediate), then wand.
-    Returns the PNG path on success, None if all attempts fail.
+    Tries ImageMagick (magick/convert), then wand, then Inkscape, then
+    LibreOffice (soffice). Returns the PNG path on success, None if all
+    attempts fail.
     """
     png_path = wmf_path.with_suffix(".png")
 
@@ -1089,7 +1090,7 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
             + (vlm_blocked_reason or "No VLM-readable raster was produced.")
             + " Use ground_vlm_region/map_pixel_region_to_world_bbox for coordinate grounding instead."
         )
-    next_tools = ["ground_vlm_region", "ground_vlm_overlay_id", "get_visible_entities_in_view", "explain_entity"]
+    next_tools = ["get_snapshot_image", "ground_vlm_region", "ground_vlm_overlay_id", "get_visible_entities_in_view", "explain_entity"]
     if not vlm_ready:
         next_tools = ["check_runtime_environment"] + next_tools
     return ok_result(

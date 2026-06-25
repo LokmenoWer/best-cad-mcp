@@ -31,6 +31,7 @@
 | handle 优先检查 | 将图纸扫描到 SQLite，查询结构化元数据，解释实体，并按 AutoCAD handle 精确编辑。 |
 | CAD 理解 | CAD-IR、图纸摘要、语义对象、语义图、尺寸绑定、约束提取、验证报告和 MCP resources。 |
 | 视觉审阅 | 导出干净视图、可选数字 overlay，以及用于像素/世界坐标/实体映射的 sidecar JSON。 |
+| 模型直接视觉 | 将渲染视图、overlay、源图像和 trace 产物作为内联 MCP 图像内容返回，使具备视觉能力的模型在工具结果中直接“看到”图纸，而不仅是拿到文件路径。 |
 | CADPlan | 对多步骤绘图或修复计划进行校验、dry-run 和显式执行，支持变量、依赖、handle 捕获、后置条件、事务式执行和回滚尝试。 |
 | agent 记忆 | 将工作区上下文和模型私有空间标注存入 SQLite，不在 DWG 中隐藏辅助几何、XData、标签或标记。 |
 | 提示词与技能资产 | 提供图纸理解、精确绘图、VLM 审阅和修复提示词；提供面向装配图的规范化技能参考。 |
@@ -229,8 +230,8 @@ approval_mode = "prompt"
 
 | 档位 | 暴露工具数 | 适用场景 |
 | --- | --- | --- |
-| `core` | 精选子集（约 205 个） | 随仓库配置默认启用。覆盖全部文档化工作流：扫描、理解、绘制、编辑、标注、块、填充、布局、查询、CADPlan、视觉定位和 VLM 流水线。 |
-| `lean` | 精简子集（约 110 个） | 只需要最小可靠工具面来做检查和常规绘制/编辑。 |
+| `core` | 精选子集（约 210 个） | 随仓库配置默认启用。覆盖全部文档化工作流：扫描、理解、绘制、编辑、标注、块、填充、布局、查询、CADPlan、视觉定位、模型直接视觉和 VLM 流水线。 |
+| `lean` | 精简子集（约 113 个） | 只需要最小可靠工具面来做检查和常规绘制/编辑。 |
 | `full` | 全部工具 | 确实需要冷门的 3D 图元、偏好/打印/材质查询、低层 polyline 编辑、UCS/视口/命名视图等长尾工具。 |
 
 随仓库提供的 `.mcp.json` 与 `.codex/config.toml` 已设置
@@ -403,6 +404,30 @@ VLM。当系统存在栅格转换器（ImageMagick、wand、Inkscape 或 LibreOf
 VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；返回 overlay ID 时使用 `ground_vlm_overlay_id(snapshot_id, overlay_id)`。编辑前应对最可能的候选实体调用 `explain_entity`。
 
 顶视或平面模型空间视图最可靠。带 twist、UCS、三维视图或复杂布局视口的场景会返回警告或较低置信度。
+
+### 模型直接视觉
+
+`export_view_image_with_mapping` 和 trace 工具过去只返回文件*路径*。这意味着
+驱动服务的视觉模型（Claude、GPT-4o、Gemini 等）从未真正通过工具结果“看到”
+图纸，只能依赖另一次 agent 侧的 VLM 调用。下列工具会把图像作为内联 MCP 图像
+内容返回，让驱动模型直接感知图纸，从而真正闭合“感知 → 按 handle 操作 → 重新
+渲染 → 验证”的回路：
+
+- `render_drawing_view(...)`：一次调用即导出当前 AutoCAD 视图*并*返回内联渲染
+  图像，同时附带世界/像素/handle 映射。这是编辑后确认图纸状态最快的方式。
+- `get_snapshot_image(snapshot_id=None, which="auto")`：查看此前导出的视图
+  （干净图或带编号的 overlay）；`snapshot_id=None` 取最新快照。
+- `view_image(path)`：查看任意本地图像——临摹工作流中的源图、参考图，或任何
+  导出文件。
+- `get_trace_source_image(role="normalized")`：查看已准备好的 trace 产物，让
+  临摹模型在生成 `ImageDrawingSpec/v1` 之前先看到真实源图。
+- `get_vision_capabilities()`：报告可内联格式与已安装的渲染器。
+
+WMF（AutoCAD 原生 COM 导出）在存在渲染器时会自动转为 PNG，BMP/TIFF 会被转码，
+过大的栅格会被缩放到模型友好的长边（默认 1568 像素）。当无法生成栅格时，工具
+仍会返回文字摘要说明原因，且坐标定位（`ground_vlm_region`、
+`map_pixel_region_to_world_bbox`）依然可用。自动缩放与 BMP/TIFF 转码需要
+`visual` extra（Pillow）。
 
 ### 提示词与装配图技能
 
