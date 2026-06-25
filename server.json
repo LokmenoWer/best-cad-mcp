@@ -3,7 +3,7 @@
   "name": "io.github.LokmenoWer/best-cad-mcp",
   "title": "best-cad-mcp",
   "description": "Windows AutoCAD MCP server for handle-first CAD automation, validation, and drawing exports.",
-  "version": "1.4.9",
+  "version": "1.5.0",
   "websiteUrl": "https://github.com/LokmenoWer/best-cad-mcp",
   "repository": {
     "url": "https://github.com/LokmenoWer/best-cad-mcp",
@@ -13,7 +13,7 @@
     {
       "registryType": "pypi",
       "identifier": "best-cad-mcp",
-      "version": "1.4.9",
+      "version": "1.5.0",
       "transport": {
         "type": "stdio"
       },
