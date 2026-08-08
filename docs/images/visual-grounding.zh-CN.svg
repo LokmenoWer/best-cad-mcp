@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="610" viewBox="0 0 1400 610" role="img" aria-labelledby="title desc">
+  <title id="title">干净 CAD 视图与句柄定位证据</title>
+  <desc id="desc">同一块安装板分别显示为干净几何和带精确 AutoCAD 句柄的彩色实体路径。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#172a42"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto">
+      <path d="M0,0 L14,7 L0,14 z" fill="#65d1ff"/>
+    </marker>
+  </defs>
+  <rect width="1400" height="610" rx="28" fill="url(#bg)"/>
+  <g font-family="Microsoft YaHei, Noto Sans SC, Segoe UI, sans-serif">
+    <text x="70" y="66" fill="#f7fbff" font-size="30" font-weight="700">一张图纸，两层证据</text>
+    <text x="70" y="101" fill="#9eb2cc" font-size="18">干净视图保持可读；句柄和几何放在独立定位层中。</text>
+
+    <g transform="translate(70 140)">
+      <rect width="540" height="350" rx="22" fill="#f8fbff" stroke="#36536f" stroke-width="2"/>
+      <text x="28" y="42" fill="#18324a" font-size="18" font-weight="700">A · 干净视图</text>
+      <g transform="translate(55 82)" fill="none" stroke="#17212b" stroke-width="3">
+        <rect x="0" y="0" width="430" height="210" rx="22"/>
+        <circle cx="72" cy="55" r="19"/>
+        <circle cx="358" cy="55" r="19"/>
+        <circle cx="72" cy="155" r="19"/>
+        <circle cx="358" cy="155" r="19"/>
+        <circle cx="215" cy="105" r="47"/>
+        <circle cx="215" cy="105" r="24"/>
+      </g>
+      <g transform="translate(55 82)" stroke="#24c7e8" stroke-width="2" stroke-dasharray="9 8" opacity=".9">
+        <path d="M-15 105 H445"/>
+        <path d="M215 -15 V225"/>
+      </g>
+    </g>
+
+    <path d="M635 315 H748" fill="none" stroke="#65d1ff" stroke-width="4" marker-end="url(#arrow)"/>
+    <text x="692" y="292" text-anchor="middle" fill="#9eb2cc" font-size="15">映射</text>
+
+    <g transform="translate(790 140)">
+      <rect width="540" height="350" rx="22" fill="#101f31" stroke="#65d1ff" stroke-width="2"/>
+      <text x="28" y="42" fill="#f7fbff" font-size="18" font-weight="700">B · 定位证据</text>
+      <g transform="translate(55 82)" fill="none" stroke-width="4">
+        <rect x="0" y="0" width="430" height="210" rx="22" stroke="#72e0a8"/>
+        <circle cx="72" cy="55" r="19" stroke="#ff9f7a"/>
+        <circle cx="358" cy="55" r="19" stroke="#ff9f7a"/>
+        <circle cx="72" cy="155" r="19" stroke="#ff9f7a"/>
+        <circle cx="358" cy="155" r="19" stroke="#ff9f7a"/>
+        <circle cx="215" cy="105" r="47" stroke="#ffd166"/>
+        <circle cx="215" cy="105" r="24" stroke="#ffd166"/>
+      </g>
+      <g font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle">
+        <g transform="translate(85 82)"><circle r="18" fill="#72e0a8"/><text y="5" fill="#081421">83</text></g>
+        <g transform="translate(127 137)"><circle r="18" fill="#ff9f7a"/><text y="5" fill="#081421">84</text></g>
+        <g transform="translate(413 137)"><circle r="18" fill="#ff9f7a"/><text y="5" fill="#081421">85</text></g>
+        <g transform="translate(270 187)"><circle r="18" fill="#ffd166"/><text y="5" fill="#081421">88</text></g>
+      </g>
+      <text x="270" y="324" text-anchor="middle" fill="#9eb2cc" font-size="15">路径/多边形 · 候选句柄组 · 置信度</text>
+    </g>
+
+    <rect x="270" y="535" width="860" height="46" rx="23" fill="#0b1726" stroke="#36536f"/>
+    <text x="700" y="565" text-anchor="middle" fill="#9edfff" font-size="18">像素  ↔  世界坐标  ↔  AutoCAD 句柄</text>
+  </g>
+</svg>

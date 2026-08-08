@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="470" viewBox="0 0 1400 470" role="img" aria-labelledby="title desc">
+  <title id="title">best-cad-mcp 受控工作流</title>
+  <desc id="desc">预检、扫描、理解、预演、执行并通过结构化证据复核 AutoCAD 图纸。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#15253d"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".22"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#65d1ff"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="470" rx="28" fill="url(#bg)"/>
+  <g font-family="Microsoft YaHei, Noto Sans SC, Segoe UI, sans-serif">
+    <text x="70" y="72" fill="#f7fbff" font-size="31" font-weight="700">从意图到已验证 DWG 的受控路径</text>
+    <text x="70" y="110" fill="#9eb2cc" font-size="18">每个决策都保留结构化证据；破坏性步骤始终需要明确授权。</text>
+
+    <g filter="url(#shadow)">
+      <g transform="translate(70 160)">
+        <rect width="210" height="180" rx="20" fill="#172b44" stroke="#3d5978"/>
+        <circle cx="42" cy="43" r="22" fill="#65d1ff"/>
+        <text x="42" y="50" text-anchor="middle" fill="#081421" font-size="20" font-weight="800">1</text>
+        <text x="28" y="94" fill="#f7fbff" font-size="22" font-weight="700">预检</text>
+        <text x="28" y="128" fill="#b5c6da" font-size="16">AutoCAD + 运行环境</text>
+        <text x="28" y="153" fill="#b5c6da" font-size="16">工作区上下文</text>
+      </g>
+
+      <g transform="translate(330 160)">
+        <rect width="210" height="180" rx="20" fill="#172b44" stroke="#3d5978"/>
+        <circle cx="42" cy="43" r="22" fill="#72e0a8"/>
+        <text x="42" y="50" text-anchor="middle" fill="#081421" font-size="20" font-weight="800">2</text>
+        <text x="28" y="94" fill="#f7fbff" font-size="22" font-weight="700">扫描</text>
+        <text x="28" y="128" fill="#b5c6da" font-size="16">句柄 + 几何</text>
+        <text x="28" y="153" fill="#b5c6da" font-size="16">CAD-IR + 语义</text>
+      </g>
+
+      <g transform="translate(590 160)">
+        <rect width="210" height="180" rx="20" fill="#172b44" stroke="#3d5978"/>
+        <circle cx="42" cy="43" r="22" fill="#ffd166"/>
+        <text x="42" y="50" text-anchor="middle" fill="#081421" font-size="20" font-weight="800">3</text>
+        <text x="28" y="94" fill="#f7fbff" font-size="22" font-weight="700">预演</text>
+        <text x="28" y="128" fill="#b5c6da" font-size="16">验证 CADPlan</text>
+        <text x="28" y="153" fill="#b5c6da" font-size="16">预览精确影响</text>
+      </g>
+
+      <g transform="translate(850 160)">
+        <rect width="210" height="180" rx="20" fill="#172b44" stroke="#3d5978"/>
+        <circle cx="42" cy="43" r="22" fill="#ff9f7a"/>
+        <text x="42" y="50" text-anchor="middle" fill="#081421" font-size="20" font-weight="800">4</text>
+        <text x="28" y="94" fill="#f7fbff" font-size="22" font-weight="700">执行</text>
+        <text x="28" y="128" fill="#b5c6da" font-size="16">明确授权修改</text>
+        <text x="28" y="153" fill="#b5c6da" font-size="16">撤销 + 回滚路径</text>
+      </g>
+
+      <g transform="translate(1110 160)">
+        <rect width="220" height="180" rx="20" fill="#17364a" stroke="#65d1ff" stroke-width="2"/>
+        <circle cx="42" cy="43" r="22" fill="#65d1ff"/>
+        <text x="42" y="50" text-anchor="middle" fill="#081421" font-size="20" font-weight="800">5</text>
+        <text x="28" y="94" fill="#f7fbff" font-size="22" font-weight="700">复核</text>
+        <text x="28" y="128" fill="#b5c6da" font-size="16">重扫 + 验证</text>
+        <text x="28" y="153" fill="#b5c6da" font-size="16">干净图 + 覆盖层</text>
+      </g>
+    </g>
+
+    <g stroke="#65d1ff" stroke-width="3" fill="none" marker-end="url(#arrow)">
+      <path d="M286 250 H320"/>
+      <path d="M546 250 H580"/>
+      <path d="M806 250 H840"/>
+      <path d="M1066 250 H1100"/>
+    </g>
+
+    <rect x="310" y="385" width="780" height="48" rx="24" fill="#0c1a2a" stroke="#2f4a68"/>
+    <text x="700" y="416" text-anchor="middle" fill="#9eb2cc" font-size="17">SQLite 工作区 · AutoCAD 精确句柄 · 模型私有证据 · 可审计工具结果</text>
+  </g>
+</svg>
