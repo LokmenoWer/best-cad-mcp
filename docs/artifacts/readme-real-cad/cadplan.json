@@ -1,0 +1,1278 @@
+{
+  "plan_id": "readme-real-bearing-housing-v1",
+  "description": "Create a real AutoCAD three-view bearing-housing drawing with section, hatches, dimensions, centerlines, hidden geometry, and title block.",
+  "units": "mm",
+  "risk_level": "medium",
+  "requires_confirmation": true,
+  "variables": {},
+  "steps": [
+    {
+      "step_id": "layer_m_outline",
+      "op": "create_layer",
+      "args": {
+        "name": "M-OUTLINE",
+        "color": 7,
+        "linetype": "Continuous"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "layer_m_center",
+      "op": "create_layer",
+      "args": {
+        "name": "M-CENTER",
+        "color": 4,
+        "linetype": "Continuous"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "layer_m_hidden",
+      "op": "create_layer",
+      "args": {
+        "name": "M-HIDDEN",
+        "color": 8,
+        "linetype": "Continuous"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "layer_m_dim",
+      "op": "create_layer",
+      "args": {
+        "name": "M-DIM",
+        "color": 2,
+        "linetype": "Continuous"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "layer_m_hatch",
+      "op": "create_layer",
+      "args": {
+        "name": "M-HATCH",
+        "color": 9,
+        "linetype": "Continuous"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "layer_m_text",
+      "op": "create_layer",
+      "args": {
+        "name": "M-TEXT",
+        "color": 3,
+        "linetype": "Continuous"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "layer_m_title",
+      "op": "create_layer",
+      "args": {
+        "name": "M-TITLE",
+        "color": 5,
+        "linetype": "Continuous"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_base",
+      "op": "draw_rectangle",
+      "args": {
+        "x1": -135,
+        "y1": -110,
+        "x2": 135,
+        "y2": -90,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$front_base"
+    },
+    {
+      "step_id": "front_flange_outer",
+      "op": "draw_circle",
+      "args": {
+        "center_x": 0,
+        "center_y": 0,
+        "radius": 70,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$front_flange_outer",
+      "postconditions": [
+        {
+          "type": "exists",
+          "target": "$front_flange_outer"
+        }
+      ]
+    },
+    {
+      "step_id": "front_flange_step",
+      "op": "draw_circle",
+      "args": {
+        "center_x": 0,
+        "center_y": 0,
+        "radius": 57,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_counterbore",
+      "op": "draw_circle",
+      "args": {
+        "center_x": 0,
+        "center_y": 0,
+        "radius": 45,
+        "layer": "M-HIDDEN"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_bore",
+      "op": "draw_circle",
+      "args": {
+        "center_x": 0,
+        "center_y": 0,
+        "radius": 35,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$front_bore",
+      "postconditions": [
+        {
+          "type": "exists",
+          "target": "$front_bore"
+        }
+      ]
+    },
+    {
+      "step_id": "front_bolt_1",
+      "op": "draw_circle",
+      "args": {
+        "center_x": -35,
+        "center_y": 35,
+        "radius": 7,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_bolt_2",
+      "op": "draw_circle",
+      "args": {
+        "center_x": 35,
+        "center_y": 35,
+        "radius": 7,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_bolt_3",
+      "op": "draw_circle",
+      "args": {
+        "center_x": -35,
+        "center_y": -35,
+        "radius": 7,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_bolt_4",
+      "op": "draw_circle",
+      "args": {
+        "center_x": 35,
+        "center_y": -35,
+        "radius": 7,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_mount_hole_1",
+      "op": "draw_circle",
+      "args": {
+        "center_x": -105,
+        "center_y": -100,
+        "radius": 7,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_mount_hole_2",
+      "op": "draw_circle",
+      "args": {
+        "center_x": 105,
+        "center_y": -100,
+        "radius": 7,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_left_rib",
+      "op": "draw_polyline",
+      "args": {
+        "points": [
+          -88,
+          -90,
+          -52,
+          -46,
+          -32,
+          -60,
+          -58,
+          -90
+        ],
+        "closed": true,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$front_left_rib"
+    },
+    {
+      "step_id": "front_right_rib",
+      "op": "draw_polyline",
+      "args": {
+        "points": [
+          88,
+          -90,
+          52,
+          -46,
+          32,
+          -60,
+          58,
+          -90
+        ],
+        "closed": true,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$front_right_rib"
+    },
+    {
+      "step_id": "front_axis_h",
+      "op": "draw_line",
+      "args": {
+        "start_x": -88,
+        "start_y": 0,
+        "end_x": 88,
+        "end_y": 0,
+        "layer": "M-CENTER"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_axis_v",
+      "op": "draw_line",
+      "args": {
+        "start_x": 0,
+        "start_y": -82,
+        "end_x": 0,
+        "end_y": 82,
+        "layer": "M-CENTER"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_dim_width",
+      "op": "add_linear_dimension",
+      "args": {
+        "x1": -135,
+        "y1": -110,
+        "x2": 135,
+        "y2": -110,
+        "text_x": 0,
+        "text_y": -132,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_dim_height",
+      "op": "add_linear_dimension",
+      "args": {
+        "x1": -135,
+        "y1": -110,
+        "x2": -135,
+        "y2": 70,
+        "text_x": -158,
+        "text_y": -20,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_dim_bore",
+      "op": "add_diametric_dimension",
+      "args": {
+        "chord1_x": -35,
+        "chord1_y": 0,
+        "chord2_x": 35,
+        "chord2_y": 0,
+        "leader_length": 22,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_label",
+      "op": "draw_text",
+      "args": {
+        "text": "FRONT VIEW",
+        "insert_x": -135,
+        "insert_y": 92,
+        "height": 8,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "front_note",
+      "op": "draw_text",
+      "args": {
+        "text": "4X DIA 14 ON 98 PCD",
+        "insert_x": 72,
+        "insert_y": 58,
+        "height": 4.5,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "top_base",
+      "op": "draw_rectangle",
+      "args": {
+        "x1": -135,
+        "y1": -340,
+        "x2": 135,
+        "y2": -260,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$top_base"
+    },
+    {
+      "step_id": "top_body",
+      "op": "draw_rectangle",
+      "args": {
+        "x1": -60,
+        "y1": -330,
+        "x2": 60,
+        "y2": -270,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "top_flange_left",
+      "op": "draw_line",
+      "args": {
+        "start_x": -45,
+        "start_y": -340,
+        "end_x": -45,
+        "end_y": -260,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "top_flange_right",
+      "op": "draw_line",
+      "args": {
+        "start_x": 45,
+        "start_y": -340,
+        "end_x": 45,
+        "end_y": -260,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "top_hidden_left",
+      "op": "draw_line",
+      "args": {
+        "start_x": -35,
+        "start_y": -330,
+        "end_x": -35,
+        "end_y": -270,
+        "layer": "M-HIDDEN"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "top_hidden_right",
+      "op": "draw_line",
+      "args": {
+        "start_x": 35,
+        "start_y": -330,
+        "end_x": 35,
+        "end_y": -270,
+        "layer": "M-HIDDEN"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "top_axis_v",
+      "op": "draw_line",
+      "args": {
+        "start_x": 0,
+        "start_y": -352,
+        "end_x": 0,
+        "end_y": -248,
+        "layer": "M-CENTER"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_1_top",
+      "op": "draw_line",
+      "args": {
+        "start_x": -112,
+        "start_y": -273,
+        "end_x": -98,
+        "end_y": -273,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_1_bottom",
+      "op": "draw_line",
+      "args": {
+        "start_x": -112,
+        "start_y": -287,
+        "end_x": -98,
+        "end_y": -287,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_1_left",
+      "op": "draw_arc",
+      "args": {
+        "center_x": -112,
+        "center_y": -280,
+        "radius": 7,
+        "start_angle": 90,
+        "end_angle": 270,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_1_right",
+      "op": "draw_arc",
+      "args": {
+        "center_x": -98,
+        "center_y": -280,
+        "radius": 7,
+        "start_angle": -90,
+        "end_angle": 90,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_2_top",
+      "op": "draw_line",
+      "args": {
+        "start_x": -112,
+        "start_y": -313,
+        "end_x": -98,
+        "end_y": -313,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_2_bottom",
+      "op": "draw_line",
+      "args": {
+        "start_x": -112,
+        "start_y": -327,
+        "end_x": -98,
+        "end_y": -327,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_2_left",
+      "op": "draw_arc",
+      "args": {
+        "center_x": -112,
+        "center_y": -320,
+        "radius": 7,
+        "start_angle": 90,
+        "end_angle": 270,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_2_right",
+      "op": "draw_arc",
+      "args": {
+        "center_x": -98,
+        "center_y": -320,
+        "radius": 7,
+        "start_angle": -90,
+        "end_angle": 90,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_3_top",
+      "op": "draw_line",
+      "args": {
+        "start_x": 98,
+        "start_y": -273,
+        "end_x": 112,
+        "end_y": -273,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_3_bottom",
+      "op": "draw_line",
+      "args": {
+        "start_x": 98,
+        "start_y": -287,
+        "end_x": 112,
+        "end_y": -287,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_3_left",
+      "op": "draw_arc",
+      "args": {
+        "center_x": 98,
+        "center_y": -280,
+        "radius": 7,
+        "start_angle": 90,
+        "end_angle": 270,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_3_right",
+      "op": "draw_arc",
+      "args": {
+        "center_x": 112,
+        "center_y": -280,
+        "radius": 7,
+        "start_angle": -90,
+        "end_angle": 90,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_4_top",
+      "op": "draw_line",
+      "args": {
+        "start_x": 98,
+        "start_y": -313,
+        "end_x": 112,
+        "end_y": -313,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_4_bottom",
+      "op": "draw_line",
+      "args": {
+        "start_x": 98,
+        "start_y": -327,
+        "end_x": 112,
+        "end_y": -327,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_4_left",
+      "op": "draw_arc",
+      "args": {
+        "center_x": 98,
+        "center_y": -320,
+        "radius": 7,
+        "start_angle": 90,
+        "end_angle": 270,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "slot_4_right",
+      "op": "draw_arc",
+      "args": {
+        "center_x": 112,
+        "center_y": -320,
+        "radius": 7,
+        "start_angle": -90,
+        "end_angle": 90,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "top_dim_width",
+      "op": "add_linear_dimension",
+      "args": {
+        "x1": -135,
+        "y1": -340,
+        "x2": 135,
+        "y2": -340,
+        "text_x": 0,
+        "text_y": -363,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "top_dim_depth",
+      "op": "add_linear_dimension",
+      "args": {
+        "x1": 135,
+        "y1": -340,
+        "x2": 135,
+        "y2": -260,
+        "text_x": 158,
+        "text_y": -300,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "top_label",
+      "op": "draw_text",
+      "args": {
+        "text": "TOP VIEW",
+        "insert_x": -135,
+        "insert_y": -235,
+        "height": 8,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_line",
+      "op": "draw_line",
+      "args": {
+        "start_x": -150,
+        "start_y": -300,
+        "end_x": 150,
+        "end_y": -300,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_a_left",
+      "op": "draw_text",
+      "args": {
+        "text": "A",
+        "insert_x": -162,
+        "insert_y": -296,
+        "height": 6,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_a_right",
+      "op": "draw_text",
+      "args": {
+        "text": "A",
+        "insert_x": 154,
+        "insert_y": -296,
+        "height": 6,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_base",
+      "op": "draw_rectangle",
+      "args": {
+        "x1": 225,
+        "y1": -110,
+        "x2": 495,
+        "y2": -90,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$section_base"
+    },
+    {
+      "step_id": "section_left_rib",
+      "op": "draw_polyline",
+      "args": {
+        "points": [
+          278,
+          -90,
+          305,
+          -52,
+          330,
+          -52,
+          314,
+          -90
+        ],
+        "closed": true,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_right_rib",
+      "op": "draw_polyline",
+      "args": {
+        "points": [
+          442,
+          -90,
+          415,
+          -52,
+          390,
+          -52,
+          406,
+          -90
+        ],
+        "closed": true,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_top_boundary",
+      "op": "draw_polyline",
+      "args": {
+        "points": [
+          290,
+          18,
+          320,
+          18,
+          320,
+          28,
+          400,
+          28,
+          400,
+          18,
+          430,
+          18,
+          430,
+          70,
+          290,
+          70
+        ],
+        "closed": true,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$section_top_boundary"
+    },
+    {
+      "step_id": "section_bottom_boundary",
+      "op": "draw_polyline",
+      "args": {
+        "points": [
+          290,
+          -18,
+          320,
+          -18,
+          320,
+          -28,
+          400,
+          -28,
+          400,
+          -18,
+          430,
+          -18,
+          430,
+          -80,
+          290,
+          -80
+        ],
+        "closed": true,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$section_bottom_boundary"
+    },
+    {
+      "step_id": "section_left_flange",
+      "op": "draw_rectangle",
+      "args": {
+        "x1": 275,
+        "y1": -45,
+        "x2": 290,
+        "y2": 45,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_right_flange",
+      "op": "draw_rectangle",
+      "args": {
+        "x1": 430,
+        "y1": -45,
+        "x2": 445,
+        "y2": 45,
+        "layer": "M-OUTLINE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_axis",
+      "op": "draw_line",
+      "args": {
+        "start_x": 258,
+        "start_y": 0,
+        "end_x": 462,
+        "end_y": 0,
+        "layer": "M-CENTER"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_hatch_top",
+      "op": "add_hatch",
+      "args": {
+        "pattern_name": "ANSI31",
+        "associativity": true,
+        "layer": "M-HATCH"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$section_hatch_top"
+    },
+    {
+      "step_id": "section_hatch_top_boundary",
+      "op": "hatch_add_boundary",
+      "args": {
+        "handle": "$section_hatch_top",
+        "boundary_handles": [
+          "$section_top_boundary"
+        ]
+      },
+      "writes": true,
+      "depends_on": [
+        "section_top_boundary",
+        "section_hatch_top"
+      ]
+    },
+    {
+      "step_id": "section_hatch_bottom",
+      "op": "add_hatch",
+      "args": {
+        "pattern_name": "ANSI31",
+        "associativity": true,
+        "layer": "M-HATCH"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$section_hatch_bottom"
+    },
+    {
+      "step_id": "section_hatch_bottom_boundary",
+      "op": "hatch_add_boundary",
+      "args": {
+        "handle": "$section_hatch_bottom",
+        "boundary_handles": [
+          "$section_bottom_boundary"
+        ]
+      },
+      "writes": true,
+      "depends_on": [
+        "section_bottom_boundary",
+        "section_hatch_bottom"
+      ]
+    },
+    {
+      "step_id": "section_dim_length",
+      "op": "add_linear_dimension",
+      "args": {
+        "x1": 275,
+        "y1": 70,
+        "x2": 445,
+        "y2": 70,
+        "text_x": 360,
+        "text_y": 96,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_dim_height",
+      "op": "add_linear_dimension",
+      "args": {
+        "x1": 495,
+        "y1": -110,
+        "x2": 495,
+        "y2": 70,
+        "text_x": 520,
+        "text_y": -20,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_dim_bore",
+      "op": "add_linear_dimension",
+      "args": {
+        "x1": 360,
+        "y1": -18,
+        "x2": 360,
+        "y2": 18,
+        "text_x": 458,
+        "text_y": 0,
+        "layer": "M-DIM"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_label",
+      "op": "draw_text",
+      "args": {
+        "text": "RIGHT SECTION A-A",
+        "insert_x": 225,
+        "insert_y": 118,
+        "height": 8,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "section_note",
+      "op": "draw_text",
+      "args": {
+        "text": "STEPPED BEARING SEAT / ANSI31 SECTION",
+        "insert_x": 300,
+        "insert_y": -130,
+        "height": 4.5,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_outer",
+      "op": "draw_rectangle",
+      "args": {
+        "x1": 225,
+        "y1": -350,
+        "x2": 520,
+        "y2": -225,
+        "layer": "M-TITLE"
+      },
+      "writes": true,
+      "depends_on": [],
+      "save_as": "$title_outer"
+    },
+    {
+      "step_id": "title_grid_1",
+      "op": "draw_line",
+      "args": {
+        "start_x": 225,
+        "start_y": -250,
+        "end_x": 520,
+        "end_y": -250,
+        "layer": "M-TITLE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_grid_2",
+      "op": "draw_line",
+      "args": {
+        "start_x": 225,
+        "start_y": -290,
+        "end_x": 520,
+        "end_y": -290,
+        "layer": "M-TITLE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_grid_3",
+      "op": "draw_line",
+      "args": {
+        "start_x": 225,
+        "start_y": -320,
+        "end_x": 520,
+        "end_y": -320,
+        "layer": "M-TITLE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_grid_4",
+      "op": "draw_line",
+      "args": {
+        "start_x": 410,
+        "start_y": -250,
+        "end_x": 410,
+        "end_y": -350,
+        "layer": "M-TITLE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_grid_5",
+      "op": "draw_line",
+      "args": {
+        "start_x": 465,
+        "start_y": -250,
+        "end_x": 465,
+        "end_y": -320,
+        "layer": "M-TITLE"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_1",
+      "op": "draw_text",
+      "args": {
+        "text": "REAL AUTOCAD MODEL-SPACE EXPORT",
+        "insert_x": 234,
+        "insert_y": -243,
+        "height": 7,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_2",
+      "op": "draw_text",
+      "args": {
+        "text": "FLANGED BEARING HOUSING",
+        "insert_x": 234,
+        "insert_y": -276,
+        "height": 8,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_3",
+      "op": "draw_text",
+      "args": {
+        "text": "DRAWING",
+        "insert_x": 417,
+        "insert_y": -263,
+        "height": 3.5,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_4",
+      "op": "draw_text",
+      "args": {
+        "text": "MCP-REAL-001",
+        "insert_x": 417,
+        "insert_y": -281,
+        "height": 5,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_5",
+      "op": "draw_text",
+      "args": {
+        "text": "REV",
+        "insert_x": 472,
+        "insert_y": -263,
+        "height": 3.5,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_6",
+      "op": "draw_text",
+      "args": {
+        "text": "A",
+        "insert_x": 472,
+        "insert_y": -281,
+        "height": 6,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_7",
+      "op": "draw_text",
+      "args": {
+        "text": "MATERIAL: QT500-7",
+        "insert_x": 234,
+        "insert_y": -308,
+        "height": 5,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_8",
+      "op": "draw_text",
+      "args": {
+        "text": "SCALE 1:1",
+        "insert_x": 417,
+        "insert_y": -308,
+        "height": 5,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_9",
+      "op": "draw_text",
+      "args": {
+        "text": "UNITS mm",
+        "insert_x": 472,
+        "insert_y": -308,
+        "height": 5,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_10",
+      "op": "draw_text",
+      "args": {
+        "text": "CREATED BY VALIDATED + DRY-RUN CADPLAN",
+        "insert_x": 234,
+        "insert_y": -339,
+        "height": 4.5,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    },
+    {
+      "step_id": "title_text_11",
+      "op": "draw_text",
+      "args": {
+        "text": "best-cad-mcp",
+        "insert_x": 417,
+        "insert_y": -339,
+        "height": 5,
+        "layer": "M-TEXT"
+      },
+      "writes": true,
+      "depends_on": []
+    }
+  ],
+  "constraints": [
+    {
+      "type": "concentric",
+      "handles": [
+        "$front_flange_outer",
+        "$front_bore"
+      ]
+    },
+    {
+      "type": "symmetric",
+      "description": "Front bolt pattern and ribs are symmetric about both center axes."
+    },
+    {
+      "type": "aligned_views",
+      "description": "Front and top views share the same X datum; section A-A follows the indicated axis."
+    }
+  ]
+}

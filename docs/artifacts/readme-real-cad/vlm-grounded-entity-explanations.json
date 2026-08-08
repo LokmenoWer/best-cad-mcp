@@ -1,0 +1,1587 @@
+{
+  "115": {
+    "is_error": false,
+    "structured_content": {
+      "result": {
+        "ok": true,
+        "message": "Explained entity 115.",
+        "data": {
+          "entity": {
+            "handle": "115",
+            "name": "Polyline",
+            "type": "AcDbPolyline",
+            "layer": "M-OUTLINE",
+            "color": 256,
+            "linetype": "ByLayer",
+            "linetype_scale": 1.0,
+            "lineweight": -1.0,
+            "visible": 1,
+            "bbox_min_x": -135.0,
+            "bbox_min_y": -340.0,
+            "bbox_max_x": 135.0,
+            "bbox_max_y": -260.0,
+            "properties": {},
+            "geometry": {
+              "length": 700.0,
+              "closed": true,
+              "vertices": [
+                [
+                  -135.0,
+                  -340.0,
+                  0.0
+                ],
+                [
+                  135.0,
+                  -340.0,
+                  0.0
+                ],
+                [
+                  135.0,
+                  -260.0,
+                  0.0
+                ],
+                [
+                  -135.0,
+                  -260.0,
+                  0.0
+                ]
+              ],
+              "vertices_coordinate_system": "WCS",
+              "normal": [
+                0.0,
+                0.0,
+                1.0
+              ],
+              "elevation": 0.0,
+              "bulges": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "scanned_at": "2026-08-08 03:28:36",
+            "native_handle": "115",
+            "bbox": {
+              "min": [
+                -135.0,
+                -340.0
+              ],
+              "max": [
+                135.0,
+                -260.0
+              ],
+              "center": [
+                0.0,
+                -300.0
+              ],
+              "width": 270.0,
+              "height": 80.0
+            }
+          },
+          "topology": {
+            "summary": {
+              "entity_handle": "115",
+              "dimensionality": 2,
+              "point_count": 4,
+              "line_count": 4,
+              "curve_count": 0,
+              "surface_count": 1,
+              "solid_count": 0,
+              "is_closed": 1,
+              "length": 700.0,
+              "area": 21600.0,
+              "summary": "AcDbPolyline: 4 points, 4 lines, 0 curves, 1 surfaces, 0 solids",
+              "updated_at": "2026-08-08 03:28:36"
+            },
+            "primitives": [],
+            "relations": []
+          },
+          "nearby_entities": [
+            {
+              "handle": "116",
+              "entity_type": "AcDbPolyline",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -60.0,
+                  -330.0
+                ],
+                "max": [
+                  60.0,
+                  -270.0
+                ],
+                "center": [
+                  0.0,
+                  -300.0
+                ],
+                "width": 120.0,
+                "height": 60.0
+              }
+            },
+            {
+              "handle": "11B",
+              "entity_type": "AcDbLine",
+              "layer": "M-CENTER",
+              "bbox": {
+                "min": [
+                  0.0,
+                  -352.0
+                ],
+                "max": [
+                  0.0,
+                  -248.0
+                ],
+                "center": [
+                  0.0,
+                  -300.0
+                ],
+                "width": 0.0,
+                "height": 104.0
+              }
+            },
+            {
+              "handle": "191",
+              "entity_type": "AcDbLine",
+              "layer": "M-DIM",
+              "bbox": {
+                "min": [
+                  -150.0,
+                  -300.0
+                ],
+                "max": [
+                  150.0,
+                  -300.0
+                ],
+                "center": [
+                  0.0,
+                  -300.0
+                ],
+                "width": 300.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "119",
+              "entity_type": "AcDbLine",
+              "layer": "M-HIDDEN",
+              "bbox": {
+                "min": [
+                  -35.0,
+                  -330.0
+                ],
+                "max": [
+                  -35.0,
+                  -270.0
+                ],
+                "center": [
+                  -35.0,
+                  -300.0
+                ],
+                "width": 0.0,
+                "height": 60.0
+              }
+            },
+            {
+              "handle": "11A",
+              "entity_type": "AcDbLine",
+              "layer": "M-HIDDEN",
+              "bbox": {
+                "min": [
+                  35.0,
+                  -330.0
+                ],
+                "max": [
+                  35.0,
+                  -270.0
+                ],
+                "center": [
+                  35.0,
+                  -300.0
+                ],
+                "width": 0.0,
+                "height": 60.0
+              }
+            },
+            {
+              "handle": "117",
+              "entity_type": "AcDbLine",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -45.0,
+                  -340.0
+                ],
+                "max": [
+                  -45.0,
+                  -260.0
+                ],
+                "center": [
+                  -45.0,
+                  -300.0
+                ],
+                "width": 0.0,
+                "height": 80.0
+              }
+            },
+            {
+              "handle": "118",
+              "entity_type": "AcDbLine",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  45.0,
+                  -340.0
+                ],
+                "max": [
+                  45.0,
+                  -260.0
+                ],
+                "center": [
+                  45.0,
+                  -300.0
+                ],
+                "width": 0.0,
+                "height": 80.0
+              }
+            },
+            {
+              "handle": "12C",
+              "entity_type": "AcDbAlignedDimension",
+              "layer": "M-DIM",
+              "bbox": {
+                "min": [
+                  -135.0,
+                  -364.25
+                ],
+                "max": [
+                  135.0,
+                  -340.0
+                ],
+                "center": [
+                  0.0,
+                  -352.125
+                ],
+                "width": 270.0,
+                "height": 24.25
+              }
+            },
+            {
+              "handle": "11F",
+              "entity_type": "AcDbArc",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -98.0,
+                  -287.0
+                ],
+                "max": [
+                  -91.0,
+                  -273.0
+                ],
+                "center": [
+                  -94.5,
+                  -280.0
+                ],
+                "width": 7.0,
+                "height": 14.0
+              }
+            },
+            {
+              "handle": "123",
+              "entity_type": "AcDbArc",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -98.0,
+                  -327.0
+                ],
+                "max": [
+                  -91.0,
+                  -313.0
+                ],
+                "center": [
+                  -94.5,
+                  -320.0
+                ],
+                "width": 7.0,
+                "height": 14.0
+              }
+            },
+            {
+              "handle": "126",
+              "entity_type": "AcDbArc",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  91.0,
+                  -287.0
+                ],
+                "max": [
+                  98.0,
+                  -273.0
+                ],
+                "center": [
+                  94.5,
+                  -280.0
+                ],
+                "width": 7.0,
+                "height": 14.0
+              }
+            },
+            {
+              "handle": "12A",
+              "entity_type": "AcDbArc",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  91.0,
+                  -327.0
+                ],
+                "max": [
+                  98.0,
+                  -313.0
+                ],
+                "center": [
+                  94.5,
+                  -320.0
+                ],
+                "width": 7.0,
+                "height": 14.0
+              }
+            },
+            {
+              "handle": "11D",
+              "entity_type": "AcDbLine",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -112.0,
+                  -287.0
+                ],
+                "max": [
+                  -98.0,
+                  -287.0
+                ],
+                "center": [
+                  -105.0,
+                  -287.0
+                ],
+                "width": 14.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "120",
+              "entity_type": "AcDbLine",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -112.0,
+                  -313.0
+                ],
+                "max": [
+                  -98.0,
+                  -313.0
+                ],
+                "center": [
+                  -105.0,
+                  -313.0
+                ],
+                "width": 14.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "125",
+              "entity_type": "AcDbLine",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  98.0,
+                  -287.0
+                ],
+                "max": [
+                  112.0,
+                  -287.0
+                ],
+                "center": [
+                  105.0,
+                  -287.0
+                ],
+                "width": 14.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "128",
+              "entity_type": "AcDbLine",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  98.0,
+                  -313.0
+                ],
+                "max": [
+                  112.0,
+                  -313.0
+                ],
+                "center": [
+                  105.0,
+                  -313.0
+                ],
+                "width": 14.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "11C",
+              "entity_type": "AcDbLine",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -112.0,
+                  -273.0
+                ],
+                "max": [
+                  -98.0,
+                  -273.0
+                ],
+                "center": [
+                  -105.0,
+                  -273.0
+                ],
+                "width": 14.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "121",
+              "entity_type": "AcDbLine",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -112.0,
+                  -327.0
+                ],
+                "max": [
+                  -98.0,
+                  -327.0
+                ],
+                "center": [
+                  -105.0,
+                  -327.0
+                ],
+                "width": 14.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "124",
+              "entity_type": "AcDbLine",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  98.0,
+                  -273.0
+                ],
+                "max": [
+                  112.0,
+                  -273.0
+                ],
+                "center": [
+                  105.0,
+                  -273.0
+                ],
+                "width": 14.0,
+                "height": 0.0
+              }
+            }
+          ],
+          "related_annotations": [],
+          "related_dimensions": [
+            {
+              "handle": "12C",
+              "entity_type": null,
+              "layer": "M-DIM",
+              "bbox": {
+                "min": null,
+                "max": null,
+                "center": null,
+                "width": null,
+                "height": null
+              }
+            }
+          ],
+          "semantic_guess": {
+            "object_type": "closed_profile",
+            "label": "closed profile",
+            "confidence": 0.7,
+            "evidence": [
+              "polyline",
+              "closed=True"
+            ]
+          }
+        },
+        "handles": [
+          "115",
+          "116",
+          "11B",
+          "191",
+          "119",
+          "11A",
+          "117",
+          "118",
+          "12C",
+          "11F",
+          "123",
+          "126",
+          "12A",
+          "11D",
+          "120",
+          "125",
+          "128",
+          "11C",
+          "121",
+          "124"
+        ],
+        "warnings": [],
+        "next_tools": [
+          "find_entities_by_description",
+          "detect_semantic_objects",
+          "validate_geometry"
+        ]
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"ok\": true,\n  \"message\": \"Explained entity 115.\",\n  \"data\": {\n    \"entity\": {\n      \"handle\": \"115\",\n      \"name\": \"Polyline\",\n      \"type\": \"AcDbPolyline\",\n      \"layer\": \"M-OUTLINE\",\n      \"color\": 256,\n      \"linetype\": \"ByLayer\",\n      \"linetype_scale\": 1.0,\n      \"lineweight\": -1.0,\n      \"visible\": 1,\n      \"bbox_min_x\": -135.0,\n      \"bbox_min_y\": -340.0,\n      \"bbox_max_x\": 135.0,\n      \"bbox_max_y\": -260.0,\n      \"properties\": {},\n      \"geometry\": {\n        \"length\": 700.0,\n        \"closed\": true,\n        \"vertices\": [\n          [\n            -135.0,\n            -340.0,\n            0.0\n          ],\n          [\n            135.0,\n            -340.0,\n            0.0\n          ],\n          [\n            135.0,\n            -260.0,\n            0.0\n          ],\n          [\n            -135.0,\n            -260.0,\n            0.0\n          ]\n        ],\n        \"vertices_coordinate_system\": \"WCS\",\n        \"normal\": [\n          0.0,\n          0.0,\n          1.0\n        ],\n        \"elevation\": 0.0,\n        \"bulges\": [\n          0.0,\n          0.0,\n          0.0,\n          0.0\n        ]\n      },\n      \"scanned_at\": \"2026-08-08 03:28:36\",\n      \"native_handle\": \"115\",\n      \"bbox\": {\n        \"min\": [\n          -135.0,\n          -340.0\n        ],\n        \"max\": [\n          135.0,\n          -260.0\n        ],\n        \"center\": [\n          0.0,\n          -300.0\n        ],\n        \"width\": 270.0,\n        \"height\": 80.0\n      }\n    },\n    \"topology\": {\n      \"summary\": {\n        \"entity_handle\": \"115\",\n        \"dimensionality\": 2,\n        \"point_count\": 4,\n        \"line_count\": 4,\n        \"curve_count\": 0,\n        \"surface_count\": 1,\n        \"solid_count\": 0,\n        \"is_closed\": 1,\n        \"length\": 700.0,\n        \"area\": 21600.0,\n        \"summary\": \"AcDbPolyline: 4 points, 4 lines, 0 curves, 1 surfaces, 0 solids\",\n        \"updated_at\": \"2026-08-08 03:28:36\"\n      },\n      \"primitives\": [],\n      \"relations\": []\n    },\n    \"nearby_entities\": [\n      {\n        \"handle\": \"116\",\n        \"entity_type\": \"AcDbPolyline\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -60.0,\n            -330.0\n          ],\n          \"max\": [\n            60.0,\n            -270.0\n          ],\n          \"center\": [\n            0.0,\n            -300.0\n          ],\n          \"width\": 120.0,\n          \"height\": 60.0\n        }\n      },\n      {\n        \"handle\": \"11B\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-CENTER\",\n        \"bbox\": {\n          \"min\": [\n            0.0,\n            -352.0\n          ],\n          \"max\": [\n            0.0,\n            -248.0\n          ],\n          \"center\": [\n            0.0,\n            -300.0\n          ],\n          \"width\": 0.0,\n          \"height\": 104.0\n        }\n      },\n      {\n        \"handle\": \"191\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-DIM\",\n        \"bbox\": {\n          \"min\": [\n            -150.0,\n            -300.0\n          ],\n          \"max\": [\n            150.0,\n            -300.0\n          ],\n          \"center\": [\n            0.0,\n            -300.0\n          ],\n          \"width\": 300.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"119\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-HIDDEN\",\n        \"bbox\": {\n          \"min\": [\n            -35.0,\n            -330.0\n          ],\n          \"max\": [\n            -35.0,\n            -270.0\n          ],\n          \"center\": [\n            -35.0,\n            -300.0\n          ],\n          \"width\": 0.0,\n          \"height\": 60.0\n        }\n      },\n      {\n        \"handle\": \"11A\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-HIDDEN\",\n        \"bbox\": {\n          \"min\": [\n            35.0,\n            -330.0\n          ],\n          \"max\": [\n            35.0,\n            -270.0\n          ],\n          \"center\": [\n            35.0,\n            -300.0\n          ],\n          \"width\": 0.0,\n          \"height\": 60.0\n        }\n      },\n      {\n        \"handle\": \"117\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -45.0,\n            -340.0\n          ],\n          \"max\": [\n            -45.0,\n            -260.0\n          ],\n          \"center\": [\n            -45.0,\n            -300.0\n          ],\n          \"width\": 0.0,\n          \"height\": 80.0\n        }\n      },\n      {\n        \"handle\": \"118\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            45.0,\n            -340.0\n          ],\n          \"max\": [\n            45.0,\n            -260.0\n          ],\n          \"center\": [\n            45.0,\n            -300.0\n          ],\n          \"width\": 0.0,\n          \"height\": 80.0\n        }\n      },\n      {\n        \"handle\": \"12C\",\n        \"entity_type\": \"AcDbAlignedDimension\",\n        \"layer\": \"M-DIM\",\n        \"bbox\": {\n          \"min\": [\n            -135.0,\n            -364.25\n          ],\n          \"max\": [\n            135.0,\n            -340.0\n          ],\n          \"center\": [\n            0.0,\n            -352.125\n          ],\n          \"width\": 270.0,\n          \"height\": 24.25\n        }\n      },\n      {\n        \"handle\": \"11F\",\n        \"entity_type\": \"AcDbArc\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -98.0,\n            -287.0\n          ],\n          \"max\": [\n            -91.0,\n            -273.0\n          ],\n          \"center\": [\n            -94.5,\n            -280.0\n          ],\n          \"width\": 7.0,\n          \"height\": 14.0\n        }\n      },\n      {\n        \"handle\": \"123\",\n        \"entity_type\": \"AcDbArc\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -98.0,\n            -327.0\n          ],\n          \"max\": [\n            -91.0,\n            -313.0\n          ],\n          \"center\": [\n            -94.5,\n            -320.0\n          ],\n          \"width\": 7.0,\n          \"height\": 14.0\n        }\n      },\n      {\n        \"handle\": \"126\",\n        \"entity_type\": \"AcDbArc\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            91.0,\n            -287.0\n          ],\n          \"max\": [\n            98.0,\n            -273.0\n          ],\n          \"center\": [\n            94.5,\n            -280.0\n          ],\n          \"width\": 7.0,\n          \"height\": 14.0\n        }\n      },\n      {\n        \"handle\": \"12A\",\n        \"entity_type\": \"AcDbArc\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            91.0,\n            -327.0\n          ],\n          \"max\": [\n            98.0,\n            -313.0\n          ],\n          \"center\": [\n            94.5,\n            -320.0\n          ],\n          \"width\": 7.0,\n          \"height\": 14.0\n        }\n      },\n      {\n        \"handle\": \"11D\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -112.0,\n            -287.0\n          ],\n          \"max\": [\n            -98.0,\n            -287.0\n          ],\n          \"center\": [\n            -105.0,\n            -287.0\n          ],\n          \"width\": 14.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"120\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -112.0,\n            -313.0\n          ],\n          \"max\": [\n            -98.0,\n            -313.0\n          ],\n          \"center\": [\n            -105.0,\n            -313.0\n          ],\n          \"width\": 14.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"125\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            98.0,\n            -287.0\n          ],\n          \"max\": [\n            112.0,\n            -287.0\n          ],\n          \"center\": [\n            105.0,\n            -287.0\n          ],\n          \"width\": 14.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"128\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            98.0,\n            -313.0\n          ],\n          \"max\": [\n            112.0,\n            -313.0\n          ],\n          \"center\": [\n            105.0,\n            -313.0\n          ],\n          \"width\": 14.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"11C\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -112.0,\n            -273.0\n          ],\n          \"max\": [\n            -98.0,\n            -273.0\n          ],\n          \"center\": [\n            -105.0,\n            -273.0\n          ],\n          \"width\": 14.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"121\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -112.0,\n            -327.0\n          ],\n          \"max\": [\n            -98.0,\n            -327.0\n          ],\n          \"center\": [\n            -105.0,\n            -327.0\n          ],\n          \"width\": 14.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"124\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            98.0,\n            -273.0\n          ],\n          \"max\": [\n            112.0,\n            -273.0\n          ],\n          \"center\": [\n            105.0,\n            -273.0\n          ],\n          \"width\": 14.0,\n          \"height\": 0.0\n        }\n      }\n    ],\n    \"related_annotations\": [],\n    \"related_dimensions\": [\n      {\n        \"handle\": \"12C\",\n        \"entity_type\": null,\n        \"layer\": \"M-DIM\",\n        \"bbox\": {\n          \"min\": null,\n          \"max\": null,\n          \"center\": null,\n          \"width\": null,\n          \"height\": null\n        }\n      }\n    ],\n    \"semantic_guess\": {\n      \"object_type\": \"closed_profile\",\n      \"label\": \"closed profile\",\n      \"confidence\": 0.7,\n      \"evidence\": [\n        \"polyline\",\n        \"closed=True\"\n      ]\n    }\n  },\n  \"handles\": [\n    \"115\",\n    \"116\",\n    \"11B\",\n    \"191\",\n    \"119\",\n    \"11A\",\n    \"117\",\n    \"118\",\n    \"12C\",\n    \"11F\",\n    \"123\",\n    \"126\",\n    \"12A\",\n    \"11D\",\n    \"120\",\n    \"125\",\n    \"128\",\n    \"11C\",\n    \"121\",\n    \"124\"\n  ],\n  \"warnings\": [],\n  \"next_tools\": [\n    \"find_entities_by_description\",\n    \"detect_semantic_objects\",\n    \"validate_geometry\"\n  ]\n}"
+      }
+    ]
+  },
+  "236": {
+    "is_error": false,
+    "structured_content": {
+      "result": {
+        "ok": true,
+        "message": "Explained entity 236.",
+        "data": {
+          "entity": {
+            "handle": "236",
+            "name": "Polyline",
+            "type": "AcDbPolyline",
+            "layer": "M-TITLE",
+            "color": 256,
+            "linetype": "ByLayer",
+            "linetype_scale": 1.0,
+            "lineweight": -1.0,
+            "visible": 1,
+            "bbox_min_x": 225.0,
+            "bbox_min_y": -350.0,
+            "bbox_max_x": 520.0,
+            "bbox_max_y": -225.0,
+            "properties": {},
+            "geometry": {
+              "length": 840.0,
+              "closed": true,
+              "vertices": [
+                [
+                  225.0,
+                  -350.0,
+                  0.0
+                ],
+                [
+                  520.0,
+                  -350.0,
+                  0.0
+                ],
+                [
+                  520.0,
+                  -225.0,
+                  0.0
+                ],
+                [
+                  225.0,
+                  -225.0,
+                  0.0
+                ]
+              ],
+              "vertices_coordinate_system": "WCS",
+              "normal": [
+                0.0,
+                0.0,
+                1.0
+              ],
+              "elevation": 0.0,
+              "bulges": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "scanned_at": "2026-08-08 03:28:36",
+            "native_handle": "236",
+            "bbox": {
+              "min": [
+                225.0,
+                -350.0
+              ],
+              "max": [
+                520.0,
+                -225.0
+              ],
+              "center": [
+                372.5,
+                -287.5
+              ],
+              "width": 295.0,
+              "height": 125.0
+            }
+          },
+          "topology": {
+            "summary": {
+              "entity_handle": "236",
+              "dimensionality": 2,
+              "point_count": 4,
+              "line_count": 4,
+              "curve_count": 0,
+              "surface_count": 1,
+              "solid_count": 0,
+              "is_closed": 1,
+              "length": 840.0,
+              "area": 36875.0,
+              "summary": "AcDbPolyline: 4 points, 4 lines, 0 curves, 1 surfaces, 0 solids",
+              "updated_at": "2026-08-08 03:28:36"
+            },
+            "primitives": [],
+            "relations": []
+          },
+          "nearby_entities": [
+            {
+              "handle": "238",
+              "entity_type": "AcDbLine",
+              "layer": "M-TITLE",
+              "bbox": {
+                "min": [
+                  225.0,
+                  -290.0
+                ],
+                "max": [
+                  520.0,
+                  -290.0
+                ],
+                "center": [
+                  372.5,
+                  -290.0
+                ],
+                "width": 295.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "239",
+              "entity_type": "AcDbLine",
+              "layer": "M-TITLE",
+              "bbox": {
+                "min": [
+                  225.0,
+                  -320.0
+                ],
+                "max": [
+                  520.0,
+                  -320.0
+                ],
+                "center": [
+                  372.5,
+                  -320.0
+                ],
+                "width": 295.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "237",
+              "entity_type": "AcDbLine",
+              "layer": "M-TITLE",
+              "bbox": {
+                "min": [
+                  225.0,
+                  -250.0
+                ],
+                "max": [
+                  520.0,
+                  -250.0
+                ],
+                "center": [
+                  372.5,
+                  -250.0
+                ],
+                "width": 295.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "23A",
+              "entity_type": "AcDbLine",
+              "layer": "M-TITLE",
+              "bbox": {
+                "min": [
+                  410.0,
+                  -350.0
+                ],
+                "max": [
+                  410.0,
+                  -250.0
+                ],
+                "center": [
+                  410.0,
+                  -300.0
+                ],
+                "width": 0.0,
+                "height": 100.0
+              }
+            },
+            {
+              "handle": "23D",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  234.0,
+                  -276.0
+                ],
+                "max": [
+                  410.0,
+                  -268.0
+                ],
+                "center": [
+                  322.0,
+                  -272.0
+                ],
+                "width": 176.0,
+                "height": 8.0
+              }
+            },
+            {
+              "handle": "23C",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  234.0,
+                  -243.0
+                ],
+                "max": [
+                  448.666666667,
+                  -236.0
+                ],
+                "center": [
+                  341.33333333350004,
+                  -239.5
+                ],
+                "width": 214.66666666700002,
+                "height": 7.0
+              }
+            },
+            {
+              "handle": "23E",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  417.0,
+                  -263.0
+                ],
+                "max": [
+                  440.333333333,
+                  -259.5
+                ],
+                "center": [
+                  428.66666666649996,
+                  -261.25
+                ],
+                "width": 23.333333332999985,
+                "height": 3.5
+              }
+            },
+            {
+              "handle": "243",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  417.0,
+                  -308.0
+                ],
+                "max": [
+                  453.666666667,
+                  -303.0
+                ],
+                "center": [
+                  435.33333333350004,
+                  -305.5
+                ],
+                "width": 36.666666667000015,
+                "height": 5.0
+              }
+            },
+            {
+              "handle": "23F",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  417.0,
+                  -281.0
+                ],
+                "max": [
+                  472.0,
+                  -276.0
+                ],
+                "center": [
+                  444.5,
+                  -278.5
+                ],
+                "width": 55.0,
+                "height": 5.0
+              }
+            },
+            {
+              "handle": "245",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  234.0,
+                  -339.0
+                ],
+                "max": [
+                  403.5,
+                  -334.5
+                ],
+                "center": [
+                  318.75,
+                  -336.75
+                ],
+                "width": 169.5,
+                "height": 4.5
+              }
+            },
+            {
+              "handle": "246",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  417.0,
+                  -340.666666667
+                ],
+                "max": [
+                  475.333333333,
+                  -334.0
+                ],
+                "center": [
+                  446.16666666649996,
+                  -337.33333333350004
+                ],
+                "width": 58.333333332999985,
+                "height": 6.666666667000015
+              }
+            },
+            {
+              "handle": "23B",
+              "entity_type": "AcDbLine",
+              "layer": "M-TITLE",
+              "bbox": {
+                "min": [
+                  465.0,
+                  -320.0
+                ],
+                "max": [
+                  465.0,
+                  -250.0
+                ],
+                "center": [
+                  465.0,
+                  -285.0
+                ],
+                "width": 0.0,
+                "height": 70.0
+              }
+            },
+            {
+              "handle": "242",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  234.0,
+                  -308.0
+                ],
+                "max": [
+                  310.666666667,
+                  -303.0
+                ],
+                "center": [
+                  272.33333333350004,
+                  -305.5
+                ],
+                "width": 76.66666666700002,
+                "height": 5.0
+              }
+            },
+            {
+              "handle": "241",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  472.0,
+                  -281.0
+                ],
+                "max": [
+                  476.0,
+                  -275.0
+                ],
+                "center": [
+                  474.0,
+                  -278.0
+                ],
+                "width": 4.0,
+                "height": 6.0
+              }
+            },
+            {
+              "handle": "240",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  472.0,
+                  -263.0
+                ],
+                "max": [
+                  482.5,
+                  -259.5
+                ],
+                "center": [
+                  477.25,
+                  -261.25
+                ],
+                "width": 10.5,
+                "height": 3.5
+              }
+            },
+            {
+              "handle": "244",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  472.0,
+                  -308.0
+                ],
+                "max": [
+                  508.666666667,
+                  -303.0
+                ],
+                "center": [
+                  490.33333333350004,
+                  -305.5
+                ],
+                "width": 36.666666667000015,
+                "height": 5.0
+              }
+            },
+            {
+              "handle": "235",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  300.0,
+                  -130.0
+                ],
+                "max": [
+                  459.0,
+                  -125.5
+                ],
+                "center": [
+                  379.5,
+                  -127.75
+                ],
+                "width": 159.0,
+                "height": 4.5
+              }
+            },
+            {
+              "handle": "194",
+              "entity_type": "AcDbPolyline",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  225.0,
+                  -110.0
+                ],
+                "max": [
+                  495.0,
+                  -90.0
+                ],
+                "center": [
+                  360.0,
+                  -100.0
+                ],
+                "width": 270.0,
+                "height": 20.0
+              }
+            },
+            {
+              "handle": "193",
+              "entity_type": "AcDbText",
+              "layer": "M-DIM",
+              "bbox": {
+                "min": [
+                  154.0,
+                  -296.0
+                ],
+                "max": [
+                  158.0,
+                  -290.0
+                ],
+                "center": [
+                  156.0,
+                  -293.0
+                ],
+                "width": 4.0,
+                "height": 6.0
+              }
+            }
+          ],
+          "related_annotations": [],
+          "related_dimensions": [],
+          "semantic_guess": {
+            "object_type": "closed_profile",
+            "label": "closed profile",
+            "confidence": 0.7,
+            "evidence": [
+              "polyline",
+              "closed=True"
+            ]
+          }
+        },
+        "handles": [
+          "236",
+          "238",
+          "239",
+          "237",
+          "23A",
+          "23D",
+          "23C",
+          "23E",
+          "243",
+          "23F",
+          "245",
+          "246",
+          "23B",
+          "242",
+          "241",
+          "240",
+          "244",
+          "235",
+          "194",
+          "193"
+        ],
+        "warnings": [],
+        "next_tools": [
+          "find_entities_by_description",
+          "detect_semantic_objects",
+          "validate_geometry"
+        ]
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"ok\": true,\n  \"message\": \"Explained entity 236.\",\n  \"data\": {\n    \"entity\": {\n      \"handle\": \"236\",\n      \"name\": \"Polyline\",\n      \"type\": \"AcDbPolyline\",\n      \"layer\": \"M-TITLE\",\n      \"color\": 256,\n      \"linetype\": \"ByLayer\",\n      \"linetype_scale\": 1.0,\n      \"lineweight\": -1.0,\n      \"visible\": 1,\n      \"bbox_min_x\": 225.0,\n      \"bbox_min_y\": -350.0,\n      \"bbox_max_x\": 520.0,\n      \"bbox_max_y\": -225.0,\n      \"properties\": {},\n      \"geometry\": {\n        \"length\": 840.0,\n        \"closed\": true,\n        \"vertices\": [\n          [\n            225.0,\n            -350.0,\n            0.0\n          ],\n          [\n            520.0,\n            -350.0,\n            0.0\n          ],\n          [\n            520.0,\n            -225.0,\n            0.0\n          ],\n          [\n            225.0,\n            -225.0,\n            0.0\n          ]\n        ],\n        \"vertices_coordinate_system\": \"WCS\",\n        \"normal\": [\n          0.0,\n          0.0,\n          1.0\n        ],\n        \"elevation\": 0.0,\n        \"bulges\": [\n          0.0,\n          0.0,\n          0.0,\n          0.0\n        ]\n      },\n      \"scanned_at\": \"2026-08-08 03:28:36\",\n      \"native_handle\": \"236\",\n      \"bbox\": {\n        \"min\": [\n          225.0,\n          -350.0\n        ],\n        \"max\": [\n          520.0,\n          -225.0\n        ],\n        \"center\": [\n          372.5,\n          -287.5\n        ],\n        \"width\": 295.0,\n        \"height\": 125.0\n      }\n    },\n    \"topology\": {\n      \"summary\": {\n        \"entity_handle\": \"236\",\n        \"dimensionality\": 2,\n        \"point_count\": 4,\n        \"line_count\": 4,\n        \"curve_count\": 0,\n        \"surface_count\": 1,\n        \"solid_count\": 0,\n        \"is_closed\": 1,\n        \"length\": 840.0,\n        \"area\": 36875.0,\n        \"summary\": \"AcDbPolyline: 4 points, 4 lines, 0 curves, 1 surfaces, 0 solids\",\n        \"updated_at\": \"2026-08-08 03:28:36\"\n      },\n      \"primitives\": [],\n      \"relations\": []\n    },\n    \"nearby_entities\": [\n      {\n        \"handle\": \"238\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-TITLE\",\n        \"bbox\": {\n          \"min\": [\n            225.0,\n            -290.0\n          ],\n          \"max\": [\n            520.0,\n            -290.0\n          ],\n          \"center\": [\n            372.5,\n            -290.0\n          ],\n          \"width\": 295.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"239\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-TITLE\",\n        \"bbox\": {\n          \"min\": [\n            225.0,\n            -320.0\n          ],\n          \"max\": [\n            520.0,\n            -320.0\n          ],\n          \"center\": [\n            372.5,\n            -320.0\n          ],\n          \"width\": 295.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"237\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-TITLE\",\n        \"bbox\": {\n          \"min\": [\n            225.0,\n            -250.0\n          ],\n          \"max\": [\n            520.0,\n            -250.0\n          ],\n          \"center\": [\n            372.5,\n            -250.0\n          ],\n          \"width\": 295.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"23A\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-TITLE\",\n        \"bbox\": {\n          \"min\": [\n            410.0,\n            -350.0\n          ],\n          \"max\": [\n            410.0,\n            -250.0\n          ],\n          \"center\": [\n            410.0,\n            -300.0\n          ],\n          \"width\": 0.0,\n          \"height\": 100.0\n        }\n      },\n      {\n        \"handle\": \"23D\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            234.0,\n            -276.0\n          ],\n          \"max\": [\n            410.0,\n            -268.0\n          ],\n          \"center\": [\n            322.0,\n            -272.0\n          ],\n          \"width\": 176.0,\n          \"height\": 8.0\n        }\n      },\n      {\n        \"handle\": \"23C\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            234.0,\n            -243.0\n          ],\n          \"max\": [\n            448.666666667,\n            -236.0\n          ],\n          \"center\": [\n            341.33333333350004,\n            -239.5\n          ],\n          \"width\": 214.66666666700002,\n          \"height\": 7.0\n        }\n      },\n      {\n        \"handle\": \"23E\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            417.0,\n            -263.0\n          ],\n          \"max\": [\n            440.333333333,\n            -259.5\n          ],\n          \"center\": [\n            428.66666666649996,\n            -261.25\n          ],\n          \"width\": 23.333333332999985,\n          \"height\": 3.5\n        }\n      },\n      {\n        \"handle\": \"243\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            417.0,\n            -308.0\n          ],\n          \"max\": [\n            453.666666667,\n            -303.0\n          ],\n          \"center\": [\n            435.33333333350004,\n            -305.5\n          ],\n          \"width\": 36.666666667000015,\n          \"height\": 5.0\n        }\n      },\n      {\n        \"handle\": \"23F\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            417.0,\n            -281.0\n          ],\n          \"max\": [\n            472.0,\n            -276.0\n          ],\n          \"center\": [\n            444.5,\n            -278.5\n          ],\n          \"width\": 55.0,\n          \"height\": 5.0\n        }\n      },\n      {\n        \"handle\": \"245\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            234.0,\n            -339.0\n          ],\n          \"max\": [\n            403.5,\n            -334.5\n          ],\n          \"center\": [\n            318.75,\n            -336.75\n          ],\n          \"width\": 169.5,\n          \"height\": 4.5\n        }\n      },\n      {\n        \"handle\": \"246\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            417.0,\n            -340.666666667\n          ],\n          \"max\": [\n            475.333333333,\n            -334.0\n          ],\n          \"center\": [\n            446.16666666649996,\n            -337.33333333350004\n          ],\n          \"width\": 58.333333332999985,\n          \"height\": 6.666666667000015\n        }\n      },\n      {\n        \"handle\": \"23B\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-TITLE\",\n        \"bbox\": {\n          \"min\": [\n            465.0,\n            -320.0\n          ],\n          \"max\": [\n            465.0,\n            -250.0\n          ],\n          \"center\": [\n            465.0,\n            -285.0\n          ],\n          \"width\": 0.0,\n          \"height\": 70.0\n        }\n      },\n      {\n        \"handle\": \"242\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            234.0,\n            -308.0\n          ],\n          \"max\": [\n            310.666666667,\n            -303.0\n          ],\n          \"center\": [\n            272.33333333350004,\n            -305.5\n          ],\n          \"width\": 76.66666666700002,\n          \"height\": 5.0\n        }\n      },\n      {\n        \"handle\": \"241\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            472.0,\n            -281.0\n          ],\n          \"max\": [\n            476.0,\n            -275.0\n          ],\n          \"center\": [\n            474.0,\n            -278.0\n          ],\n          \"width\": 4.0,\n          \"height\": 6.0\n        }\n      },\n      {\n        \"handle\": \"240\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            472.0,\n            -263.0\n          ],\n          \"max\": [\n            482.5,\n            -259.5\n          ],\n          \"center\": [\n            477.25,\n            -261.25\n          ],\n          \"width\": 10.5,\n          \"height\": 3.5\n        }\n      },\n      {\n        \"handle\": \"244\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            472.0,\n            -308.0\n          ],\n          \"max\": [\n            508.666666667,\n            -303.0\n          ],\n          \"center\": [\n            490.33333333350004,\n            -305.5\n          ],\n          \"width\": 36.666666667000015,\n          \"height\": 5.0\n        }\n      },\n      {\n        \"handle\": \"235\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            300.0,\n            -130.0\n          ],\n          \"max\": [\n            459.0,\n            -125.5\n          ],\n          \"center\": [\n            379.5,\n            -127.75\n          ],\n          \"width\": 159.0,\n          \"height\": 4.5\n        }\n      },\n      {\n        \"handle\": \"194\",\n        \"entity_type\": \"AcDbPolyline\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            225.0,\n            -110.0\n          ],\n          \"max\": [\n            495.0,\n            -90.0\n          ],\n          \"center\": [\n            360.0,\n            -100.0\n          ],\n          \"width\": 270.0,\n          \"height\": 20.0\n        }\n      },\n      {\n        \"handle\": \"193\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-DIM\",\n        \"bbox\": {\n          \"min\": [\n            154.0,\n            -296.0\n          ],\n          \"max\": [\n            158.0,\n            -290.0\n          ],\n          \"center\": [\n            156.0,\n            -293.0\n          ],\n          \"width\": 4.0,\n          \"height\": 6.0\n        }\n      }\n    ],\n    \"related_annotations\": [],\n    \"related_dimensions\": [],\n    \"semantic_guess\": {\n      \"object_type\": \"closed_profile\",\n      \"label\": \"closed profile\",\n      \"confidence\": 0.7,\n      \"evidence\": [\n        \"polyline\",\n        \"closed=True\"\n      ]\n    }\n  },\n  \"handles\": [\n    \"236\",\n    \"238\",\n    \"239\",\n    \"237\",\n    \"23A\",\n    \"23D\",\n    \"23C\",\n    \"23E\",\n    \"243\",\n    \"23F\",\n    \"245\",\n    \"246\",\n    \"23B\",\n    \"242\",\n    \"241\",\n    \"240\",\n    \"244\",\n    \"235\",\n    \"194\",\n    \"193\"\n  ],\n  \"warnings\": [],\n  \"next_tools\": [\n    \"find_entities_by_description\",\n    \"detect_semantic_objects\",\n    \"validate_geometry\"\n  ]\n}"
+      }
+    ]
+  },
+  "8A": {
+    "is_error": false,
+    "structured_content": {
+      "result": {
+        "ok": true,
+        "message": "Explained entity 8A.",
+        "data": {
+          "entity": {
+            "handle": "8A",
+            "name": "Circle",
+            "type": "AcDbCircle",
+            "layer": "M-OUTLINE",
+            "color": 256,
+            "linetype": "ByLayer",
+            "linetype_scale": 1.0,
+            "lineweight": -1.0,
+            "visible": 1,
+            "bbox_min_x": -35.0,
+            "bbox_min_y": -35.0,
+            "bbox_max_x": 35.0,
+            "bbox_max_y": 35.0,
+            "properties": {},
+            "geometry": {
+              "center": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "radius": 35.0
+            },
+            "scanned_at": "2026-08-08 03:28:36",
+            "native_handle": "8A",
+            "bbox": {
+              "min": [
+                -35.0,
+                -35.0
+              ],
+              "max": [
+                35.0,
+                35.0
+              ],
+              "center": [
+                0.0,
+                0.0
+              ],
+              "width": 70.0,
+              "height": 70.0
+            }
+          },
+          "topology": {
+            "summary": {
+              "entity_handle": "8A",
+              "dimensionality": 2,
+              "point_count": 1,
+              "line_count": 0,
+              "curve_count": 1,
+              "surface_count": 1,
+              "solid_count": 0,
+              "is_closed": 1,
+              "length": null,
+              "area": 3848.4510006474966,
+              "summary": "AcDbCircle: 1 points, 0 lines, 1 curves, 1 surfaces, 0 solids",
+              "updated_at": "2026-08-08 03:28:36"
+            },
+            "primitives": [],
+            "relations": []
+          },
+          "nearby_entities": [
+            {
+              "handle": "87",
+              "entity_type": "AcDbCircle",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -70.0,
+                  -70.0
+                ],
+                "max": [
+                  70.0,
+                  70.0
+                ],
+                "center": [
+                  0.0,
+                  0.0
+                ],
+                "width": 140.0,
+                "height": 140.0
+              }
+            },
+            {
+              "handle": "88",
+              "entity_type": "AcDbCircle",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -57.0,
+                  -57.0
+                ],
+                "max": [
+                  57.0,
+                  57.0
+                ],
+                "center": [
+                  0.0,
+                  0.0
+                ],
+                "width": 114.0,
+                "height": 114.0
+              }
+            },
+            {
+              "handle": "89",
+              "entity_type": "AcDbCircle",
+              "layer": "M-HIDDEN",
+              "bbox": {
+                "min": [
+                  -45.0,
+                  -45.0
+                ],
+                "max": [
+                  45.0,
+                  45.0
+                ],
+                "center": [
+                  0.0,
+                  0.0
+                ],
+                "width": 90.0,
+                "height": 90.0
+              }
+            },
+            {
+              "handle": "93",
+              "entity_type": "AcDbLine",
+              "layer": "M-CENTER",
+              "bbox": {
+                "min": [
+                  -88.0,
+                  0.0
+                ],
+                "max": [
+                  88.0,
+                  0.0
+                ],
+                "center": [
+                  0.0,
+                  0.0
+                ],
+                "width": 176.0,
+                "height": 0.0
+              }
+            },
+            {
+              "handle": "94",
+              "entity_type": "AcDbLine",
+              "layer": "M-CENTER",
+              "bbox": {
+                "min": [
+                  0.0,
+                  -82.0
+                ],
+                "max": [
+                  0.0,
+                  82.0
+                ],
+                "center": [
+                  0.0,
+                  0.0
+                ],
+                "width": 0.0,
+                "height": 164.0
+              }
+            },
+            {
+              "handle": "FA",
+              "entity_type": "AcDbDiametricDimension",
+              "layer": "M-DIM",
+              "bbox": {
+                "min": [
+                  -60.75,
+                  -0.416666667
+                ],
+                "max": [
+                  40.0,
+                  3.125
+                ],
+                "center": [
+                  -10.375,
+                  1.3541666665
+                ],
+                "width": 100.75,
+                "height": 3.541666667
+              }
+            },
+            {
+              "handle": "8B",
+              "entity_type": "AcDbCircle",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -42.0,
+                  28.0
+                ],
+                "max": [
+                  -28.0,
+                  42.0
+                ],
+                "center": [
+                  -35.0,
+                  35.0
+                ],
+                "width": 14.0,
+                "height": 14.0
+              }
+            },
+            {
+              "handle": "8C",
+              "entity_type": "AcDbCircle",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  28.0,
+                  28.0
+                ],
+                "max": [
+                  42.0,
+                  42.0
+                ],
+                "center": [
+                  35.0,
+                  35.0
+                ],
+                "width": 14.0,
+                "height": 14.0
+              }
+            },
+            {
+              "handle": "8D",
+              "entity_type": "AcDbCircle",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -42.0,
+                  -42.0
+                ],
+                "max": [
+                  -28.0,
+                  -28.0
+                ],
+                "center": [
+                  -35.0,
+                  -35.0
+                ],
+                "width": 14.0,
+                "height": 14.0
+              }
+            },
+            {
+              "handle": "8E",
+              "entity_type": "AcDbCircle",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  28.0,
+                  -42.0
+                ],
+                "max": [
+                  42.0,
+                  -28.0
+                ],
+                "center": [
+                  35.0,
+                  -35.0
+                ],
+                "width": 14.0,
+                "height": 14.0
+              }
+            },
+            {
+              "handle": "91",
+              "entity_type": "AcDbPolyline",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -88.0,
+                  -90.0
+                ],
+                "max": [
+                  -32.0,
+                  -46.0
+                ],
+                "center": [
+                  -60.0,
+                  -68.0
+                ],
+                "width": 56.0,
+                "height": 44.0
+              }
+            },
+            {
+              "handle": "92",
+              "entity_type": "AcDbPolyline",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  32.0,
+                  -90.0
+                ],
+                "max": [
+                  88.0,
+                  -46.0
+                ],
+                "center": [
+                  60.0,
+                  -68.0
+                ],
+                "width": 56.0,
+                "height": 44.0
+              }
+            },
+            {
+              "handle": "86",
+              "entity_type": "AcDbPolyline",
+              "layer": "M-OUTLINE",
+              "bbox": {
+                "min": [
+                  -135.0,
+                  -110.0
+                ],
+                "max": [
+                  135.0,
+                  -90.0
+                ],
+                "center": [
+                  0.0,
+                  -100.0
+                ],
+                "width": 270.0,
+                "height": 20.0
+              }
+            },
+            {
+              "handle": "95",
+              "entity_type": "AcDbAlignedDimension",
+              "layer": "M-DIM",
+              "bbox": {
+                "min": [
+                  -135.0,
+                  -133.25
+                ],
+                "max": [
+                  135.0,
+                  -110.0
+                ],
+                "center": [
+                  0.0,
+                  -121.625
+                ],
+                "width": 270.0,
+                "height": 23.25
+              }
+            },
+            {
+              "handle": "114",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  72.0,
+                  58.0
+                ],
+                "max": [
+                  153.0,
+                  62.5
+                ],
+                "center": [
+                  112.5,
+                  60.25
+                ],
+                "width": 81.0,
+                "height": 4.5
+              }
+            },
+            {
+              "handle": "113",
+              "entity_type": "AcDbText",
+              "layer": "M-TEXT",
+              "bbox": {
+                "min": [
+                  -135.0,
+                  92.0
+                ],
+                "max": [
+                  -55.0,
+                  100.0
+                ],
+                "center": [
+                  -95.0,
+                  96.0
+                ],
+                "width": 80.0,
+                "height": 8.0
+              }
+            }
+          ],
+          "related_annotations": [],
+          "related_dimensions": [
+            {
+              "handle": "FA",
+              "entity_type": null,
+              "layer": "M-DIM",
+              "bbox": {
+                "min": null,
+                "max": null,
+                "center": null,
+                "width": null,
+                "height": null
+              }
+            },
+            {
+              "handle": "95",
+              "entity_type": null,
+              "layer": "M-DIM",
+              "bbox": {
+                "min": null,
+                "max": null,
+                "center": null,
+                "width": null,
+                "height": null
+              }
+            }
+          ],
+          "semantic_guess": {
+            "object_type": "hole",
+            "label": "hole candidate",
+            "confidence": 0.65,
+            "evidence": [
+              "circle entity",
+              "layer=m-outline"
+            ]
+          }
+        },
+        "handles": [
+          "8A",
+          "87",
+          "88",
+          "89",
+          "93",
+          "94",
+          "FA",
+          "8B",
+          "8C",
+          "8D",
+          "8E",
+          "91",
+          "92",
+          "86",
+          "95",
+          "114",
+          "113"
+        ],
+        "warnings": [],
+        "next_tools": [
+          "find_entities_by_description",
+          "detect_semantic_objects",
+          "validate_geometry"
+        ]
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"ok\": true,\n  \"message\": \"Explained entity 8A.\",\n  \"data\": {\n    \"entity\": {\n      \"handle\": \"8A\",\n      \"name\": \"Circle\",\n      \"type\": \"AcDbCircle\",\n      \"layer\": \"M-OUTLINE\",\n      \"color\": 256,\n      \"linetype\": \"ByLayer\",\n      \"linetype_scale\": 1.0,\n      \"lineweight\": -1.0,\n      \"visible\": 1,\n      \"bbox_min_x\": -35.0,\n      \"bbox_min_y\": -35.0,\n      \"bbox_max_x\": 35.0,\n      \"bbox_max_y\": 35.0,\n      \"properties\": {},\n      \"geometry\": {\n        \"center\": [\n          0.0,\n          0.0,\n          0.0\n        ],\n        \"radius\": 35.0\n      },\n      \"scanned_at\": \"2026-08-08 03:28:36\",\n      \"native_handle\": \"8A\",\n      \"bbox\": {\n        \"min\": [\n          -35.0,\n          -35.0\n        ],\n        \"max\": [\n          35.0,\n          35.0\n        ],\n        \"center\": [\n          0.0,\n          0.0\n        ],\n        \"width\": 70.0,\n        \"height\": 70.0\n      }\n    },\n    \"topology\": {\n      \"summary\": {\n        \"entity_handle\": \"8A\",\n        \"dimensionality\": 2,\n        \"point_count\": 1,\n        \"line_count\": 0,\n        \"curve_count\": 1,\n        \"surface_count\": 1,\n        \"solid_count\": 0,\n        \"is_closed\": 1,\n        \"length\": null,\n        \"area\": 3848.4510006474966,\n        \"summary\": \"AcDbCircle: 1 points, 0 lines, 1 curves, 1 surfaces, 0 solids\",\n        \"updated_at\": \"2026-08-08 03:28:36\"\n      },\n      \"primitives\": [],\n      \"relations\": []\n    },\n    \"nearby_entities\": [\n      {\n        \"handle\": \"87\",\n        \"entity_type\": \"AcDbCircle\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -70.0,\n            -70.0\n          ],\n          \"max\": [\n            70.0,\n            70.0\n          ],\n          \"center\": [\n            0.0,\n            0.0\n          ],\n          \"width\": 140.0,\n          \"height\": 140.0\n        }\n      },\n      {\n        \"handle\": \"88\",\n        \"entity_type\": \"AcDbCircle\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -57.0,\n            -57.0\n          ],\n          \"max\": [\n            57.0,\n            57.0\n          ],\n          \"center\": [\n            0.0,\n            0.0\n          ],\n          \"width\": 114.0,\n          \"height\": 114.0\n        }\n      },\n      {\n        \"handle\": \"89\",\n        \"entity_type\": \"AcDbCircle\",\n        \"layer\": \"M-HIDDEN\",\n        \"bbox\": {\n          \"min\": [\n            -45.0,\n            -45.0\n          ],\n          \"max\": [\n            45.0,\n            45.0\n          ],\n          \"center\": [\n            0.0,\n            0.0\n          ],\n          \"width\": 90.0,\n          \"height\": 90.0\n        }\n      },\n      {\n        \"handle\": \"93\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-CENTER\",\n        \"bbox\": {\n          \"min\": [\n            -88.0,\n            0.0\n          ],\n          \"max\": [\n            88.0,\n            0.0\n          ],\n          \"center\": [\n            0.0,\n            0.0\n          ],\n          \"width\": 176.0,\n          \"height\": 0.0\n        }\n      },\n      {\n        \"handle\": \"94\",\n        \"entity_type\": \"AcDbLine\",\n        \"layer\": \"M-CENTER\",\n        \"bbox\": {\n          \"min\": [\n            0.0,\n            -82.0\n          ],\n          \"max\": [\n            0.0,\n            82.0\n          ],\n          \"center\": [\n            0.0,\n            0.0\n          ],\n          \"width\": 0.0,\n          \"height\": 164.0\n        }\n      },\n      {\n        \"handle\": \"FA\",\n        \"entity_type\": \"AcDbDiametricDimension\",\n        \"layer\": \"M-DIM\",\n        \"bbox\": {\n          \"min\": [\n            -60.75,\n            -0.416666667\n          ],\n          \"max\": [\n            40.0,\n            3.125\n          ],\n          \"center\": [\n            -10.375,\n            1.3541666665\n          ],\n          \"width\": 100.75,\n          \"height\": 3.541666667\n        }\n      },\n      {\n        \"handle\": \"8B\",\n        \"entity_type\": \"AcDbCircle\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -42.0,\n            28.0\n          ],\n          \"max\": [\n            -28.0,\n            42.0\n          ],\n          \"center\": [\n            -35.0,\n            35.0\n          ],\n          \"width\": 14.0,\n          \"height\": 14.0\n        }\n      },\n      {\n        \"handle\": \"8C\",\n        \"entity_type\": \"AcDbCircle\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            28.0,\n            28.0\n          ],\n          \"max\": [\n            42.0,\n            42.0\n          ],\n          \"center\": [\n            35.0,\n            35.0\n          ],\n          \"width\": 14.0,\n          \"height\": 14.0\n        }\n      },\n      {\n        \"handle\": \"8D\",\n        \"entity_type\": \"AcDbCircle\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -42.0,\n            -42.0\n          ],\n          \"max\": [\n            -28.0,\n            -28.0\n          ],\n          \"center\": [\n            -35.0,\n            -35.0\n          ],\n          \"width\": 14.0,\n          \"height\": 14.0\n        }\n      },\n      {\n        \"handle\": \"8E\",\n        \"entity_type\": \"AcDbCircle\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            28.0,\n            -42.0\n          ],\n          \"max\": [\n            42.0,\n            -28.0\n          ],\n          \"center\": [\n            35.0,\n            -35.0\n          ],\n          \"width\": 14.0,\n          \"height\": 14.0\n        }\n      },\n      {\n        \"handle\": \"91\",\n        \"entity_type\": \"AcDbPolyline\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -88.0,\n            -90.0\n          ],\n          \"max\": [\n            -32.0,\n            -46.0\n          ],\n          \"center\": [\n            -60.0,\n            -68.0\n          ],\n          \"width\": 56.0,\n          \"height\": 44.0\n        }\n      },\n      {\n        \"handle\": \"92\",\n        \"entity_type\": \"AcDbPolyline\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            32.0,\n            -90.0\n          ],\n          \"max\": [\n            88.0,\n            -46.0\n          ],\n          \"center\": [\n            60.0,\n            -68.0\n          ],\n          \"width\": 56.0,\n          \"height\": 44.0\n        }\n      },\n      {\n        \"handle\": \"86\",\n        \"entity_type\": \"AcDbPolyline\",\n        \"layer\": \"M-OUTLINE\",\n        \"bbox\": {\n          \"min\": [\n            -135.0,\n            -110.0\n          ],\n          \"max\": [\n            135.0,\n            -90.0\n          ],\n          \"center\": [\n            0.0,\n            -100.0\n          ],\n          \"width\": 270.0,\n          \"height\": 20.0\n        }\n      },\n      {\n        \"handle\": \"95\",\n        \"entity_type\": \"AcDbAlignedDimension\",\n        \"layer\": \"M-DIM\",\n        \"bbox\": {\n          \"min\": [\n            -135.0,\n            -133.25\n          ],\n          \"max\": [\n            135.0,\n            -110.0\n          ],\n          \"center\": [\n            0.0,\n            -121.625\n          ],\n          \"width\": 270.0,\n          \"height\": 23.25\n        }\n      },\n      {\n        \"handle\": \"114\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            72.0,\n            58.0\n          ],\n          \"max\": [\n            153.0,\n            62.5\n          ],\n          \"center\": [\n            112.5,\n            60.25\n          ],\n          \"width\": 81.0,\n          \"height\": 4.5\n        }\n      },\n      {\n        \"handle\": \"113\",\n        \"entity_type\": \"AcDbText\",\n        \"layer\": \"M-TEXT\",\n        \"bbox\": {\n          \"min\": [\n            -135.0,\n            92.0\n          ],\n          \"max\": [\n            -55.0,\n            100.0\n          ],\n          \"center\": [\n            -95.0,\n            96.0\n          ],\n          \"width\": 80.0,\n          \"height\": 8.0\n        }\n      }\n    ],\n    \"related_annotations\": [],\n    \"related_dimensions\": [\n      {\n        \"handle\": \"FA\",\n        \"entity_type\": null,\n        \"layer\": \"M-DIM\",\n        \"bbox\": {\n          \"min\": null,\n          \"max\": null,\n          \"center\": null,\n          \"width\": null,\n          \"height\": null\n        }\n      },\n      {\n        \"handle\": \"95\",\n        \"entity_type\": null,\n        \"layer\": \"M-DIM\",\n        \"bbox\": {\n          \"min\": null,\n          \"max\": null,\n          \"center\": null,\n          \"width\": null,\n          \"height\": null\n        }\n      }\n    ],\n    \"semantic_guess\": {\n      \"object_type\": \"hole\",\n      \"label\": \"hole candidate\",\n      \"confidence\": 0.65,\n      \"evidence\": [\n        \"circle entity\",\n        \"layer=m-outline\"\n      ]\n    }\n  },\n  \"handles\": [\n    \"8A\",\n    \"87\",\n    \"88\",\n    \"89\",\n    \"93\",\n    \"94\",\n    \"FA\",\n    \"8B\",\n    \"8C\",\n    \"8D\",\n    \"8E\",\n    \"91\",\n    \"92\",\n    \"86\",\n    \"95\",\n    \"114\",\n    \"113\"\n  ],\n  \"warnings\": [],\n  \"next_tools\": [\n    \"find_entities_by_description\",\n    \"detect_semantic_objects\",\n    \"validate_geometry\"\n  ]\n}"
+      }
+    ]
+  }
+}
