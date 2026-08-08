@@ -523,7 +523,7 @@ class TestMCPToolSchemas(unittest.TestCase):
             tools = await server.mcp.list_tools()
             for tool in tools:
                 if tool.name == tool_name:
-                    return tool.inputSchema
+                    return tool.input_schema
             return None
 
         schema = asyncio.run(find_tool())
@@ -579,7 +579,8 @@ class TestMCPToolSchemas(unittest.TestCase):
 
         result, call_args = asyncio.run(call_tool())
 
-        self.assertEqual(result[1], {"result": "ok"})
+        self.assertEqual(result.structured_content, {"result": "ok"})
+        self.assertFalse(result.is_error)
         self.assertEqual(call_args.args,
                          ("Note", [[0.0, 0.0, 0.0], [10.0, 10.0, 0.0]], None))
 
@@ -772,7 +773,32 @@ class TestMCPToolSchemas(unittest.TestCase):
         result = asyncio.run(call_tool())
 
         self.assertIn("ERROR: get_dimension_styles failed: boom",
-                      result[1]["result"])
+                      result.structured_content["result"])
+        self.assertTrue(result.is_error)
+
+    def test_structured_tool_exceptions_remain_schema_valid(self):
+        import asyncio
+        from src import server
+
+        async def call_tool():
+            with patch.object(
+                server.utility_tools,
+                "check_runtime_environment",
+                side_effect=RuntimeError("structured boom"),
+            ):
+                return await server.mcp.call_tool(
+                    "check_runtime_environment",
+                    {"check_autocad": False},
+                )
+
+        result = asyncio.run(call_tool())
+        payload = result.structured_content["result"]
+
+        self.assertTrue(result.is_error)
+        self.assertFalse(payload["ok"])
+        self.assertIn("structured boom", payload["message"])
+        self.assertEqual(payload["data"]["tool"], "check_runtime_environment")
+        self.assertTrue(payload["data"]["call_id"])
 
     def test_model_facing_prompts_are_english(self):
         import asyncio
@@ -1623,7 +1649,8 @@ class TestToolWiring(unittest.TestCase):
         # Tools that don't have a direct module call (like help, prompts, main)
         exceptions = {
             '_humanize_tool_name', '_registration_category',
-            '_default_tool_description', '_wrap_tool_errors',
+            '_default_tool_description', '_project_version', '_tool_error_value',
+            '_wrap_tool_errors',
             '_safe_mcp_tool', '_registered_tools', '_tool_category',
             '_first_description_line', '_build_registered_tool_help',
             '_load_prompt_file', '_env_flag',
@@ -2030,7 +2057,12 @@ class TestActiveXCallShapes(unittest.TestCase):
             result = controller.export_drawing(r"C:\tmp\out.wmf", "WMF")
 
         self.assertTrue(result["success"], result)
-        selection_set.AddItems.assert_called_once_with([ent_a, ent_b, ent_c])
+        selection_set.AddItems.assert_called_once()
+        add_items_arg = selection_set.AddItems.call_args.args[0]
+        # Real pywin32 uses an explicit VT_ARRAY|VT_DISPATCH VARIANT while
+        # lightweight COM mocks commonly pass the Python list through.
+        add_items_value = getattr(add_items_arg, "value", add_items_arg)
+        self.assertEqual(list(add_items_value), [ent_a, ent_b, ent_c])
         doc.Export.assert_called_once_with(r"C:\tmp\out", "WMF", selection_set)
         selection_set.Delete.assert_called_once()
 

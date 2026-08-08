@@ -1,7 +1,7 @@
 """
 CAD MCP Server — Comprehensive AutoCAD 2020+ MCP Server.
 
-Exposes 125+ tools covering:
+Registers 321 tools covering:
   - All drawing primitives (line, circle, arc, ellipse, spline, polyline, polygon, etc.)
   - Complete entity editing (move, rotate, copy, delete, mirror, scale, offset, array, explode)
   - Full layer management (CRUD, freeze/thaw, lock/unlock, isolate)
@@ -25,7 +25,7 @@ Architecture:
     cad_utils.py      → Shared helpers
 
 Start manually:
-    python server.py
+    python -m src.server
 
 Or via Codex MCP config:
     [mcp_servers.best-cad-mcp]
@@ -56,9 +56,10 @@ _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from mcp.server.fastmcp import FastMCP, Context
-from mcp.types import ToolAnnotations
-from typing import Optional, List, Tuple, Dict, Any, Union
+from mcp.server.mcpserver import Context, Image as _MCPImage, MCPServer
+from mcp.shared.exceptions import MCPError
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from typing import Optional, List, Tuple, Dict, Any, Union, get_origin
 from typing_extensions import TypedDict
 
 def _env_int(name: str, default: int,
@@ -93,6 +94,7 @@ class _CADContextLogFilter(logging.Filter):
 
 def _configure_logging() -> None:
     log_path = os.environ.get("CAD_MCP_LOG_PATH") or os.path.join(os.getcwd(), "cad_mcp.log")
+    os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
     max_bytes = _env_int("CAD_MCP_LOG_MAX_BYTES", 5_000_000, 100_000)
     backup_count = _env_int("CAD_MCP_LOG_BACKUP_COUNT", 5, 1, 100)
     level_name = os.environ.get("CAD_MCP_LOG_LEVEL", "INFO").upper()
@@ -399,10 +401,36 @@ TOOL_DESCRIPTIONS = {
     ),
 }
 
-# Create the MCP server
-mcp = FastMCP(
+def _project_version() -> str:
+    """Resolve the source-tree or installed-package version for MCP discovery."""
+    pyproject_path = os.path.join(_project_root, "pyproject.toml")
+    try:
+        import tomllib
+
+        with open(pyproject_path, "rb") as handle:
+            return str(tomllib.load(handle)["project"]["version"])
+    except (FileNotFoundError, KeyError, OSError, TypeError, ValueError):
+        pass
+
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version("best-cad-mcp")
+    except (PackageNotFoundError, ValueError):
+        return "0+unknown"
+
+
+# Create the native MCP Python SDK v2 server.
+mcp = MCPServer(
     "AutoCAD-Comprehensive-Server",
+    title="best-cad-mcp",
+    description=(
+        "Handle-first AutoCAD automation, understanding, validation, visual "
+        "grounding, and guarded CADPlan execution."
+    ),
     instructions=TOOL_SELECTION_INSTRUCTIONS,
+    website_url="https://github.com/LokmenoWer/best-cad-mcp",
+    version=_project_version(),
 )
 
 
@@ -641,12 +669,51 @@ def _error_recovery_hint(exc: Exception) -> str:
     )
 
 
+def _tool_error_value(fn, exc: Exception, call_id: str) -> Any:
+    """Return a schema-valid native MCP error result with recovery guidance."""
+    message = f"{fn.__name__} failed: {exc} (call_id={call_id})"
+    hint = _error_recovery_hint(exc)
+    error_text = f"ERROR: {message}\n{hint}"
+    return_annotation = inspect.signature(fn).return_annotation
+    if return_annotation is dict or get_origin(return_annotation) is dict:
+        error_payload = {
+            "ok": False,
+            "message": message,
+            "data": {
+                "tool": fn.__name__,
+                "call_id": call_id,
+                "error_type": type(exc).__name__,
+            },
+            "handles": [],
+            "warnings": [hint],
+            "next_tools": ["check_runtime_environment", "get_tool_help"],
+        }
+        # typing.Dict returns are represented by MCPServer as a {result: ...}
+        # output model; builtin dict returns use the dictionary as the root.
+        structured = (
+            {"result": error_payload}
+            if str(return_annotation).startswith("typing.Dict")
+            else error_payload
+        )
+    elif return_annotation is str:
+        structured = {"result": error_text}
+    else:
+        structured = None
+    return CallToolResult(
+        content=[TextContent(type="text", text=error_text)],
+        structured_content=structured,
+        is_error=True,
+    )
+
+
 def _wrap_tool_errors(fn):
     if inspect.iscoroutinefunction(fn):
         @functools.wraps(fn)
         async def async_wrapper(*args, **kwargs):
             try:
                 return await fn(*args, **kwargs)
+            except MCPError:
+                raise
             except Exception as exc:
                 call_id = uuid.uuid4().hex[:12]
                 logger.exception(
@@ -657,10 +724,7 @@ def _wrap_tool_errors(fn):
                     type(exc).__name__,
                     exc,
                 )
-                return (
-                    f"ERROR: {fn.__name__} failed: {exc} (call_id={call_id})\n"
-                    + _error_recovery_hint(exc)
-                )
+                return _tool_error_value(fn, exc, call_id)
 
         async_wrapper.__signature__ = inspect.signature(fn)
         return async_wrapper
@@ -669,6 +733,8 @@ def _wrap_tool_errors(fn):
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
+        except MCPError:
+            raise
         except Exception as exc:
             call_id = uuid.uuid4().hex[:12]
             logger.exception(
@@ -679,10 +745,7 @@ def _wrap_tool_errors(fn):
                 type(exc).__name__,
                 exc,
             )
-            return (
-                f"ERROR: {fn.__name__} failed: {exc} (call_id={call_id})\n"
-                + _error_recovery_hint(exc)
-            )
+            return _tool_error_value(fn, exc, call_id)
 
     wrapper.__signature__ = inspect.signature(fn)
     return wrapper
@@ -694,13 +757,13 @@ _raw_mcp_tool = mcp.tool
 # ── Tool exposure profiles ──────────────────────────────────────────
 # A 300+ tool surface overwhelms MCP clients and degrades LLM tool
 # selection (some clients also hard-cap the number of tools). Profiles
-# expose a curated subset by default and keep the full surface one env
-# var away. Every profile is a strict superset of the tools referenced by
+# can expose a curated subset while keeping the full surface one env var
+# away. Every profile is a strict superset of the tools referenced by
 # recommend_cad_tools, the workflow playbooks, and any next_tools hint, so
 # narrowing the surface never points an agent at a tool that is not
 # registered.
 #
-#   CAD_MCP_TOOL_PROFILE = core (default) | lean | full
+#   CAD_MCP_TOOL_PROFILE = core (recommended) | lean | full (default)
 #   CAD_MCP_TOOLS_INCLUDE = comma/space separated tool names to force on
 #   CAD_MCP_TOOLS_EXCLUDE = comma/space separated tool names to force off
 #
@@ -813,6 +876,20 @@ def _safe_mcp_tool(name=None, title=None, description=None, annotations=None,
             _DISABLED_TOOL_NAMES.append(tool_name)
             return wrapped
         tool_description = description or _default_tool_description(tool_name)
+
+        # MCP Python SDK v2 executes synchronous handlers in AnyIO worker
+        # threads. AutoCAD COM proxies are apartment/thread-affine, and the
+        # controller intentionally preserves the v1 serial event-loop model.
+        # Register an async facade so v2 invokes the synchronous CAD body on
+        # the server event-loop thread while leaving direct Python calls sync.
+        registered = wrapped
+        if not inspect.iscoroutinefunction(wrapped):
+            @functools.wraps(wrapped)
+            async def registered(*args, **kwargs):
+                return wrapped(*args, **kwargs)
+
+            registered.__signature__ = inspect.signature(wrapped)
+
         _raw_mcp_tool(
             name=name,
             title=title,
@@ -821,7 +898,7 @@ def _safe_mcp_tool(name=None, title=None, description=None, annotations=None,
             icons=icons,
             meta=meta,
             structured_output=structured_output,
-        )(wrapped)
+        )(registered)
         return wrapped
 
     return decorator
@@ -861,11 +938,10 @@ from src.cad_understanding import vision as understanding_vision
 from src.cad_understanding import vlm as understanding_vlm
 from src.cad_understanding.result import ok_result
 
-# Direct model vision: FastMCP's Image helper turns a PNG/JPEG into an MCP
+# Direct model vision: MCPServer's Image helper turns a PNG/JPEG into an MCP
 # ImageContent block the model can actually SEE inside a tool result, instead of
 # only receiving a file path. This is what lets a vision-capable model perceive
 # its own CAD work and close the perceive→act→verify loop.
-from mcp.server.fastmcp.utilities.types import Image as _MCPImage
 
 
 def _vision_image_blocks(result: Dict[str, Any]) -> List[Any]:
@@ -899,7 +975,7 @@ def _vision_image_blocks(result: Dict[str, Any]) -> List[Any]:
 def _vision_tool_result(result: Dict[str, Any]) -> List[Any]:
     """Return ``[summary_dict, Image...]`` content for a vision tool.
 
-    FastMCP converts the dict to text and each ``Image`` to ImageContent, so the
+    MCPServer converts the dict to text and each ``Image`` to ImageContent, so the
     model receives the structured summary *and* sees the image(s) directly.
     """
     return [result, *_vision_image_blocks(result)]
@@ -6052,7 +6128,7 @@ def _log_tool_profile() -> None:
     if profile == "full" and active > 150:
         logger.info(
             "Exposing the full %s-tool surface can degrade MCP tool selection; "
-            "CAD_MCP_TOOL_PROFILE=core (default) or =lean exposes a curated subset.",
+            "CAD_MCP_TOOL_PROFILE=core (recommended) or =lean exposes a curated subset.",
             active,
         )
 

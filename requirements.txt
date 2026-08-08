@@ -1,5 +1,6 @@
-mcp[cli]>=1.19.0,<2.0.0
-pywin32>=306
+mcp[cli]>=2.0.0,<3.0.0
+packaging>=24.2
+pywin32>=311
 comtypes>=1.4.0
 pyautocad>=0.2.0
-typing_extensions>=4.12.0
+typing_extensions>=4.13.0

@@ -32,8 +32,11 @@
 | --- | --- | --- |
 | 扫描 AutoCAD 真实句柄，查询精确实体，并按句柄修改，而不是从标签或像素猜目标。 | 在本地工作区生成 CAD-IR、语义对象与图、尺寸绑定、约束和验证报告。 | 先验证和 dry-run CADPlan，再明确执行、重新扫描，并对照结构化与视觉结果。 |
 
-服务在与 AutoCAD 相同的 Windows 账户下运行，通过 MCP stdio 通信。
-AutoCAD 始终是真实数据源；SQLite 只保存模型私有上下文、扫描结果和审阅产物。
+服务在与 AutoCAD 相同的 Windows 账户下运行，通过 MCP stdio 通信。它原生
+使用官方 MCP Python SDK 2.x，可协商 2026-07-28 协议，并保留旧版客户端
+协商能力。AutoCAD 始终是真实数据源；SQLite 只保存模型私有上下文、扫描结果
+和审阅产物。所有 AutoCAD 工具调用会刻意在单一事件循环线程串行执行，以保持
+COM apartment 安全。
 
 ## 快速开始
 
@@ -271,6 +274,7 @@ cad_image_traces/
 
 | 现象 | 检查 |
 | --- | --- |
+| 升级后服务导入失败 | 使用客户端实际调用的同一个 Python 环境运行 `cad-mcp-doctor --json`。best-cad-mcp 1.7+ 要求 MCP Python SDK `>=2,<3`；若 `mcp_sdk_version` 被阻断，请升级包/环境并重启客户端。 |
 | AutoCAD 已打开但不可用 | 运行 `cad-mcp-doctor --check-autocad`；确认两个进程使用相同 Windows 账户和权限级别。 |
 | 服务暴露的工具太多 | 设置 `CAD_MCP_TOOL_PROFILE=core` 或 `lean`，再重启客户端。 |
 | 视觉导出不可用 | `[visual]` 提供 Pillow/CairoSVG，用于栅格图和 SVG；AutoCAD WMF 转 PNG 通常仍需 ImageMagick/Wand、Inkscape 或 LibreOffice。检查 `get_vision_capabilities()` 的 `wmf_to_png_available`；也可先导出 PDF 再外部栅格化。 |
@@ -295,9 +299,10 @@ python -m pip install -e ".[dev,visual]"
 python -m pytest -q -m "not autocad_com"
 ```
 
-标记为 `autocad_com` 的测试需要本机实时 AutoCAD，会从发布工作流中排除。
-Release 发布流程会校验版本、运行非 COM 测试、构建并用 Twine 检查包，然后发布
-到 PyPI 和 MCP Registry。
+Release 发布流程会校验版本、运行非 COM 测试（`autocad_com` 标记保留给本机
+实时 CAD 检查）、验证原生 modern 与 legacy MCP stdio、构建并干净安装 wheel，
+再用 Twine 检查并发布到 PyPI 和 MCP Registry。由于 hosted runner 没有
+AutoCAD，实时 AutoCAD 预检与 CADPlan 验证必须在本机完成。
 
 欢迎贡献。行为变化请加入回归测试，并保持“扫描 → 规划 → 验证 → 复核”的
 安全模型。

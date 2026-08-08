@@ -215,6 +215,9 @@ def _handle(obj: Any) -> str:
 
 
 def _extract_payload(result: Any) -> Any:
+    structured = getattr(result, "structured_content", None)
+    if isinstance(structured, dict):
+        return structured.get("result", structured)
     if isinstance(result, tuple) and len(result) > 1 and isinstance(result[1], dict):
         return result[1].get("result")
     return str(result)
@@ -882,7 +885,7 @@ def _schema_sample(schema: dict[str, Any], ctx: dict[str, Any], name: str = "") 
 
 
 def args_for_tool(tool: Any, ctx: dict[str, Any]) -> dict[str, Any]:
-    schema = tool.inputSchema or {}
+    schema = tool.input_schema or {}
     props = schema.get("properties", {})
     required = schema.get("required", list(props.keys()))
     args = {name: _schema_sample(props[name], ctx, name)

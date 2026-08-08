@@ -307,14 +307,14 @@ def test_resolve_trace_image_can_embed_a_specific_tile(tmp_path, monkeypatch):
 
 def test_prep_payload_builds_real_image_content(tmp_path):
     """The payload must convert to MCP ImageContent — proving the model sees it."""
-    from mcp.server.fastmcp.utilities.types import Image as MCPImage
+    from mcp.server.mcpserver import Image as MCPImage
 
     png = write_png(tmp_path / "shot.png", size=(500, 500))
     prep = vision.prepare_model_image(png)
     assert prep["embeddable"]
     content = MCPImage(path=prep["image_path"]).to_image_content()
     assert content.type == "image"
-    assert content.mimeType == "image/png"
+    assert content.mime_type == "image/png"
     assert content.data  # non-empty base64 payload
 
 

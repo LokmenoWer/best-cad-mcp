@@ -1,5 +1,6 @@
 """CAD MCP Tools — Database query, groups, styles, and utilities."""
 from typing import Optional, List, Dict, Any
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -8,6 +9,8 @@ import platform
 import shutil
 import sys
 import threading
+from packaging.specifiers import SpecifierSet
+from packaging.version import InvalidVersion, Version
 from src.cad_controller import get_controller
 from src.cad_database import get_database
 from src.cad_utils import format_success, resolve_color, com_get as _com_get, com_set as _com_set
@@ -203,6 +206,27 @@ def _module_available(module_name: str) -> bool:
         return False
 
 
+def _distribution_version(distribution_name: str) -> str:
+    try:
+        return importlib.metadata.version(distribution_name)
+    except (importlib.metadata.PackageNotFoundError, ValueError):
+        return ""
+    except Exception:
+        return ""
+
+
+_MCP_SDK_SPECIFIER = SpecifierSet(">=2.0.0,<3.0.0")
+
+
+def _mcp_sdk_version_supported(version: str) -> bool:
+    try:
+        return Version(version) in _MCP_SDK_SPECIFIER
+    except InvalidVersion:
+        return False
+    except Exception:
+        return False
+
+
 def _first_existing_path(paths: List[str]) -> str:
     for path in paths:
         if Path(path).exists():
@@ -252,6 +276,17 @@ def check_runtime_environment(check_autocad: bool = False,
             module_name,
             "Install with `python -m pip install -r requirements.txt && python -m pip install -e .`.",
         ))
+
+    mcp_version = _distribution_version("mcp")
+    checks.append(_preflight_check(
+        "mcp_sdk_version",
+        _mcp_sdk_version_supported(mcp_version),
+        True,
+        f"mcp={mcp_version or 'not installed'}; required >=2.0.0,<3.0.0",
+        "Install or upgrade best-cad-mcp in the Python environment used by the "
+        "MCP client, then restart the client. For a source checkout, run "
+        "`python -m pip install --upgrade -e .`.",
+    ))
 
     workspace = Path(os.environ.get("CAD_MCP_WORKSPACE_ROOT") or os.getcwd())
     checks.append(_preflight_check(

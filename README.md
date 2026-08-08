@@ -36,8 +36,11 @@ and **whether** the result is correct.
 | Scan real AutoCAD handles, query exact entities, and edit those handles instead of guessing from labels or pixels. | Build CAD-IR, semantic objects and graphs, dimension bindings, constraints, and validation reports in a local workspace. | Validate and dry-run CADPlans, execute explicitly, rescan, and compare structured and visual results. |
 
 The server runs on the same Windows account as AutoCAD and communicates over
-MCP stdio. AutoCAD remains the source of truth; SQLite stores model-private
-context, scan results, and review artifacts alongside the workspace.
+MCP stdio. It runs natively on the official MCP Python SDK 2.x, negotiates the
+2026-07-28 protocol, and retains legacy client negotiation. AutoCAD remains the
+source of truth; SQLite stores model-private context, scan results, and review
+artifacts alongside the workspace. AutoCAD-facing tool calls are intentionally
+serialized on one event-loop thread to preserve COM apartment safety.
 
 ## Quick start
 
@@ -293,6 +296,7 @@ database exists; verify migration, then archive it separately.
 
 | Symptom | Check |
 | --- | --- |
+| Server fails to import after upgrading | Run `cad-mcp-doctor --json` with the same Python environment used by the client. best-cad-mcp 1.7+ requires MCP Python SDK `>=2,<3`; upgrade the package/environment and restart the client if `mcp_sdk_version` is blocked. |
 | AutoCAD is open but unavailable | Run `cad-mcp-doctor --check-autocad`; make sure both processes use the same Windows account and privilege level. |
 | Server starts with too many tools | Set `CAD_MCP_TOOL_PROFILE=core` or `lean`, then restart the client. |
 | Visual export is unavailable | The `[visual]` extra provides Pillow/CairoSVG for raster and SVG work. AutoCAD WMF-to-PNG usually still needs ImageMagick/Wand, Inkscape, or LibreOffice. Check `get_vision_capabilities()` and its `wmf_to_png_available` result; PDF can also be rasterized externally. |
@@ -317,10 +321,12 @@ python -m pip install -e ".[dev,visual]"
 python -m pytest -q -m "not autocad_com"
 ```
 
-Tests marked `autocad_com` require a live local AutoCAD session and are
-excluded from the release workflow. Release publication validates the version,
-runs the non-COM suite, builds the package, checks it with Twine, publishes to
-PyPI, and then publishes the MCP server metadata.
+Release publication validates the version, runs the non-COM suite (reserving
+the `autocad_com` marker for local live-CAD checks), verifies native modern and
+legacy MCP stdio, builds and clean-installs the wheel, checks it with Twine,
+publishes to PyPI, and then publishes the MCP server metadata. Live AutoCAD
+preflight and CADPlan checks must be run locally because hosted runners do not
+have AutoCAD.
 
 Contributions are welcome. Please keep changes scoped, add regression tests for
 behavior changes, and preserve the scan → plan → validate → verify safety model.
