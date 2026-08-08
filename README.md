@@ -14,11 +14,13 @@ result, and export visual evidence without hiding agent state inside the drawing
 
 [简体中文](https://github.com/LokmenoWer/best-cad-mcp/blob/master/README.zh-CN.md) · [Install](#quick-start) · [Workflow](#the-guarded-workflow) · [Tool profiles](#tool-profiles) · [Safety](#safety-model)
 
-![Three-view mechanical drawing of a flanged bearing housing](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/complex-part-three-view.svg)
+![Real AutoCAD three-view drawing of a flanged bearing housing](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-cad-real.png)
 
-*A feature-rich orthographic sample: front and top projections, a sectioned
-side view, hidden geometry, centerlines, dimensions, feature callouts, and a
-controlled title block.*
+*A real AutoCAD model-space export created by a validated, dry-run CADPlan:
+front and top projections, a sectioned side view, centerlines, dimensions,
+feature callouts, hatches, and a title block. Download the
+[source DWG](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/artifacts/readme-real-cad/bearing-housing-three-view.dwg)
+or inspect the [executed CADPlan](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/cadplan.json).*
 
 > [!IMPORTANT]
 > best-cad-mcp is beta software. It is designed for controlled local workflows
@@ -187,32 +189,48 @@ allow/deny controls are also available through
 
 ## From visual understanding to grounded CAD evidence
 
-The hero drawing is a standards-aware README illustration of a flanged bearing
-housing. It deliberately combines the kinds of information a useful mechanical
-workflow must preserve: projected views, a section, holes and slots, hidden
-geometry, centerlines, real dimension intent, and drawing metadata. In a live
-session, AutoCAD remains the source of truth and exported views provide the
-visual evidence.
+The hero is not an explanatory mockup. It was drawn in a new AutoCAD document
+through a 90-step CADPlan, scanned as 81 real entities, validated with zero
+geometry issues, exported as WMF, and rasterized to the PNG shown above. The
+source DWG, plan, dry-run, validation output, pixel/world mapping, and VLM
+review are retained as reviewable artifacts.
 
-A VLM review should return more than a caption. The structured result can carry
-observed features, pixel evidence, dimensions, annotations, relations,
-confidence, and unresolved uncertainty. Grounding then resolves those claims
-to semantic objects and exact AutoCAD handle candidates before an edit is
-planned.
+A VLM review should return more than a caption. Below are real artifacts from
+the same snapshot: the clean AutoCAD tile inspected by the model and its actual
+handle overlay. They are raster crops produced by the mapping tool, not redrawn
+documentation graphics.
 
-![VLM output expressed as ImageDrawingSpec features, relations, uncertainty, and grounded handle candidates](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/vlm-structured-understanding.svg)
+| Clean AutoCAD raster tile | Handle overlay from the same snapshot |
+| --- | --- |
+| ![Actual front-view tile supplied to visual review](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-cad-real_tiles/readme-cad-real_T002.png) | ![Actual mapped AutoCAD handles over the front-view tile](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-cad-real_tiles/readme-cad-real_T002_overlay.png) |
 
-The diagram shows an abridged `ImageDrawingSpec/v1` payload. A complete payload
-also preserves calibration candidates, geometry, annotations, tables, and
-source evidence required by the schema. Low-confidence observations stay in
-`uncertainties`; they are not silently converted into CAD geometry.
+The real `vlm_review_drawing/v3` result was schema-validated and submitted
+without pre-claiming handles. Grounding resolved the central bore to handle
+`8A`, the rounded mounting-slot profile to `115`, and the title-block semantic
+group to `236`. The section hatch correctly remained ambiguous because two
+real hatch candidates had a narrow score margin.
+
+```json
+{
+  "central_bore":  {"status": "grounded",  "handles": ["8A"]},
+  "mounting_slot": {"status": "grounded",  "handles": ["115"]},
+  "section_hatch": {"status": "ambiguous", "handles": []},
+  "title_block":   {"status": "grounded",  "handles": ["236"]}
+}
+```
+
+Inspect the [raw VLM return](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-raw.json),
+[grounded result](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-grounded.json),
+[CADPlan dry-run](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/cadplan-dry-run.json),
+and [zero-issue geometry validation](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/geometry-validation.json).
 
 ### Copy a mechanical drawing from one image
 
 The full path separates non-mutating understanding from the one explicitly
 authorized DWG modification stage, then closes with a rescan and visual diff.
-
-![Guarded image-to-CAD sequence from source preparation through visual verification](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/image-to-cad-process.svg)
+This README does not present a generated flow illustration as trace evidence;
+a real run should retain the source raster, `ImageDrawingSpec`, validated and
+dry-run CADPlan, resulting DWG, and final AutoCAD export.
 
 A typical tracing loop is:
 
@@ -299,7 +317,7 @@ database exists; verify migration, then archive it separately.
 | Server fails to import after upgrading | Run `cad-mcp-doctor --json` with the same Python environment used by the client. best-cad-mcp 1.7+ requires MCP Python SDK `>=2,<3`; upgrade the package/environment and restart the client if `mcp_sdk_version` is blocked. |
 | AutoCAD is open but unavailable | Run `cad-mcp-doctor --check-autocad`; make sure both processes use the same Windows account and privilege level. |
 | Server starts with too many tools | Set `CAD_MCP_TOOL_PROFILE=core` or `lean`, then restart the client. |
-| Visual export is unavailable | The `[visual]` extra provides Pillow/CairoSVG for raster and SVG work. AutoCAD WMF-to-PNG usually still needs ImageMagick/Wand, Inkscape, or LibreOffice. Check `get_vision_capabilities()` and its `wmf_to_png_available` result; PDF can also be rasterized externally. |
+| Visual export is unavailable | The `[visual]` extra provides Pillow for raster overlays. On Windows, AutoCAD WMF uses the native GDI+ fallback; ImageMagick/Wand, Inkscape, or LibreOffice provide alternate paths. Check `get_vision_capabilities()` and `wmf_to_png_available`; PDF can also be rasterized externally. |
 | Queries return stale entities | Activate the intended drawing and rerun `scan_all_entities`. |
 | MCP server starts in the wrong folder | Set server `cwd` to the source checkout only when developing; set `CAD_MCP_WORKSPACE_ROOT` to the CAD project. |
 | A plan is rejected | Run `validate_cad_plan`, inspect the exact failing step, and dry-run again after correcting it. |

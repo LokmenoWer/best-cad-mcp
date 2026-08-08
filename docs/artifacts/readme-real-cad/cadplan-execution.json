@@ -1,0 +1,2013 @@
+{
+  "is_error": false,
+  "structured_content": {
+    "result": {
+      "ok": true,
+      "message": "Executed 90 CAD plan steps.",
+      "data": {
+        "plan_id": "readme-real-bearing-housing-v1",
+        "results": [
+          {
+            "step_id": "layer_m_outline",
+            "op": "create_layer",
+            "args": {
+              "name": "M-OUTLINE",
+              "color": 7,
+              "linetype": "Continuous"
+            },
+            "result": "OK: 已创建图层 'M-OUTLINE'\n  color: 7\n  linetype: Continuous",
+            "outputs": {
+              "handles": [],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "layer_m_center",
+            "op": "create_layer",
+            "args": {
+              "name": "M-CENTER",
+              "color": 4,
+              "linetype": "Continuous"
+            },
+            "result": "OK: 已创建图层 'M-CENTER'\n  color: 4\n  linetype: Continuous",
+            "outputs": {
+              "handles": [],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "layer_m_hidden",
+            "op": "create_layer",
+            "args": {
+              "name": "M-HIDDEN",
+              "color": 8,
+              "linetype": "Continuous"
+            },
+            "result": "OK: 已创建图层 'M-HIDDEN'\n  color: 8\n  linetype: Continuous",
+            "outputs": {
+              "handles": [],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "layer_m_dim",
+            "op": "create_layer",
+            "args": {
+              "name": "M-DIM",
+              "color": 2,
+              "linetype": "Continuous"
+            },
+            "result": "OK: 已创建图层 'M-DIM'\n  color: 2\n  linetype: Continuous",
+            "outputs": {
+              "handles": [],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "layer_m_hatch",
+            "op": "create_layer",
+            "args": {
+              "name": "M-HATCH",
+              "color": 9,
+              "linetype": "Continuous"
+            },
+            "result": "OK: 已创建图层 'M-HATCH'\n  color: 9\n  linetype: Continuous",
+            "outputs": {
+              "handles": [],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "layer_m_text",
+            "op": "create_layer",
+            "args": {
+              "name": "M-TEXT",
+              "color": 3,
+              "linetype": "Continuous"
+            },
+            "result": "OK: 已创建图层 'M-TEXT'\n  color: 3\n  linetype: Continuous",
+            "outputs": {
+              "handles": [],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "layer_m_title",
+            "op": "create_layer",
+            "args": {
+              "name": "M-TITLE",
+              "color": 5,
+              "linetype": "Continuous"
+            },
+            "result": "OK: 已创建图层 'M-TITLE'\n  color: 5\n  linetype: Continuous",
+            "outputs": {
+              "handles": [],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_base",
+            "op": "draw_rectangle",
+            "args": {
+              "x1": -135,
+              "y1": -110,
+              "x2": 135,
+              "y2": -90,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制矩形\n  handle: 86\n  width: 270.00\n  height: 20.00\n  area: 5400.00",
+            "outputs": {
+              "handles": [
+                "86"
+              ],
+              "save_as": "$front_base",
+              "saved_value": "86"
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_flange_outer",
+            "op": "draw_circle",
+            "args": {
+              "center_x": 0,
+              "center_y": 0,
+              "radius": 70,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆\n  handle: 87\n  layer: M-OUTLINE\n  radius: 70\n  diameter: 140\n  area: 15393.79",
+            "outputs": {
+              "handles": [
+                "87"
+              ],
+              "save_as": "$front_flange_outer",
+              "saved_value": "87"
+            },
+            "postconditions": [
+              {
+                "ok": true,
+                "postcondition": {
+                  "type": "exists",
+                  "target": "87"
+                },
+                "reason": "target handle captured"
+              }
+            ]
+          },
+          {
+            "step_id": "front_flange_step",
+            "op": "draw_circle",
+            "args": {
+              "center_x": 0,
+              "center_y": 0,
+              "radius": 57,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆\n  handle: 88\n  layer: M-OUTLINE\n  radius: 57\n  diameter: 114\n  area: 10207.03",
+            "outputs": {
+              "handles": [
+                "88"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_counterbore",
+            "op": "draw_circle",
+            "args": {
+              "center_x": 0,
+              "center_y": 0,
+              "radius": 45,
+              "layer": "M-HIDDEN"
+            },
+            "result": "OK: 已绘制圆\n  handle: 89\n  layer: M-HIDDEN\n  radius: 45\n  diameter: 90\n  area: 6361.72",
+            "outputs": {
+              "handles": [
+                "89"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_bore",
+            "op": "draw_circle",
+            "args": {
+              "center_x": 0,
+              "center_y": 0,
+              "radius": 35,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆\n  handle: 8A\n  layer: M-OUTLINE\n  radius: 35\n  diameter: 70\n  area: 3848.45",
+            "outputs": {
+              "handles": [
+                "8A"
+              ],
+              "save_as": "$front_bore",
+              "saved_value": "8A"
+            },
+            "postconditions": [
+              {
+                "ok": true,
+                "postcondition": {
+                  "type": "exists",
+                  "target": "8A"
+                },
+                "reason": "target handle captured"
+              }
+            ]
+          },
+          {
+            "step_id": "front_bolt_1",
+            "op": "draw_circle",
+            "args": {
+              "center_x": -35,
+              "center_y": 35,
+              "radius": 7,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆\n  handle: 8B\n  layer: M-OUTLINE\n  radius: 7\n  diameter: 14\n  area: 153.94",
+            "outputs": {
+              "handles": [
+                "8B"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_bolt_2",
+            "op": "draw_circle",
+            "args": {
+              "center_x": 35,
+              "center_y": 35,
+              "radius": 7,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆\n  handle: 8C\n  layer: M-OUTLINE\n  radius: 7\n  diameter: 14\n  area: 153.94",
+            "outputs": {
+              "handles": [
+                "8C"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_bolt_3",
+            "op": "draw_circle",
+            "args": {
+              "center_x": -35,
+              "center_y": -35,
+              "radius": 7,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆\n  handle: 8D\n  layer: M-OUTLINE\n  radius: 7\n  diameter: 14\n  area: 153.94",
+            "outputs": {
+              "handles": [
+                "8D"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_bolt_4",
+            "op": "draw_circle",
+            "args": {
+              "center_x": 35,
+              "center_y": -35,
+              "radius": 7,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆\n  handle: 8E\n  layer: M-OUTLINE\n  radius: 7\n  diameter: 14\n  area: 153.94",
+            "outputs": {
+              "handles": [
+                "8E"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_mount_hole_1",
+            "op": "draw_circle",
+            "args": {
+              "center_x": -105,
+              "center_y": -100,
+              "radius": 7,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆\n  handle: 8F\n  layer: M-OUTLINE\n  radius: 7\n  diameter: 14\n  area: 153.94",
+            "outputs": {
+              "handles": [
+                "8F"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_mount_hole_2",
+            "op": "draw_circle",
+            "args": {
+              "center_x": 105,
+              "center_y": -100,
+              "radius": 7,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆\n  handle: 90\n  layer: M-OUTLINE\n  radius: 7\n  diameter: 14\n  area: 153.94",
+            "outputs": {
+              "handles": [
+                "90"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_left_rib",
+            "op": "draw_polyline",
+            "args": {
+              "points": [
+                -88,
+                -90,
+                -52,
+                -46,
+                -32,
+                -60,
+                -58,
+                -90
+              ],
+              "closed": true,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制多段线\n  handle: 91\n  vertices: 4\n  closed: True\n  length: 150.96",
+            "outputs": {
+              "handles": [
+                "91"
+              ],
+              "save_as": "$front_left_rib",
+              "saved_value": "91"
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_right_rib",
+            "op": "draw_polyline",
+            "args": {
+              "points": [
+                88,
+                -90,
+                52,
+                -46,
+                32,
+                -60,
+                58,
+                -90
+              ],
+              "closed": true,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制多段线\n  handle: 92\n  vertices: 4\n  closed: True\n  length: 150.96",
+            "outputs": {
+              "handles": [
+                "92"
+              ],
+              "save_as": "$front_right_rib",
+              "saved_value": "92"
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_axis_h",
+            "op": "draw_line",
+            "args": {
+              "start_x": -88,
+              "start_y": 0,
+              "end_x": 88,
+              "end_y": 0,
+              "layer": "M-CENTER"
+            },
+            "result": "OK: 已绘制直线\n  handle: 93\n  layer: M-CENTER\n  length: 176.00",
+            "outputs": {
+              "handles": [
+                "93"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_axis_v",
+            "op": "draw_line",
+            "args": {
+              "start_x": 0,
+              "start_y": -82,
+              "end_x": 0,
+              "end_y": 82,
+              "layer": "M-CENTER"
+            },
+            "result": "OK: 已绘制直线\n  handle: 94\n  layer: M-CENTER\n  length: 164.00",
+            "outputs": {
+              "handles": [
+                "94"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_dim_width",
+            "op": "add_linear_dimension",
+            "args": {
+              "x1": -135,
+              "y1": -110,
+              "x2": 135,
+              "y2": -110,
+              "text_x": 0,
+              "text_y": -132,
+              "layer": "M-DIM"
+            },
+            "result": "OK: Added linear dimension (270.00 units)\n  handle: 95",
+            "outputs": {
+              "handles": [
+                "95"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_dim_height",
+            "op": "add_linear_dimension",
+            "args": {
+              "x1": -135,
+              "y1": -110,
+              "x2": -135,
+              "y2": 70,
+              "text_x": -158,
+              "text_y": -20,
+              "layer": "M-DIM"
+            },
+            "result": "OK: Added linear dimension (180.00 units)\n  handle: C8",
+            "outputs": {
+              "handles": [
+                "C8"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_dim_bore",
+            "op": "add_diametric_dimension",
+            "args": {
+              "chord1_x": -35,
+              "chord1_y": 0,
+              "chord2_x": 35,
+              "chord2_y": 0,
+              "leader_length": 22,
+              "layer": "M-DIM"
+            },
+            "result": "OK: Added diametric dimension (D70.00)\n  handle: FA",
+            "outputs": {
+              "handles": [
+                "FA"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_label",
+            "op": "draw_text",
+            "args": {
+              "text": "FRONT VIEW",
+              "insert_x": -135,
+              "insert_y": 92,
+              "height": 8,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'FRONT VIEW'\n  handle: 113\n  height: 8",
+            "outputs": {
+              "handles": [
+                "113"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "front_note",
+            "op": "draw_text",
+            "args": {
+              "text": "4X DIA 14 ON 98 PCD",
+              "insert_x": 72,
+              "insert_y": 58,
+              "height": 4.5,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 '4X DIA 14 ON 98 PCD'\n  handle: 114\n  height: 4.5",
+            "outputs": {
+              "handles": [
+                "114"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "top_base",
+            "op": "draw_rectangle",
+            "args": {
+              "x1": -135,
+              "y1": -340,
+              "x2": 135,
+              "y2": -260,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制矩形\n  handle: 115\n  width: 270.00\n  height: 80.00\n  area: 21600.00",
+            "outputs": {
+              "handles": [
+                "115"
+              ],
+              "save_as": "$top_base",
+              "saved_value": "115"
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "top_body",
+            "op": "draw_rectangle",
+            "args": {
+              "x1": -60,
+              "y1": -330,
+              "x2": 60,
+              "y2": -270,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制矩形\n  handle: 116\n  width: 120.00\n  height: 60.00\n  area: 7200.00",
+            "outputs": {
+              "handles": [
+                "116"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "top_flange_left",
+            "op": "draw_line",
+            "args": {
+              "start_x": -45,
+              "start_y": -340,
+              "end_x": -45,
+              "end_y": -260,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 117\n  layer: M-OUTLINE\n  length: 80.00",
+            "outputs": {
+              "handles": [
+                "117"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "top_flange_right",
+            "op": "draw_line",
+            "args": {
+              "start_x": 45,
+              "start_y": -340,
+              "end_x": 45,
+              "end_y": -260,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 118\n  layer: M-OUTLINE\n  length: 80.00",
+            "outputs": {
+              "handles": [
+                "118"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "top_hidden_left",
+            "op": "draw_line",
+            "args": {
+              "start_x": -35,
+              "start_y": -330,
+              "end_x": -35,
+              "end_y": -270,
+              "layer": "M-HIDDEN"
+            },
+            "result": "OK: 已绘制直线\n  handle: 119\n  layer: M-HIDDEN\n  length: 60.00",
+            "outputs": {
+              "handles": [
+                "119"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "top_hidden_right",
+            "op": "draw_line",
+            "args": {
+              "start_x": 35,
+              "start_y": -330,
+              "end_x": 35,
+              "end_y": -270,
+              "layer": "M-HIDDEN"
+            },
+            "result": "OK: 已绘制直线\n  handle: 11A\n  layer: M-HIDDEN\n  length: 60.00",
+            "outputs": {
+              "handles": [
+                "11A"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "top_axis_v",
+            "op": "draw_line",
+            "args": {
+              "start_x": 0,
+              "start_y": -352,
+              "end_x": 0,
+              "end_y": -248,
+              "layer": "M-CENTER"
+            },
+            "result": "OK: 已绘制直线\n  handle: 11B\n  layer: M-CENTER\n  length: 104.00",
+            "outputs": {
+              "handles": [
+                "11B"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_1_top",
+            "op": "draw_line",
+            "args": {
+              "start_x": -112,
+              "start_y": -273,
+              "end_x": -98,
+              "end_y": -273,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 11C\n  layer: M-OUTLINE\n  length: 14.00",
+            "outputs": {
+              "handles": [
+                "11C"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_1_bottom",
+            "op": "draw_line",
+            "args": {
+              "start_x": -112,
+              "start_y": -287,
+              "end_x": -98,
+              "end_y": -287,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 11D\n  layer: M-OUTLINE\n  length: 14.00",
+            "outputs": {
+              "handles": [
+                "11D"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_1_left",
+            "op": "draw_arc",
+            "args": {
+              "center_x": -112,
+              "center_y": -280,
+              "radius": 7,
+              "start_angle": 90,
+              "end_angle": 270,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆弧\n  handle: 11E\n  radius: 7\n  span: 90° → 270°",
+            "outputs": {
+              "handles": [
+                "11E"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_1_right",
+            "op": "draw_arc",
+            "args": {
+              "center_x": -98,
+              "center_y": -280,
+              "radius": 7,
+              "start_angle": -90,
+              "end_angle": 90,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆弧\n  handle: 11F\n  radius: 7\n  span: -90° → 90°",
+            "outputs": {
+              "handles": [
+                "11F"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_2_top",
+            "op": "draw_line",
+            "args": {
+              "start_x": -112,
+              "start_y": -313,
+              "end_x": -98,
+              "end_y": -313,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 120\n  layer: M-OUTLINE\n  length: 14.00",
+            "outputs": {
+              "handles": [
+                "120"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_2_bottom",
+            "op": "draw_line",
+            "args": {
+              "start_x": -112,
+              "start_y": -327,
+              "end_x": -98,
+              "end_y": -327,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 121\n  layer: M-OUTLINE\n  length: 14.00",
+            "outputs": {
+              "handles": [
+                "121"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_2_left",
+            "op": "draw_arc",
+            "args": {
+              "center_x": -112,
+              "center_y": -320,
+              "radius": 7,
+              "start_angle": 90,
+              "end_angle": 270,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆弧\n  handle: 122\n  radius: 7\n  span: 90° → 270°",
+            "outputs": {
+              "handles": [
+                "122"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_2_right",
+            "op": "draw_arc",
+            "args": {
+              "center_x": -98,
+              "center_y": -320,
+              "radius": 7,
+              "start_angle": -90,
+              "end_angle": 90,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆弧\n  handle: 123\n  radius: 7\n  span: -90° → 90°",
+            "outputs": {
+              "handles": [
+                "123"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_3_top",
+            "op": "draw_line",
+            "args": {
+              "start_x": 98,
+              "start_y": -273,
+              "end_x": 112,
+              "end_y": -273,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 124\n  layer: M-OUTLINE\n  length: 14.00",
+            "outputs": {
+              "handles": [
+                "124"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_3_bottom",
+            "op": "draw_line",
+            "args": {
+              "start_x": 98,
+              "start_y": -287,
+              "end_x": 112,
+              "end_y": -287,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 125\n  layer: M-OUTLINE\n  length: 14.00",
+            "outputs": {
+              "handles": [
+                "125"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_3_left",
+            "op": "draw_arc",
+            "args": {
+              "center_x": 98,
+              "center_y": -280,
+              "radius": 7,
+              "start_angle": 90,
+              "end_angle": 270,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆弧\n  handle: 126\n  radius: 7\n  span: 90° → 270°",
+            "outputs": {
+              "handles": [
+                "126"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_3_right",
+            "op": "draw_arc",
+            "args": {
+              "center_x": 112,
+              "center_y": -280,
+              "radius": 7,
+              "start_angle": -90,
+              "end_angle": 90,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆弧\n  handle: 127\n  radius: 7\n  span: -90° → 90°",
+            "outputs": {
+              "handles": [
+                "127"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_4_top",
+            "op": "draw_line",
+            "args": {
+              "start_x": 98,
+              "start_y": -313,
+              "end_x": 112,
+              "end_y": -313,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 128\n  layer: M-OUTLINE\n  length: 14.00",
+            "outputs": {
+              "handles": [
+                "128"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_4_bottom",
+            "op": "draw_line",
+            "args": {
+              "start_x": 98,
+              "start_y": -327,
+              "end_x": 112,
+              "end_y": -327,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 129\n  layer: M-OUTLINE\n  length: 14.00",
+            "outputs": {
+              "handles": [
+                "129"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_4_left",
+            "op": "draw_arc",
+            "args": {
+              "center_x": 98,
+              "center_y": -320,
+              "radius": 7,
+              "start_angle": 90,
+              "end_angle": 270,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆弧\n  handle: 12A\n  radius: 7\n  span: 90° → 270°",
+            "outputs": {
+              "handles": [
+                "12A"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "slot_4_right",
+            "op": "draw_arc",
+            "args": {
+              "center_x": 112,
+              "center_y": -320,
+              "radius": 7,
+              "start_angle": -90,
+              "end_angle": 90,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制圆弧\n  handle: 12B\n  radius: 7\n  span: -90° → 90°",
+            "outputs": {
+              "handles": [
+                "12B"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "top_dim_width",
+            "op": "add_linear_dimension",
+            "args": {
+              "x1": -135,
+              "y1": -340,
+              "x2": 135,
+              "y2": -340,
+              "text_x": 0,
+              "text_y": -363,
+              "layer": "M-DIM"
+            },
+            "result": "OK: Added linear dimension (270.00 units)\n  handle: 12C",
+            "outputs": {
+              "handles": [
+                "12C"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "top_dim_depth",
+            "op": "add_linear_dimension",
+            "args": {
+              "x1": 135,
+              "y1": -340,
+              "x2": 135,
+              "y2": -260,
+              "text_x": 158,
+              "text_y": -300,
+              "layer": "M-DIM"
+            },
+            "result": "OK: Added linear dimension (80.00 units)\n  handle: 15E",
+            "outputs": {
+              "handles": [
+                "15E"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "top_label",
+            "op": "draw_text",
+            "args": {
+              "text": "TOP VIEW",
+              "insert_x": -135,
+              "insert_y": -235,
+              "height": 8,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'TOP VIEW'\n  handle: 190\n  height: 8",
+            "outputs": {
+              "handles": [
+                "190"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_line",
+            "op": "draw_line",
+            "args": {
+              "start_x": -150,
+              "start_y": -300,
+              "end_x": 150,
+              "end_y": -300,
+              "layer": "M-DIM"
+            },
+            "result": "OK: 已绘制直线\n  handle: 191\n  layer: M-DIM\n  length: 300.00",
+            "outputs": {
+              "handles": [
+                "191"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_a_left",
+            "op": "draw_text",
+            "args": {
+              "text": "A",
+              "insert_x": -162,
+              "insert_y": -296,
+              "height": 6,
+              "layer": "M-DIM"
+            },
+            "result": "OK: 已绘制文字 'A'\n  handle: 192\n  height: 6",
+            "outputs": {
+              "handles": [
+                "192"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_a_right",
+            "op": "draw_text",
+            "args": {
+              "text": "A",
+              "insert_x": 154,
+              "insert_y": -296,
+              "height": 6,
+              "layer": "M-DIM"
+            },
+            "result": "OK: 已绘制文字 'A'\n  handle: 193\n  height: 6",
+            "outputs": {
+              "handles": [
+                "193"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_base",
+            "op": "draw_rectangle",
+            "args": {
+              "x1": 225,
+              "y1": -110,
+              "x2": 495,
+              "y2": -90,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制矩形\n  handle: 194\n  width: 270.00\n  height: 20.00\n  area: 5400.00",
+            "outputs": {
+              "handles": [
+                "194"
+              ],
+              "save_as": "$section_base",
+              "saved_value": "194"
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_left_rib",
+            "op": "draw_polyline",
+            "args": {
+              "points": [
+                278,
+                -90,
+                305,
+                -52,
+                330,
+                -52,
+                314,
+                -90
+              ],
+              "closed": true,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制多段线\n  handle: 195\n  vertices: 4\n  closed: True\n  length: 148.85",
+            "outputs": {
+              "handles": [
+                "195"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_right_rib",
+            "op": "draw_polyline",
+            "args": {
+              "points": [
+                442,
+                -90,
+                415,
+                -52,
+                390,
+                -52,
+                406,
+                -90
+              ],
+              "closed": true,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制多段线\n  handle: 196\n  vertices: 4\n  closed: True\n  length: 148.85",
+            "outputs": {
+              "handles": [
+                "196"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_top_boundary",
+            "op": "draw_polyline",
+            "args": {
+              "points": [
+                290,
+                18,
+                320,
+                18,
+                320,
+                28,
+                400,
+                28,
+                400,
+                18,
+                430,
+                18,
+                430,
+                70,
+                290,
+                70
+              ],
+              "closed": true,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制多段线\n  handle: 197\n  vertices: 8\n  closed: True\n  length: 404.00",
+            "outputs": {
+              "handles": [
+                "197"
+              ],
+              "save_as": "$section_top_boundary",
+              "saved_value": "197"
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_bottom_boundary",
+            "op": "draw_polyline",
+            "args": {
+              "points": [
+                290,
+                -18,
+                320,
+                -18,
+                320,
+                -28,
+                400,
+                -28,
+                400,
+                -18,
+                430,
+                -18,
+                430,
+                -80,
+                290,
+                -80
+              ],
+              "closed": true,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制多段线\n  handle: 198\n  vertices: 8\n  closed: True\n  length: 424.00",
+            "outputs": {
+              "handles": [
+                "198"
+              ],
+              "save_as": "$section_bottom_boundary",
+              "saved_value": "198"
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_left_flange",
+            "op": "draw_rectangle",
+            "args": {
+              "x1": 275,
+              "y1": -45,
+              "x2": 290,
+              "y2": 45,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制矩形\n  handle: 199\n  width: 15.00\n  height: 90.00\n  area: 1350.00",
+            "outputs": {
+              "handles": [
+                "199"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_right_flange",
+            "op": "draw_rectangle",
+            "args": {
+              "x1": 430,
+              "y1": -45,
+              "x2": 445,
+              "y2": 45,
+              "layer": "M-OUTLINE"
+            },
+            "result": "OK: 已绘制矩形\n  handle: 19A\n  width: 15.00\n  height: 90.00\n  area: 1350.00",
+            "outputs": {
+              "handles": [
+                "19A"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_axis",
+            "op": "draw_line",
+            "args": {
+              "start_x": 258,
+              "start_y": 0,
+              "end_x": 462,
+              "end_y": 0,
+              "layer": "M-CENTER"
+            },
+            "result": "OK: 已绘制直线\n  handle: 19B\n  layer: M-CENTER\n  length: 204.00",
+            "outputs": {
+              "handles": [
+                "19B"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_hatch_top",
+            "op": "add_hatch",
+            "args": {
+              "pattern_name": "ANSI31",
+              "associativity": true,
+              "layer": "M-HATCH"
+            },
+            "result": "OK: 已创建填充对象 (图案:ANSI31)\n  handle: 19C\n  pattern: ANSI31\n  note: 请使用 hatch_add_boundary 添加边界",
+            "outputs": {
+              "handles": [
+                "19C"
+              ],
+              "save_as": "$section_hatch_top",
+              "saved_value": "19C"
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_hatch_top_boundary",
+            "op": "hatch_add_boundary",
+            "args": {
+              "handle": "19C",
+              "boundary_handles": [
+                "197"
+              ]
+            },
+            "result": "OK: 已为填充 19C 添加外边界\n  handle: 19C\n  count: 1",
+            "outputs": {
+              "handles": [
+                "19C"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_hatch_bottom",
+            "op": "add_hatch",
+            "args": {
+              "pattern_name": "ANSI31",
+              "associativity": true,
+              "layer": "M-HATCH"
+            },
+            "result": "OK: 已创建填充对象 (图案:ANSI31)\n  handle: 19D\n  pattern: ANSI31\n  note: 请使用 hatch_add_boundary 添加边界",
+            "outputs": {
+              "handles": [
+                "19D"
+              ],
+              "save_as": "$section_hatch_bottom",
+              "saved_value": "19D"
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_hatch_bottom_boundary",
+            "op": "hatch_add_boundary",
+            "args": {
+              "handle": "19D",
+              "boundary_handles": [
+                "198"
+              ]
+            },
+            "result": "OK: 已为填充 19D 添加外边界\n  handle: 19D\n  count: 1",
+            "outputs": {
+              "handles": [
+                "19D"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_dim_length",
+            "op": "add_linear_dimension",
+            "args": {
+              "x1": 275,
+              "y1": 70,
+              "x2": 445,
+              "y2": 70,
+              "text_x": 360,
+              "text_y": 96,
+              "layer": "M-DIM"
+            },
+            "result": "OK: Added linear dimension (170.00 units)\n  handle: 19E",
+            "outputs": {
+              "handles": [
+                "19E"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_dim_height",
+            "op": "add_linear_dimension",
+            "args": {
+              "x1": 495,
+              "y1": -110,
+              "x2": 495,
+              "y2": 70,
+              "text_x": 520,
+              "text_y": -20,
+              "layer": "M-DIM"
+            },
+            "result": "OK: Added linear dimension (180.00 units)\n  handle: 1D0",
+            "outputs": {
+              "handles": [
+                "1D0"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_dim_bore",
+            "op": "add_linear_dimension",
+            "args": {
+              "x1": 360,
+              "y1": -18,
+              "x2": 360,
+              "y2": 18,
+              "text_x": 458,
+              "text_y": 0,
+              "layer": "M-DIM"
+            },
+            "result": "OK: Added linear dimension (36.00 units)\n  handle: 202",
+            "outputs": {
+              "handles": [
+                "202"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_label",
+            "op": "draw_text",
+            "args": {
+              "text": "RIGHT SECTION A-A",
+              "insert_x": 225,
+              "insert_y": 118,
+              "height": 8,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'RIGHT SECTION A-A'\n  handle: 234\n  height: 8",
+            "outputs": {
+              "handles": [
+                "234"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "section_note",
+            "op": "draw_text",
+            "args": {
+              "text": "STEPPED BEARING SEAT / ANSI31 SECTION",
+              "insert_x": 300,
+              "insert_y": -130,
+              "height": 4.5,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'STEPPED BEARING SEAT / ANSI31 SECTION'\n  handle: 235\n  height: 4.5",
+            "outputs": {
+              "handles": [
+                "235"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_outer",
+            "op": "draw_rectangle",
+            "args": {
+              "x1": 225,
+              "y1": -350,
+              "x2": 520,
+              "y2": -225,
+              "layer": "M-TITLE"
+            },
+            "result": "OK: 已绘制矩形\n  handle: 236\n  width: 295.00\n  height: 125.00\n  area: 36875.00",
+            "outputs": {
+              "handles": [
+                "236"
+              ],
+              "save_as": "$title_outer",
+              "saved_value": "236"
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_grid_1",
+            "op": "draw_line",
+            "args": {
+              "start_x": 225,
+              "start_y": -250,
+              "end_x": 520,
+              "end_y": -250,
+              "layer": "M-TITLE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 237\n  layer: M-TITLE\n  length: 295.00",
+            "outputs": {
+              "handles": [
+                "237"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_grid_2",
+            "op": "draw_line",
+            "args": {
+              "start_x": 225,
+              "start_y": -290,
+              "end_x": 520,
+              "end_y": -290,
+              "layer": "M-TITLE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 238\n  layer: M-TITLE\n  length: 295.00",
+            "outputs": {
+              "handles": [
+                "238"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_grid_3",
+            "op": "draw_line",
+            "args": {
+              "start_x": 225,
+              "start_y": -320,
+              "end_x": 520,
+              "end_y": -320,
+              "layer": "M-TITLE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 239\n  layer: M-TITLE\n  length: 295.00",
+            "outputs": {
+              "handles": [
+                "239"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_grid_4",
+            "op": "draw_line",
+            "args": {
+              "start_x": 410,
+              "start_y": -250,
+              "end_x": 410,
+              "end_y": -350,
+              "layer": "M-TITLE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 23A\n  layer: M-TITLE\n  length: 100.00",
+            "outputs": {
+              "handles": [
+                "23A"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_grid_5",
+            "op": "draw_line",
+            "args": {
+              "start_x": 465,
+              "start_y": -250,
+              "end_x": 465,
+              "end_y": -320,
+              "layer": "M-TITLE"
+            },
+            "result": "OK: 已绘制直线\n  handle: 23B\n  layer: M-TITLE\n  length: 70.00",
+            "outputs": {
+              "handles": [
+                "23B"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_1",
+            "op": "draw_text",
+            "args": {
+              "text": "REAL AUTOCAD MODEL-SPACE EXPORT",
+              "insert_x": 234,
+              "insert_y": -243,
+              "height": 7,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'REAL AUTOCAD MODEL-SPACE EXPORT'\n  handle: 23C\n  height: 7",
+            "outputs": {
+              "handles": [
+                "23C"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_2",
+            "op": "draw_text",
+            "args": {
+              "text": "FLANGED BEARING HOUSING",
+              "insert_x": 234,
+              "insert_y": -276,
+              "height": 8,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'FLANGED BEARING HOUSING'\n  handle: 23D\n  height: 8",
+            "outputs": {
+              "handles": [
+                "23D"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_3",
+            "op": "draw_text",
+            "args": {
+              "text": "DRAWING",
+              "insert_x": 417,
+              "insert_y": -263,
+              "height": 3.5,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'DRAWING'\n  handle: 23E\n  height: 3.5",
+            "outputs": {
+              "handles": [
+                "23E"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_4",
+            "op": "draw_text",
+            "args": {
+              "text": "MCP-REAL-001",
+              "insert_x": 417,
+              "insert_y": -281,
+              "height": 5,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'MCP-REAL-001'\n  handle: 23F\n  height: 5",
+            "outputs": {
+              "handles": [
+                "23F"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_5",
+            "op": "draw_text",
+            "args": {
+              "text": "REV",
+              "insert_x": 472,
+              "insert_y": -263,
+              "height": 3.5,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'REV'\n  handle: 240\n  height: 3.5",
+            "outputs": {
+              "handles": [
+                "240"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_6",
+            "op": "draw_text",
+            "args": {
+              "text": "A",
+              "insert_x": 472,
+              "insert_y": -281,
+              "height": 6,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'A'\n  handle: 241\n  height: 6",
+            "outputs": {
+              "handles": [
+                "241"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_7",
+            "op": "draw_text",
+            "args": {
+              "text": "MATERIAL: QT500-7",
+              "insert_x": 234,
+              "insert_y": -308,
+              "height": 5,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'MATERIAL: QT500-7'\n  handle: 242\n  height: 5",
+            "outputs": {
+              "handles": [
+                "242"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_8",
+            "op": "draw_text",
+            "args": {
+              "text": "SCALE 1:1",
+              "insert_x": 417,
+              "insert_y": -308,
+              "height": 5,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'SCALE 1:1'\n  handle: 243\n  height: 5",
+            "outputs": {
+              "handles": [
+                "243"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_9",
+            "op": "draw_text",
+            "args": {
+              "text": "UNITS mm",
+              "insert_x": 472,
+              "insert_y": -308,
+              "height": 5,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'UNITS mm'\n  handle: 244\n  height: 5",
+            "outputs": {
+              "handles": [
+                "244"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_10",
+            "op": "draw_text",
+            "args": {
+              "text": "CREATED BY VALIDATED + DRY-RUN CADPLAN",
+              "insert_x": 234,
+              "insert_y": -339,
+              "height": 4.5,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'CREATED BY VALIDATED + DRY-RUN CADPLAN'\n  handle: 245\n  height: 4.5",
+            "outputs": {
+              "handles": [
+                "245"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          },
+          {
+            "step_id": "title_text_11",
+            "op": "draw_text",
+            "args": {
+              "text": "best-cad-mcp",
+              "insert_x": 417,
+              "insert_y": -339,
+              "height": 5,
+              "layer": "M-TEXT"
+            },
+            "result": "OK: 已绘制文字 'best-cad-mcp'\n  handle: 246\n  height: 5",
+            "outputs": {
+              "handles": [
+                "246"
+              ],
+              "save_as": null,
+              "saved_value": null
+            },
+            "postconditions": []
+          }
+        ],
+        "state": {
+          "front_base": "86",
+          "front_flange_outer": "87",
+          "front_bore": "8A",
+          "front_left_rib": "91",
+          "front_right_rib": "92",
+          "top_base": "115",
+          "section_base": "194",
+          "section_top_boundary": "197",
+          "section_bottom_boundary": "198",
+          "section_hatch_top": "19C",
+          "section_hatch_bottom": "19D",
+          "title_outer": "236"
+        },
+        "postconditions": [
+          {
+            "ok": true,
+            "postcondition": {
+              "type": "exists",
+              "target": "87"
+            },
+            "reason": "target handle captured"
+          },
+          {
+            "ok": true,
+            "postcondition": {
+              "type": "exists",
+              "target": "8A"
+            },
+            "reason": "target handle captured"
+          }
+        ],
+        "transaction_status": {
+          "ok": true,
+          "success": true,
+          "message": "Started AutoCAD undo mark",
+          "method": "StartUndoMark"
+        },
+        "end_transaction_status": {
+          "ok": true,
+          "success": true,
+          "message": "Ended AutoCAD undo mark",
+          "method": "EndUndoMark"
+        },
+        "after_artifacts": {}
+      },
+      "handles": [
+        "86",
+        "87",
+        "88",
+        "89",
+        "8A",
+        "8B",
+        "8C",
+        "8D",
+        "8E",
+        "8F",
+        "90",
+        "91",
+        "92",
+        "93",
+        "94",
+        "95",
+        "C8",
+        "FA",
+        "113",
+        "114",
+        "115",
+        "116",
+        "117",
+        "118",
+        "119",
+        "11A",
+        "11B",
+        "11C",
+        "11D",
+        "11E",
+        "11F",
+        "120",
+        "121",
+        "122",
+        "123",
+        "124",
+        "125",
+        "126",
+        "127",
+        "128",
+        "129",
+        "12A",
+        "12B",
+        "12C",
+        "15E",
+        "190",
+        "191",
+        "192",
+        "193",
+        "194",
+        "195",
+        "196",
+        "197",
+        "198",
+        "199",
+        "19A",
+        "19B",
+        "19C",
+        "19C",
+        "19D",
+        "19D",
+        "19E",
+        "1D0",
+        "202",
+        "234",
+        "235",
+        "236",
+        "237",
+        "238",
+        "239",
+        "23A",
+        "23B",
+        "23C",
+        "23D",
+        "23E",
+        "23F",
+        "240",
+        "241",
+        "242",
+        "243",
+        "244",
+        "245",
+        "246"
+      ],
+      "warnings": [
+        "Execution modified the DWG through existing safe MCP tool implementations."
+      ],
+      "next_tools": [
+        "scan_all_entities",
+        "validate_geometry",
+        "export_view_image_with_mapping"
+      ]
+    }
+  },
+  "content": [
+    {
+      "type": "text",
+      "text": "{\n  \"ok\": true,\n  \"message\": \"Executed 90 CAD plan steps.\",\n  \"data\": {\n    \"plan_id\": \"readme-real-bearing-housing-v1\",\n    \"results\": [\n      {\n        \"step_id\": \"layer_m_outline\",\n        \"op\": \"create_layer\",\n        \"args\": {\n          \"name\": \"M-OUTLINE\",\n          \"color\": 7,\n          \"linetype\": \"Continuous\"\n        },\n        \"result\": \"OK: 已创建图层 'M-OUTLINE'\\n  color: 7\\n  linetype: Continuous\",\n        \"outputs\": {\n          \"handles\": [],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"layer_m_center\",\n        \"op\": \"create_layer\",\n        \"args\": {\n          \"name\": \"M-CENTER\",\n          \"color\": 4,\n          \"linetype\": \"Continuous\"\n        },\n        \"result\": \"OK: 已创建图层 'M-CENTER'\\n  color: 4\\n  linetype: Continuous\",\n        \"outputs\": {\n          \"handles\": [],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"layer_m_hidden\",\n        \"op\": \"create_layer\",\n        \"args\": {\n          \"name\": \"M-HIDDEN\",\n          \"color\": 8,\n          \"linetype\": \"Continuous\"\n        },\n        \"result\": \"OK: 已创建图层 'M-HIDDEN'\\n  color: 8\\n  linetype: Continuous\",\n        \"outputs\": {\n          \"handles\": [],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"layer_m_dim\",\n        \"op\": \"create_layer\",\n        \"args\": {\n          \"name\": \"M-DIM\",\n          \"color\": 2,\n          \"linetype\": \"Continuous\"\n        },\n        \"result\": \"OK: 已创建图层 'M-DIM'\\n  color: 2\\n  linetype: Continuous\",\n        \"outputs\": {\n          \"handles\": [],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"layer_m_hatch\",\n        \"op\": \"create_layer\",\n        \"args\": {\n          \"name\": \"M-HATCH\",\n          \"color\": 9,\n          \"linetype\": \"Continuous\"\n        },\n        \"result\": \"OK: 已创建图层 'M-HATCH'\\n  color: 9\\n  linetype: Continuous\",\n        \"outputs\": {\n          \"handles\": [],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"layer_m_text\",\n        \"op\": \"create_layer\",\n        \"args\": {\n          \"name\": \"M-TEXT\",\n          \"color\": 3,\n          \"linetype\": \"Continuous\"\n        },\n        \"result\": \"OK: 已创建图层 'M-TEXT'\\n  color: 3\\n  linetype: Continuous\",\n        \"outputs\": {\n          \"handles\": [],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"layer_m_title\",\n        \"op\": \"create_layer\",\n        \"args\": {\n          \"name\": \"M-TITLE\",\n          \"color\": 5,\n          \"linetype\": \"Continuous\"\n        },\n        \"result\": \"OK: 已创建图层 'M-TITLE'\\n  color: 5\\n  linetype: Continuous\",\n        \"outputs\": {\n          \"handles\": [],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_base\",\n        \"op\": \"draw_rectangle\",\n        \"args\": {\n          \"x1\": -135,\n          \"y1\": -110,\n          \"x2\": 135,\n          \"y2\": -90,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制矩形\\n  handle: 86\\n  width: 270.00\\n  height: 20.00\\n  area: 5400.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"86\"\n          ],\n          \"save_as\": \"$front_base\",\n          \"saved_value\": \"86\"\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_flange_outer\",\n        \"op\": \"draw_circle\",\n        \"args\": {\n          \"center_x\": 0,\n          \"center_y\": 0,\n          \"radius\": 70,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆\\n  handle: 87\\n  layer: M-OUTLINE\\n  radius: 70\\n  diameter: 140\\n  area: 15393.79\",\n        \"outputs\": {\n          \"handles\": [\n            \"87\"\n          ],\n          \"save_as\": \"$front_flange_outer\",\n          \"saved_value\": \"87\"\n        },\n        \"postconditions\": [\n          {\n            \"ok\": true,\n            \"postcondition\": {\n              \"type\": \"exists\",\n              \"target\": \"87\"\n            },\n            \"reason\": \"target handle captured\"\n          }\n        ]\n      },\n      {\n        \"step_id\": \"front_flange_step\",\n        \"op\": \"draw_circle\",\n        \"args\": {\n          \"center_x\": 0,\n          \"center_y\": 0,\n          \"radius\": 57,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆\\n  handle: 88\\n  layer: M-OUTLINE\\n  radius: 57\\n  diameter: 114\\n  area: 10207.03\",\n        \"outputs\": {\n          \"handles\": [\n            \"88\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_counterbore\",\n        \"op\": \"draw_circle\",\n        \"args\": {\n          \"center_x\": 0,\n          \"center_y\": 0,\n          \"radius\": 45,\n          \"layer\": \"M-HIDDEN\"\n        },\n        \"result\": \"OK: 已绘制圆\\n  handle: 89\\n  layer: M-HIDDEN\\n  radius: 45\\n  diameter: 90\\n  area: 6361.72\",\n        \"outputs\": {\n          \"handles\": [\n            \"89\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_bore\",\n        \"op\": \"draw_circle\",\n        \"args\": {\n          \"center_x\": 0,\n          \"center_y\": 0,\n          \"radius\": 35,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆\\n  handle: 8A\\n  layer: M-OUTLINE\\n  radius: 35\\n  diameter: 70\\n  area: 3848.45\",\n        \"outputs\": {\n          \"handles\": [\n            \"8A\"\n          ],\n          \"save_as\": \"$front_bore\",\n          \"saved_value\": \"8A\"\n        },\n        \"postconditions\": [\n          {\n            \"ok\": true,\n            \"postcondition\": {\n              \"type\": \"exists\",\n              \"target\": \"8A\"\n            },\n            \"reason\": \"target handle captured\"\n          }\n        ]\n      },\n      {\n        \"step_id\": \"front_bolt_1\",\n        \"op\": \"draw_circle\",\n        \"args\": {\n          \"center_x\": -35,\n          \"center_y\": 35,\n          \"radius\": 7,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆\\n  handle: 8B\\n  layer: M-OUTLINE\\n  radius: 7\\n  diameter: 14\\n  area: 153.94\",\n        \"outputs\": {\n          \"handles\": [\n            \"8B\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_bolt_2\",\n        \"op\": \"draw_circle\",\n        \"args\": {\n          \"center_x\": 35,\n          \"center_y\": 35,\n          \"radius\": 7,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆\\n  handle: 8C\\n  layer: M-OUTLINE\\n  radius: 7\\n  diameter: 14\\n  area: 153.94\",\n        \"outputs\": {\n          \"handles\": [\n            \"8C\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_bolt_3\",\n        \"op\": \"draw_circle\",\n        \"args\": {\n          \"center_x\": -35,\n          \"center_y\": -35,\n          \"radius\": 7,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆\\n  handle: 8D\\n  layer: M-OUTLINE\\n  radius: 7\\n  diameter: 14\\n  area: 153.94\",\n        \"outputs\": {\n          \"handles\": [\n            \"8D\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_bolt_4\",\n        \"op\": \"draw_circle\",\n        \"args\": {\n          \"center_x\": 35,\n          \"center_y\": -35,\n          \"radius\": 7,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆\\n  handle: 8E\\n  layer: M-OUTLINE\\n  radius: 7\\n  diameter: 14\\n  area: 153.94\",\n        \"outputs\": {\n          \"handles\": [\n            \"8E\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_mount_hole_1\",\n        \"op\": \"draw_circle\",\n        \"args\": {\n          \"center_x\": -105,\n          \"center_y\": -100,\n          \"radius\": 7,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆\\n  handle: 8F\\n  layer: M-OUTLINE\\n  radius: 7\\n  diameter: 14\\n  area: 153.94\",\n        \"outputs\": {\n          \"handles\": [\n            \"8F\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_mount_hole_2\",\n        \"op\": \"draw_circle\",\n        \"args\": {\n          \"center_x\": 105,\n          \"center_y\": -100,\n          \"radius\": 7,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆\\n  handle: 90\\n  layer: M-OUTLINE\\n  radius: 7\\n  diameter: 14\\n  area: 153.94\",\n        \"outputs\": {\n          \"handles\": [\n            \"90\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_left_rib\",\n        \"op\": \"draw_polyline\",\n        \"args\": {\n          \"points\": [\n            -88,\n            -90,\n            -52,\n            -46,\n            -32,\n            -60,\n            -58,\n            -90\n          ],\n          \"closed\": true,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制多段线\\n  handle: 91\\n  vertices: 4\\n  closed: True\\n  length: 150.96\",\n        \"outputs\": {\n          \"handles\": [\n            \"91\"\n          ],\n          \"save_as\": \"$front_left_rib\",\n          \"saved_value\": \"91\"\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_right_rib\",\n        \"op\": \"draw_polyline\",\n        \"args\": {\n          \"points\": [\n            88,\n            -90,\n            52,\n            -46,\n            32,\n            -60,\n            58,\n            -90\n          ],\n          \"closed\": true,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制多段线\\n  handle: 92\\n  vertices: 4\\n  closed: True\\n  length: 150.96\",\n        \"outputs\": {\n          \"handles\": [\n            \"92\"\n          ],\n          \"save_as\": \"$front_right_rib\",\n          \"saved_value\": \"92\"\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_axis_h\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": -88,\n          \"start_y\": 0,\n          \"end_x\": 88,\n          \"end_y\": 0,\n          \"layer\": \"M-CENTER\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 93\\n  layer: M-CENTER\\n  length: 176.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"93\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_axis_v\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 0,\n          \"start_y\": -82,\n          \"end_x\": 0,\n          \"end_y\": 82,\n          \"layer\": \"M-CENTER\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 94\\n  layer: M-CENTER\\n  length: 164.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"94\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_dim_width\",\n        \"op\": \"add_linear_dimension\",\n        \"args\": {\n          \"x1\": -135,\n          \"y1\": -110,\n          \"x2\": 135,\n          \"y2\": -110,\n          \"text_x\": 0,\n          \"text_y\": -132,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: Added linear dimension (270.00 units)\\n  handle: 95\",\n        \"outputs\": {\n          \"handles\": [\n            \"95\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_dim_height\",\n        \"op\": \"add_linear_dimension\",\n        \"args\": {\n          \"x1\": -135,\n          \"y1\": -110,\n          \"x2\": -135,\n          \"y2\": 70,\n          \"text_x\": -158,\n          \"text_y\": -20,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: Added linear dimension (180.00 units)\\n  handle: C8\",\n        \"outputs\": {\n          \"handles\": [\n            \"C8\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_dim_bore\",\n        \"op\": \"add_diametric_dimension\",\n        \"args\": {\n          \"chord1_x\": -35,\n          \"chord1_y\": 0,\n          \"chord2_x\": 35,\n          \"chord2_y\": 0,\n          \"leader_length\": 22,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: Added diametric dimension (D70.00)\\n  handle: FA\",\n        \"outputs\": {\n          \"handles\": [\n            \"FA\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_label\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"FRONT VIEW\",\n          \"insert_x\": -135,\n          \"insert_y\": 92,\n          \"height\": 8,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'FRONT VIEW'\\n  handle: 113\\n  height: 8\",\n        \"outputs\": {\n          \"handles\": [\n            \"113\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"front_note\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"4X DIA 14 ON 98 PCD\",\n          \"insert_x\": 72,\n          \"insert_y\": 58,\n          \"height\": 4.5,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 '4X DIA 14 ON 98 PCD'\\n  handle: 114\\n  height: 4.5\",\n        \"outputs\": {\n          \"handles\": [\n            \"114\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"top_base\",\n        \"op\": \"draw_rectangle\",\n        \"args\": {\n          \"x1\": -135,\n          \"y1\": -340,\n          \"x2\": 135,\n          \"y2\": -260,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制矩形\\n  handle: 115\\n  width: 270.00\\n  height: 80.00\\n  area: 21600.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"115\"\n          ],\n          \"save_as\": \"$top_base\",\n          \"saved_value\": \"115\"\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"top_body\",\n        \"op\": \"draw_rectangle\",\n        \"args\": {\n          \"x1\": -60,\n          \"y1\": -330,\n          \"x2\": 60,\n          \"y2\": -270,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制矩形\\n  handle: 116\\n  width: 120.00\\n  height: 60.00\\n  area: 7200.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"116\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"top_flange_left\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": -45,\n          \"start_y\": -340,\n          \"end_x\": -45,\n          \"end_y\": -260,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 117\\n  layer: M-OUTLINE\\n  length: 80.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"117\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"top_flange_right\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 45,\n          \"start_y\": -340,\n          \"end_x\": 45,\n          \"end_y\": -260,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 118\\n  layer: M-OUTLINE\\n  length: 80.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"118\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"top_hidden_left\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": -35,\n          \"start_y\": -330,\n          \"end_x\": -35,\n          \"end_y\": -270,\n          \"layer\": \"M-HIDDEN\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 119\\n  layer: M-HIDDEN\\n  length: 60.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"119\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"top_hidden_right\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 35,\n          \"start_y\": -330,\n          \"end_x\": 35,\n          \"end_y\": -270,\n          \"layer\": \"M-HIDDEN\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 11A\\n  layer: M-HIDDEN\\n  length: 60.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"11A\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"top_axis_v\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 0,\n          \"start_y\": -352,\n          \"end_x\": 0,\n          \"end_y\": -248,\n          \"layer\": \"M-CENTER\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 11B\\n  layer: M-CENTER\\n  length: 104.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"11B\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_1_top\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": -112,\n          \"start_y\": -273,\n          \"end_x\": -98,\n          \"end_y\": -273,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 11C\\n  layer: M-OUTLINE\\n  length: 14.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"11C\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_1_bottom\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": -112,\n          \"start_y\": -287,\n          \"end_x\": -98,\n          \"end_y\": -287,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 11D\\n  layer: M-OUTLINE\\n  length: 14.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"11D\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_1_left\",\n        \"op\": \"draw_arc\",\n        \"args\": {\n          \"center_x\": -112,\n          \"center_y\": -280,\n          \"radius\": 7,\n          \"start_angle\": 90,\n          \"end_angle\": 270,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆弧\\n  handle: 11E\\n  radius: 7\\n  span: 90° → 270°\",\n        \"outputs\": {\n          \"handles\": [\n            \"11E\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_1_right\",\n        \"op\": \"draw_arc\",\n        \"args\": {\n          \"center_x\": -98,\n          \"center_y\": -280,\n          \"radius\": 7,\n          \"start_angle\": -90,\n          \"end_angle\": 90,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆弧\\n  handle: 11F\\n  radius: 7\\n  span: -90° → 90°\",\n        \"outputs\": {\n          \"handles\": [\n            \"11F\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_2_top\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": -112,\n          \"start_y\": -313,\n          \"end_x\": -98,\n          \"end_y\": -313,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 120\\n  layer: M-OUTLINE\\n  length: 14.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"120\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_2_bottom\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": -112,\n          \"start_y\": -327,\n          \"end_x\": -98,\n          \"end_y\": -327,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 121\\n  layer: M-OUTLINE\\n  length: 14.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"121\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_2_left\",\n        \"op\": \"draw_arc\",\n        \"args\": {\n          \"center_x\": -112,\n          \"center_y\": -320,\n          \"radius\": 7,\n          \"start_angle\": 90,\n          \"end_angle\": 270,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆弧\\n  handle: 122\\n  radius: 7\\n  span: 90° → 270°\",\n        \"outputs\": {\n          \"handles\": [\n            \"122\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_2_right\",\n        \"op\": \"draw_arc\",\n        \"args\": {\n          \"center_x\": -98,\n          \"center_y\": -320,\n          \"radius\": 7,\n          \"start_angle\": -90,\n          \"end_angle\": 90,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆弧\\n  handle: 123\\n  radius: 7\\n  span: -90° → 90°\",\n        \"outputs\": {\n          \"handles\": [\n            \"123\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_3_top\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 98,\n          \"start_y\": -273,\n          \"end_x\": 112,\n          \"end_y\": -273,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 124\\n  layer: M-OUTLINE\\n  length: 14.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"124\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_3_bottom\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 98,\n          \"start_y\": -287,\n          \"end_x\": 112,\n          \"end_y\": -287,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 125\\n  layer: M-OUTLINE\\n  length: 14.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"125\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_3_left\",\n        \"op\": \"draw_arc\",\n        \"args\": {\n          \"center_x\": 98,\n          \"center_y\": -280,\n          \"radius\": 7,\n          \"start_angle\": 90,\n          \"end_angle\": 270,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆弧\\n  handle: 126\\n  radius: 7\\n  span: 90° → 270°\",\n        \"outputs\": {\n          \"handles\": [\n            \"126\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_3_right\",\n        \"op\": \"draw_arc\",\n        \"args\": {\n          \"center_x\": 112,\n          \"center_y\": -280,\n          \"radius\": 7,\n          \"start_angle\": -90,\n          \"end_angle\": 90,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆弧\\n  handle: 127\\n  radius: 7\\n  span: -90° → 90°\",\n        \"outputs\": {\n          \"handles\": [\n            \"127\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_4_top\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 98,\n          \"start_y\": -313,\n          \"end_x\": 112,\n          \"end_y\": -313,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 128\\n  layer: M-OUTLINE\\n  length: 14.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"128\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_4_bottom\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 98,\n          \"start_y\": -327,\n          \"end_x\": 112,\n          \"end_y\": -327,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 129\\n  layer: M-OUTLINE\\n  length: 14.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"129\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_4_left\",\n        \"op\": \"draw_arc\",\n        \"args\": {\n          \"center_x\": 98,\n          \"center_y\": -320,\n          \"radius\": 7,\n          \"start_angle\": 90,\n          \"end_angle\": 270,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆弧\\n  handle: 12A\\n  radius: 7\\n  span: 90° → 270°\",\n        \"outputs\": {\n          \"handles\": [\n            \"12A\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"slot_4_right\",\n        \"op\": \"draw_arc\",\n        \"args\": {\n          \"center_x\": 112,\n          \"center_y\": -320,\n          \"radius\": 7,\n          \"start_angle\": -90,\n          \"end_angle\": 90,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制圆弧\\n  handle: 12B\\n  radius: 7\\n  span: -90° → 90°\",\n        \"outputs\": {\n          \"handles\": [\n            \"12B\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"top_dim_width\",\n        \"op\": \"add_linear_dimension\",\n        \"args\": {\n          \"x1\": -135,\n          \"y1\": -340,\n          \"x2\": 135,\n          \"y2\": -340,\n          \"text_x\": 0,\n          \"text_y\": -363,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: Added linear dimension (270.00 units)\\n  handle: 12C\",\n        \"outputs\": {\n          \"handles\": [\n            \"12C\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"top_dim_depth\",\n        \"op\": \"add_linear_dimension\",\n        \"args\": {\n          \"x1\": 135,\n          \"y1\": -340,\n          \"x2\": 135,\n          \"y2\": -260,\n          \"text_x\": 158,\n          \"text_y\": -300,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: Added linear dimension (80.00 units)\\n  handle: 15E\",\n        \"outputs\": {\n          \"handles\": [\n            \"15E\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"top_label\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"TOP VIEW\",\n          \"insert_x\": -135,\n          \"insert_y\": -235,\n          \"height\": 8,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'TOP VIEW'\\n  handle: 190\\n  height: 8\",\n        \"outputs\": {\n          \"handles\": [\n            \"190\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_line\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": -150,\n          \"start_y\": -300,\n          \"end_x\": 150,\n          \"end_y\": -300,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 191\\n  layer: M-DIM\\n  length: 300.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"191\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_a_left\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"A\",\n          \"insert_x\": -162,\n          \"insert_y\": -296,\n          \"height\": 6,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: 已绘制文字 'A'\\n  handle: 192\\n  height: 6\",\n        \"outputs\": {\n          \"handles\": [\n            \"192\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_a_right\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"A\",\n          \"insert_x\": 154,\n          \"insert_y\": -296,\n          \"height\": 6,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: 已绘制文字 'A'\\n  handle: 193\\n  height: 6\",\n        \"outputs\": {\n          \"handles\": [\n            \"193\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_base\",\n        \"op\": \"draw_rectangle\",\n        \"args\": {\n          \"x1\": 225,\n          \"y1\": -110,\n          \"x2\": 495,\n          \"y2\": -90,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制矩形\\n  handle: 194\\n  width: 270.00\\n  height: 20.00\\n  area: 5400.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"194\"\n          ],\n          \"save_as\": \"$section_base\",\n          \"saved_value\": \"194\"\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_left_rib\",\n        \"op\": \"draw_polyline\",\n        \"args\": {\n          \"points\": [\n            278,\n            -90,\n            305,\n            -52,\n            330,\n            -52,\n            314,\n            -90\n          ],\n          \"closed\": true,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制多段线\\n  handle: 195\\n  vertices: 4\\n  closed: True\\n  length: 148.85\",\n        \"outputs\": {\n          \"handles\": [\n            \"195\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_right_rib\",\n        \"op\": \"draw_polyline\",\n        \"args\": {\n          \"points\": [\n            442,\n            -90,\n            415,\n            -52,\n            390,\n            -52,\n            406,\n            -90\n          ],\n          \"closed\": true,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制多段线\\n  handle: 196\\n  vertices: 4\\n  closed: True\\n  length: 148.85\",\n        \"outputs\": {\n          \"handles\": [\n            \"196\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_top_boundary\",\n        \"op\": \"draw_polyline\",\n        \"args\": {\n          \"points\": [\n            290,\n            18,\n            320,\n            18,\n            320,\n            28,\n            400,\n            28,\n            400,\n            18,\n            430,\n            18,\n            430,\n            70,\n            290,\n            70\n          ],\n          \"closed\": true,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制多段线\\n  handle: 197\\n  vertices: 8\\n  closed: True\\n  length: 404.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"197\"\n          ],\n          \"save_as\": \"$section_top_boundary\",\n          \"saved_value\": \"197\"\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_bottom_boundary\",\n        \"op\": \"draw_polyline\",\n        \"args\": {\n          \"points\": [\n            290,\n            -18,\n            320,\n            -18,\n            320,\n            -28,\n            400,\n            -28,\n            400,\n            -18,\n            430,\n            -18,\n            430,\n            -80,\n            290,\n            -80\n          ],\n          \"closed\": true,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制多段线\\n  handle: 198\\n  vertices: 8\\n  closed: True\\n  length: 424.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"198\"\n          ],\n          \"save_as\": \"$section_bottom_boundary\",\n          \"saved_value\": \"198\"\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_left_flange\",\n        \"op\": \"draw_rectangle\",\n        \"args\": {\n          \"x1\": 275,\n          \"y1\": -45,\n          \"x2\": 290,\n          \"y2\": 45,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制矩形\\n  handle: 199\\n  width: 15.00\\n  height: 90.00\\n  area: 1350.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"199\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_right_flange\",\n        \"op\": \"draw_rectangle\",\n        \"args\": {\n          \"x1\": 430,\n          \"y1\": -45,\n          \"x2\": 445,\n          \"y2\": 45,\n          \"layer\": \"M-OUTLINE\"\n        },\n        \"result\": \"OK: 已绘制矩形\\n  handle: 19A\\n  width: 15.00\\n  height: 90.00\\n  area: 1350.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"19A\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_axis\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 258,\n          \"start_y\": 0,\n          \"end_x\": 462,\n          \"end_y\": 0,\n          \"layer\": \"M-CENTER\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 19B\\n  layer: M-CENTER\\n  length: 204.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"19B\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_hatch_top\",\n        \"op\": \"add_hatch\",\n        \"args\": {\n          \"pattern_name\": \"ANSI31\",\n          \"associativity\": true,\n          \"layer\": \"M-HATCH\"\n        },\n        \"result\": \"OK: 已创建填充对象 (图案:ANSI31)\\n  handle: 19C\\n  pattern: ANSI31\\n  note: 请使用 hatch_add_boundary 添加边界\",\n        \"outputs\": {\n          \"handles\": [\n            \"19C\"\n          ],\n          \"save_as\": \"$section_hatch_top\",\n          \"saved_value\": \"19C\"\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_hatch_top_boundary\",\n        \"op\": \"hatch_add_boundary\",\n        \"args\": {\n          \"handle\": \"19C\",\n          \"boundary_handles\": [\n            \"197\"\n          ]\n        },\n        \"result\": \"OK: 已为填充 19C 添加外边界\\n  handle: 19C\\n  count: 1\",\n        \"outputs\": {\n          \"handles\": [\n            \"19C\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_hatch_bottom\",\n        \"op\": \"add_hatch\",\n        \"args\": {\n          \"pattern_name\": \"ANSI31\",\n          \"associativity\": true,\n          \"layer\": \"M-HATCH\"\n        },\n        \"result\": \"OK: 已创建填充对象 (图案:ANSI31)\\n  handle: 19D\\n  pattern: ANSI31\\n  note: 请使用 hatch_add_boundary 添加边界\",\n        \"outputs\": {\n          \"handles\": [\n            \"19D\"\n          ],\n          \"save_as\": \"$section_hatch_bottom\",\n          \"saved_value\": \"19D\"\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_hatch_bottom_boundary\",\n        \"op\": \"hatch_add_boundary\",\n        \"args\": {\n          \"handle\": \"19D\",\n          \"boundary_handles\": [\n            \"198\"\n          ]\n        },\n        \"result\": \"OK: 已为填充 19D 添加外边界\\n  handle: 19D\\n  count: 1\",\n        \"outputs\": {\n          \"handles\": [\n            \"19D\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_dim_length\",\n        \"op\": \"add_linear_dimension\",\n        \"args\": {\n          \"x1\": 275,\n          \"y1\": 70,\n          \"x2\": 445,\n          \"y2\": 70,\n          \"text_x\": 360,\n          \"text_y\": 96,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: Added linear dimension (170.00 units)\\n  handle: 19E\",\n        \"outputs\": {\n          \"handles\": [\n            \"19E\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_dim_height\",\n        \"op\": \"add_linear_dimension\",\n        \"args\": {\n          \"x1\": 495,\n          \"y1\": -110,\n          \"x2\": 495,\n          \"y2\": 70,\n          \"text_x\": 520,\n          \"text_y\": -20,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: Added linear dimension (180.00 units)\\n  handle: 1D0\",\n        \"outputs\": {\n          \"handles\": [\n            \"1D0\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_dim_bore\",\n        \"op\": \"add_linear_dimension\",\n        \"args\": {\n          \"x1\": 360,\n          \"y1\": -18,\n          \"x2\": 360,\n          \"y2\": 18,\n          \"text_x\": 458,\n          \"text_y\": 0,\n          \"layer\": \"M-DIM\"\n        },\n        \"result\": \"OK: Added linear dimension (36.00 units)\\n  handle: 202\",\n        \"outputs\": {\n          \"handles\": [\n            \"202\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_label\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"RIGHT SECTION A-A\",\n          \"insert_x\": 225,\n          \"insert_y\": 118,\n          \"height\": 8,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'RIGHT SECTION A-A'\\n  handle: 234\\n  height: 8\",\n        \"outputs\": {\n          \"handles\": [\n            \"234\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"section_note\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"STEPPED BEARING SEAT / ANSI31 SECTION\",\n          \"insert_x\": 300,\n          \"insert_y\": -130,\n          \"height\": 4.5,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'STEPPED BEARING SEAT / ANSI31 SECTION'\\n  handle: 235\\n  height: 4.5\",\n        \"outputs\": {\n          \"handles\": [\n            \"235\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_outer\",\n        \"op\": \"draw_rectangle\",\n        \"args\": {\n          \"x1\": 225,\n          \"y1\": -350,\n          \"x2\": 520,\n          \"y2\": -225,\n          \"layer\": \"M-TITLE\"\n        },\n        \"result\": \"OK: 已绘制矩形\\n  handle: 236\\n  width: 295.00\\n  height: 125.00\\n  area: 36875.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"236\"\n          ],\n          \"save_as\": \"$title_outer\",\n          \"saved_value\": \"236\"\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_grid_1\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 225,\n          \"start_y\": -250,\n          \"end_x\": 520,\n          \"end_y\": -250,\n          \"layer\": \"M-TITLE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 237\\n  layer: M-TITLE\\n  length: 295.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"237\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_grid_2\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 225,\n          \"start_y\": -290,\n          \"end_x\": 520,\n          \"end_y\": -290,\n          \"layer\": \"M-TITLE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 238\\n  layer: M-TITLE\\n  length: 295.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"238\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_grid_3\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 225,\n          \"start_y\": -320,\n          \"end_x\": 520,\n          \"end_y\": -320,\n          \"layer\": \"M-TITLE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 239\\n  layer: M-TITLE\\n  length: 295.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"239\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_grid_4\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 410,\n          \"start_y\": -250,\n          \"end_x\": 410,\n          \"end_y\": -350,\n          \"layer\": \"M-TITLE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 23A\\n  layer: M-TITLE\\n  length: 100.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"23A\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_grid_5\",\n        \"op\": \"draw_line\",\n        \"args\": {\n          \"start_x\": 465,\n          \"start_y\": -250,\n          \"end_x\": 465,\n          \"end_y\": -320,\n          \"layer\": \"M-TITLE\"\n        },\n        \"result\": \"OK: 已绘制直线\\n  handle: 23B\\n  layer: M-TITLE\\n  length: 70.00\",\n        \"outputs\": {\n          \"handles\": [\n            \"23B\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_1\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"REAL AUTOCAD MODEL-SPACE EXPORT\",\n          \"insert_x\": 234,\n          \"insert_y\": -243,\n          \"height\": 7,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'REAL AUTOCAD MODEL-SPACE EXPORT'\\n  handle: 23C\\n  height: 7\",\n        \"outputs\": {\n          \"handles\": [\n            \"23C\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_2\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"FLANGED BEARING HOUSING\",\n          \"insert_x\": 234,\n          \"insert_y\": -276,\n          \"height\": 8,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'FLANGED BEARING HOUSING'\\n  handle: 23D\\n  height: 8\",\n        \"outputs\": {\n          \"handles\": [\n            \"23D\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_3\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"DRAWING\",\n          \"insert_x\": 417,\n          \"insert_y\": -263,\n          \"height\": 3.5,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'DRAWING'\\n  handle: 23E\\n  height: 3.5\",\n        \"outputs\": {\n          \"handles\": [\n            \"23E\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_4\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"MCP-REAL-001\",\n          \"insert_x\": 417,\n          \"insert_y\": -281,\n          \"height\": 5,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'MCP-REAL-001'\\n  handle: 23F\\n  height: 5\",\n        \"outputs\": {\n          \"handles\": [\n            \"23F\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_5\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"REV\",\n          \"insert_x\": 472,\n          \"insert_y\": -263,\n          \"height\": 3.5,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'REV'\\n  handle: 240\\n  height: 3.5\",\n        \"outputs\": {\n          \"handles\": [\n            \"240\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_6\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"A\",\n          \"insert_x\": 472,\n          \"insert_y\": -281,\n          \"height\": 6,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'A'\\n  handle: 241\\n  height: 6\",\n        \"outputs\": {\n          \"handles\": [\n            \"241\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_7\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"MATERIAL: QT500-7\",\n          \"insert_x\": 234,\n          \"insert_y\": -308,\n          \"height\": 5,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'MATERIAL: QT500-7'\\n  handle: 242\\n  height: 5\",\n        \"outputs\": {\n          \"handles\": [\n            \"242\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_8\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"SCALE 1:1\",\n          \"insert_x\": 417,\n          \"insert_y\": -308,\n          \"height\": 5,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'SCALE 1:1'\\n  handle: 243\\n  height: 5\",\n        \"outputs\": {\n          \"handles\": [\n            \"243\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_9\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"UNITS mm\",\n          \"insert_x\": 472,\n          \"insert_y\": -308,\n          \"height\": 5,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'UNITS mm'\\n  handle: 244\\n  height: 5\",\n        \"outputs\": {\n          \"handles\": [\n            \"244\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_10\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"CREATED BY VALIDATED + DRY-RUN CADPLAN\",\n          \"insert_x\": 234,\n          \"insert_y\": -339,\n          \"height\": 4.5,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'CREATED BY VALIDATED + DRY-RUN CADPLAN'\\n  handle: 245\\n  height: 4.5\",\n        \"outputs\": {\n          \"handles\": [\n            \"245\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      },\n      {\n        \"step_id\": \"title_text_11\",\n        \"op\": \"draw_text\",\n        \"args\": {\n          \"text\": \"best-cad-mcp\",\n          \"insert_x\": 417,\n          \"insert_y\": -339,\n          \"height\": 5,\n          \"layer\": \"M-TEXT\"\n        },\n        \"result\": \"OK: 已绘制文字 'best-cad-mcp'\\n  handle: 246\\n  height: 5\",\n        \"outputs\": {\n          \"handles\": [\n            \"246\"\n          ],\n          \"save_as\": null,\n          \"saved_value\": null\n        },\n        \"postconditions\": []\n      }\n    ],\n    \"state\": {\n      \"front_base\": \"86\",\n      \"front_flange_outer\": \"87\",\n      \"front_bore\": \"8A\",\n      \"front_left_rib\": \"91\",\n      \"front_right_rib\": \"92\",\n      \"top_base\": \"115\",\n      \"section_base\": \"194\",\n      \"section_top_boundary\": \"197\",\n      \"section_bottom_boundary\": \"198\",\n      \"section_hatch_top\": \"19C\",\n      \"section_hatch_bottom\": \"19D\",\n      \"title_outer\": \"236\"\n    },\n    \"postconditions\": [\n      {\n        \"ok\": true,\n        \"postcondition\": {\n          \"type\": \"exists\",\n          \"target\": \"87\"\n        },\n        \"reason\": \"target handle captured\"\n      },\n      {\n        \"ok\": true,\n        \"postcondition\": {\n          \"type\": \"exists\",\n          \"target\": \"8A\"\n        },\n        \"reason\": \"target handle captured\"\n      }\n    ],\n    \"transaction_status\": {\n      \"ok\": true,\n      \"success\": true,\n      \"message\": \"Started AutoCAD undo mark\",\n      \"method\": \"StartUndoMark\"\n    },\n    \"end_transaction_status\": {\n      \"ok\": true,\n      \"success\": true,\n      \"message\": \"Ended AutoCAD undo mark\",\n      \"method\": \"EndUndoMark\"\n    },\n    \"after_artifacts\": {}\n  },\n  \"handles\": [\n    \"86\",\n    \"87\",\n    \"88\",\n    \"89\",\n    \"8A\",\n    \"8B\",\n    \"8C\",\n    \"8D\",\n    \"8E\",\n    \"8F\",\n    \"90\",\n    \"91\",\n    \"92\",\n    \"93\",\n    \"94\",\n    \"95\",\n    \"C8\",\n    \"FA\",\n    \"113\",\n    \"114\",\n    \"115\",\n    \"116\",\n    \"117\",\n    \"118\",\n    \"119\",\n    \"11A\",\n    \"11B\",\n    \"11C\",\n    \"11D\",\n    \"11E\",\n    \"11F\",\n    \"120\",\n    \"121\",\n    \"122\",\n    \"123\",\n    \"124\",\n    \"125\",\n    \"126\",\n    \"127\",\n    \"128\",\n    \"129\",\n    \"12A\",\n    \"12B\",\n    \"12C\",\n    \"15E\",\n    \"190\",\n    \"191\",\n    \"192\",\n    \"193\",\n    \"194\",\n    \"195\",\n    \"196\",\n    \"197\",\n    \"198\",\n    \"199\",\n    \"19A\",\n    \"19B\",\n    \"19C\",\n    \"19C\",\n    \"19D\",\n    \"19D\",\n    \"19E\",\n    \"1D0\",\n    \"202\",\n    \"234\",\n    \"235\",\n    \"236\",\n    \"237\",\n    \"238\",\n    \"239\",\n    \"23A\",\n    \"23B\",\n    \"23C\",\n    \"23D\",\n    \"23E\",\n    \"23F\",\n    \"240\",\n    \"241\",\n    \"242\",\n    \"243\",\n    \"244\",\n    \"245\",\n    \"246\"\n  ],\n  \"warnings\": [\n    \"Execution modified the DWG through existing safe MCP tool implementations.\"\n  ],\n  \"next_tools\": [\n    \"scan_all_entities\",\n    \"validate_geometry\",\n    \"export_view_image_with_mapping\"\n  ]\n}"
+    }
+  ]
+}

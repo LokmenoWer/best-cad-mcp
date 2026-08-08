@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import math
 import re
@@ -299,12 +300,18 @@ def _try_convert_wmf_to_raster(wmf_path: Path) -> Optional[Path]:
     """Convert a WMF file to PNG using available system tools.
 
     Tries ImageMagick (magick/convert), then wand, then Inkscape, then
-    LibreOffice (soffice). Returns the PNG path on success, None if all
-    attempts fail.
+    LibreOffice (soffice), and finally Windows GDI+ through PowerShell.
+    Returns the PNG path on success, None if all attempts fail.
     """
     png_path = wmf_path.with_suffix(".png")
 
-    magick = shutil.which("magick") or shutil.which("convert")
+    magick = shutil.which("magick")
+    if not magick:
+        convert_candidate = shutil.which("convert")
+        # Windows ships system32\convert.exe for filesystem conversion; it is
+        # unrelated to ImageMagick and must never receive image paths.
+        if convert_candidate and "system32" not in convert_candidate.lower():
+            magick = convert_candidate
     if magick:
         try:
             result = subprocess.run(
@@ -348,6 +355,73 @@ def _try_convert_wmf_to_raster(wmf_path: Path) -> Optional[Path]:
             result = subprocess.run(
                 [soffice, "--headless", "--convert-to", "png", "--outdir",
                  str(png_path.parent), str(wmf_path)],
+                capture_output=True,
+                timeout=45,
+            )
+            if result.returncode == 0 and png_path.exists() and png_path.stat().st_size > 0:
+                return png_path
+        except Exception:
+            pass
+
+    # AutoCAD's COM export is most reliable as WMF on Windows.  GDI+ can
+    # rasterize that native vector artifact without requiring a separate
+    # graphics package, so keep it as the final Windows-only fallback.
+    powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+    if powershell:
+        script = r"""
+& {
+param([string]$SourcePath, [string]$TargetPath)
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+$metafile = [System.Drawing.Imaging.Metafile]::FromFile($SourcePath)
+try {
+    $sourceWidth = [Math]::Max(1, [int]$metafile.Width)
+    $sourceHeight = [Math]::Max(1, [int]$metafile.Height)
+    # Placeable WMFs report logical-unit dimensions that can be tens of
+    # thousands of units wide.  Scale both up and down to a bounded raster.
+    $scale = [Math]::Max(0.01, [Math]::Min(4.0, 2400.0 / [Math]::Max($sourceWidth, $sourceHeight)))
+    $width = [Math]::Max(1, [int][Math]::Round($sourceWidth * $scale))
+    $height = [Math]::Max(1, [int][Math]::Round($sourceHeight * $scale))
+    $bitmap = New-Object System.Drawing.Bitmap($width, $height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    try {
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        try {
+            $graphics.Clear([System.Drawing.Color]::White)
+            $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+            $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $destination = [System.Drawing.Rectangle]::FromLTRB(0, 0, $width, $height)
+            $graphics.DrawImage($metafile, $destination)
+        }
+        finally {
+            $graphics.Dispose()
+        }
+        $bitmap.Save($TargetPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    finally {
+        $bitmap.Dispose()
+    }
+}
+finally {
+    $metafile.Dispose()
+}
+}
+"""
+        try:
+            source_literal = str(wmf_path.resolve()).replace("'", "''")
+            target_literal = str(png_path.resolve()).replace("'", "''")
+            invocation = script.rstrip() + f" '{source_literal}' '{target_literal}'"
+            encoded_command = base64.b64encode(
+                invocation.encode("utf-16-le")
+            ).decode("ascii")
+            result = subprocess.run(
+                [
+                    powershell,
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-EncodedCommand",
+                    encoded_command,
+                ],
                 capture_output=True,
                 timeout=45,
             )
@@ -1551,8 +1625,9 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
             vlm_ready = True
         else:
             vlm_blocked_reason = (
-                "AutoCAD exported WMF and no WMF→PNG converter is installed "
-                "(ImageMagick, wand, Inkscape, or LibreOffice). VLM APIs cannot read WMF."
+                "AutoCAD exported WMF and no WMF-to-PNG conversion path succeeded "
+                "(Windows GDI+, ImageMagick, wand, Inkscape, or LibreOffice). "
+                "VLM APIs cannot read WMF."
             )
             warnings.append(
                 vlm_blocked_reason

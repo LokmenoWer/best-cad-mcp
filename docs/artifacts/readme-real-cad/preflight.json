@@ -1,0 +1,135 @@
+{
+  "is_error": false,
+  "structured_content": {
+    "result": {
+      "ok": true,
+      "message": "Runtime preflight passed.",
+      "data": {
+        "ready": true,
+        "checks": [
+          {
+            "name": "windows_host",
+            "ok": true,
+            "required": true,
+            "detail": "platform=Windows-11-10.0.26200-SP0",
+            "remediation": "Run best-cad-mcp on Windows because AutoCAD COM is Windows-only."
+          },
+          {
+            "name": "python_version",
+            "ok": true,
+            "required": true,
+            "detail": "python=3.13.7 executable=C:\\Users\\qxqxx\\workspace\\best-cad-mcp\\.venv\\Scripts\\python.exe",
+            "remediation": "Use Python 3.11 or newer."
+          },
+          {
+            "name": "python_executable",
+            "ok": true,
+            "required": false,
+            "detail": "C:\\Users\\qxqxx\\workspace\\best-cad-mcp\\.venv\\Scripts\\python.exe",
+            "remediation": "Point the MCP client at the project .venv/Scripts/python.exe or installed cad-mcp command."
+          },
+          {
+            "name": "python_module:mcp",
+            "ok": true,
+            "required": true,
+            "detail": "mcp",
+            "remediation": "Install with `python -m pip install -r requirements.txt && python -m pip install -e .`."
+          },
+          {
+            "name": "python_module:win32com.client",
+            "ok": true,
+            "required": true,
+            "detail": "win32com.client",
+            "remediation": "Install with `python -m pip install -r requirements.txt && python -m pip install -e .`."
+          },
+          {
+            "name": "python_module:pythoncom",
+            "ok": true,
+            "required": true,
+            "detail": "pythoncom",
+            "remediation": "Install with `python -m pip install -r requirements.txt && python -m pip install -e .`."
+          },
+          {
+            "name": "python_module:comtypes",
+            "ok": true,
+            "required": true,
+            "detail": "comtypes",
+            "remediation": "Install with `python -m pip install -r requirements.txt && python -m pip install -e .`."
+          },
+          {
+            "name": "python_module:pyautocad",
+            "ok": true,
+            "required": true,
+            "detail": "pyautocad",
+            "remediation": "Install with `python -m pip install -r requirements.txt && python -m pip install -e .`."
+          },
+          {
+            "name": "mcp_sdk_version",
+            "ok": true,
+            "required": true,
+            "detail": "mcp=2.0.0; required >=2.0.0,<3.0.0",
+            "remediation": "Install or upgrade best-cad-mcp in the Python environment used by the MCP client, then restart the client. For a source checkout, run `python -m pip install --upgrade -e .`."
+          },
+          {
+            "name": "workspace_root",
+            "ok": true,
+            "required": true,
+            "detail": "C:\\Users\\qxqxx\\workspace\\best-cad-mcp\\docs\\artifacts\\readme-real-cad",
+            "remediation": "Start the MCP server from a writable workspace or set CAD_MCP_WORKSPACE_ROOT."
+          },
+          {
+            "name": "legacy_root_database",
+            "ok": true,
+            "required": false,
+            "detail": "no retired autocad_data.db detected",
+            "remediation": "Archive or delete the root-level autocad_data.db after confirming old data is no longer needed."
+          },
+          {
+            "name": "autocad_com_live",
+            "ok": true,
+            "required": true,
+            "detail": "connected",
+            "remediation": "Start and license AutoCAD under this Windows user, then retry."
+          },
+          {
+            "name": "visual_review_renderer",
+            "ok": true,
+            "required": true,
+            "detail": "python:cairosvg+Pillow",
+            "remediation": "Install ImageMagick/Inkscape/librsvg, or make Chrome/Edge available for SVG/PDF visual review."
+          }
+        ],
+        "policy": {
+          "before_live_cad_work": [
+            "check_runtime_environment(check_autocad=True)",
+            "create_new_drawing or open_drawing",
+            "scan_all_entities before editing existing drawings"
+          ],
+          "before_multi_step_modify": [
+            "validate_cad_plan",
+            "dry_run_cad_plan",
+            "execute_cad_plan only with allow_modify=True"
+          ],
+          "after_modify": [
+            "scan_all_entities",
+            "validate_geometry",
+            "export_view_image_with_mapping when visual evidence matters"
+          ]
+        }
+      },
+      "handles": [],
+      "warnings": [],
+      "next_tools": [
+        "create_new_drawing",
+        "open_drawing",
+        "recommend_cad_tools"
+      ]
+    }
+  },
+  "content": [
+    {
+      "type": "text",
+      "text": "{\n  \"ok\": true,\n  \"message\": \"Runtime preflight passed.\",\n  \"data\": {\n    \"ready\": true,\n    \"checks\": [\n      {\n        \"name\": \"windows_host\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"platform=Windows-11-10.0.26200-SP0\",\n        \"remediation\": \"Run best-cad-mcp on Windows because AutoCAD COM is Windows-only.\"\n      },\n      {\n        \"name\": \"python_version\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"python=3.13.7 executable=C:\\\\Users\\\\qxqxx\\\\workspace\\\\best-cad-mcp\\\\.venv\\\\Scripts\\\\python.exe\",\n        \"remediation\": \"Use Python 3.11 or newer.\"\n      },\n      {\n        \"name\": \"python_executable\",\n        \"ok\": true,\n        \"required\": false,\n        \"detail\": \"C:\\\\Users\\\\qxqxx\\\\workspace\\\\best-cad-mcp\\\\.venv\\\\Scripts\\\\python.exe\",\n        \"remediation\": \"Point the MCP client at the project .venv/Scripts/python.exe or installed cad-mcp command.\"\n      },\n      {\n        \"name\": \"python_module:mcp\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"mcp\",\n        \"remediation\": \"Install with `python -m pip install -r requirements.txt && python -m pip install -e .`.\"\n      },\n      {\n        \"name\": \"python_module:win32com.client\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"win32com.client\",\n        \"remediation\": \"Install with `python -m pip install -r requirements.txt && python -m pip install -e .`.\"\n      },\n      {\n        \"name\": \"python_module:pythoncom\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"pythoncom\",\n        \"remediation\": \"Install with `python -m pip install -r requirements.txt && python -m pip install -e .`.\"\n      },\n      {\n        \"name\": \"python_module:comtypes\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"comtypes\",\n        \"remediation\": \"Install with `python -m pip install -r requirements.txt && python -m pip install -e .`.\"\n      },\n      {\n        \"name\": \"python_module:pyautocad\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"pyautocad\",\n        \"remediation\": \"Install with `python -m pip install -r requirements.txt && python -m pip install -e .`.\"\n      },\n      {\n        \"name\": \"mcp_sdk_version\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"mcp=2.0.0; required >=2.0.0,<3.0.0\",\n        \"remediation\": \"Install or upgrade best-cad-mcp in the Python environment used by the MCP client, then restart the client. For a source checkout, run `python -m pip install --upgrade -e .`.\"\n      },\n      {\n        \"name\": \"workspace_root\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"C:\\\\Users\\\\qxqxx\\\\workspace\\\\best-cad-mcp\\\\docs\\\\artifacts\\\\readme-real-cad\",\n        \"remediation\": \"Start the MCP server from a writable workspace or set CAD_MCP_WORKSPACE_ROOT.\"\n      },\n      {\n        \"name\": \"legacy_root_database\",\n        \"ok\": true,\n        \"required\": false,\n        \"detail\": \"no retired autocad_data.db detected\",\n        \"remediation\": \"Archive or delete the root-level autocad_data.db after confirming old data is no longer needed.\"\n      },\n      {\n        \"name\": \"autocad_com_live\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"connected\",\n        \"remediation\": \"Start and license AutoCAD under this Windows user, then retry.\"\n      },\n      {\n        \"name\": \"visual_review_renderer\",\n        \"ok\": true,\n        \"required\": true,\n        \"detail\": \"python:cairosvg+Pillow\",\n        \"remediation\": \"Install ImageMagick/Inkscape/librsvg, or make Chrome/Edge available for SVG/PDF visual review.\"\n      }\n    ],\n    \"policy\": {\n      \"before_live_cad_work\": [\n        \"check_runtime_environment(check_autocad=True)\",\n        \"create_new_drawing or open_drawing\",\n        \"scan_all_entities before editing existing drawings\"\n      ],\n      \"before_multi_step_modify\": [\n        \"validate_cad_plan\",\n        \"dry_run_cad_plan\",\n        \"execute_cad_plan only with allow_modify=True\"\n      ],\n      \"after_modify\": [\n        \"scan_all_entities\",\n        \"validate_geometry\",\n        \"export_view_image_with_mapping when visual evidence matters\"\n      ]\n    }\n  },\n  \"handles\": [],\n  \"warnings\": [],\n  \"next_tools\": [\n    \"create_new_drawing\",\n    \"open_drawing\",\n    \"recommend_cad_tools\"\n  ]\n}"
+    }
+  ]
+}

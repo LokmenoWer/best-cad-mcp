@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from src.cad_database import CADDatabase
+from src.cad_understanding import view_grounding
 from src.cad_understanding.view_grounding import (
     apply_matrix_2d,
     export_view_image_with_mapping,
@@ -43,6 +45,28 @@ def populate_fixture(db):
         bbox=(15, 15, 25, 25),
         topology_detail="full",
     )
+
+
+def test_wmf_converter_uses_windows_gdi_fallback(tmp_path, monkeypatch):
+    wmf_path = tmp_path / "autocad-view.wmf"
+    png_path = wmf_path.with_suffix(".png")
+    wmf_path.write_bytes(b"real AutoCAD WMF placeholder")
+
+    def find_converter(name):
+        if name in {"powershell.exe", "powershell"}:
+            return r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        return None
+
+    def run_converter(command, **kwargs):
+        assert "-EncodedCommand" in command
+        assert kwargs["timeout"] == 45
+        png_path.write_bytes(b"converted raster")
+        return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(view_grounding.shutil, "which", find_converter)
+    monkeypatch.setattr(view_grounding.subprocess, "run", run_converter)
+
+    assert view_grounding._try_convert_wmf_to_raster(wmf_path) == png_path
 
 
 def test_export_includes_som_primitive_overlay_and_tile_index(tmp_path, monkeypatch):
