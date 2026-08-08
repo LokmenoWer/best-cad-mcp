@@ -227,9 +227,9 @@ vision infallible. Important edits should still follow:
 visual finding -> grounding candidates -> explain_entity -> handle-targeted edit
 ```
 
-The default VLM review prompt is `vlm_review_drawing/v3`. Snapshot and overlay
-schema versions are recorded in tool results so strict consumers can detect
-contract changes.
+The default VLM review prompt is `vlm_review_drawing/v3`. Snapshot schema
+versions are returned in tool results; overlay schema versions are stored in
+the referenced sidecars so strict consumers can detect contract changes.
 
 ## Safety model
 
