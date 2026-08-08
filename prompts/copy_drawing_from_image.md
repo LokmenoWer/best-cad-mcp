@@ -17,16 +17,24 @@
 - Include `component_hypotheses` for open-vocabulary part recognition when the
   view provides enough evidence. Use `*_like_component` labels when the exact
   part name is ambiguous.
-- Use pixel coordinates from the supplied image or tile: origin at top-left,
-  x right, y down.
+- Use pixel coordinates with origin at top-left, x right, y down. When pixels
+  are measured from `get_trace_source_image`, copy that returned image's entire
+  `source_ref_template` unchanged into the observation. It records the exact
+  observed dimensions and observed-to-source/global matrices, including any
+  downscaling and tile translation. Only observations measured directly in the
+  original normalized global artifact may omit `source_ref`; never relabel
+  observed/downscaled numbers as tile-local or global-image coordinates.
 
 ## Required Recognition Passes
 
-1. Read the whole image for sheet layout, views, section/detail regions,
+1. Read the whole image once for sheet layout, views, section/detail regions,
    title block, BOM/parts list, and repeated features.
-2. Inspect complex regions and tiles for local feature details: chamfers,
+2. Select relevant tile IDs from the prepared tile index and call
+   `get_trace_source_image(tile_id=...)` to inspect the real local crops. Use
+   these crops for complex feature details: chamfers,
    fillets, holes, counterbores, slots, grooves, steps, centerlines, hatches,
-   leaders, dimensions, and small text.
+   leaders, dimensions, and small text. Record every reviewed tile under
+   top-level `inspected_tiles` so coverage is auditable.
 3. Extract calibration candidates only from clearly readable real dimensions.
    If a value is uncertain, keep it out of calibration and record uncertainty.
 4. Encode repeated holes or parts as `pattern` items with member IDs and the
@@ -36,7 +44,9 @@
    `ellipse_arc`, `paired_ellipse_arcs`, spline, or true polyline. Include fit
    evidence such as center, major axis, radius ratio, start/end angle, sampled
    points, and `fit_error_px` when available.
-6. Encode dimensions as `dimension` annotations with measurement points and
+6. Reconcile overlapping tiles in global-image space. Do not emit the same
+   feature twice merely because it appears in two overlapping crops.
+7. Encode dimensions as `dimension` annotations with measurement points and
    text point when visible. Do not convert dimensions to plain text.
 
 ## JSON Shape
@@ -46,6 +56,7 @@
   "schema_version": "ImageDrawingSpec/v1",
   "domain": "mechanical",
   "units": "mm",
+  "inspected_tiles": [],
   "calibration_candidates": [],
   "features": [],
   "geometry": [],
@@ -67,24 +78,39 @@ dimension, text, leader, hatch, table, pattern, bulkhead
 
 ## Worked Example (copy this structure)
 
-`evidence` is a short object or string describing what you saw. `confidence`
-is a number in [0, 1]. Every item needs `id`, `kind`, `confidence`,
-`evidence`, and either `pixel_bbox` ([x1, y1, x2, y2]) or `pixel_geometry`.
+`evidence` should name concrete visible cues. `confidence` is a number in
+[0, 1]. Every item needs `id`, `kind`, `confidence`, `evidence`, and either
+`pixel_bbox` ([x1, y1, x2, y2]) or `pixel_geometry`. Add the exact returned
+`source_ref_template` whenever coordinates came from an embedded image. The
+validator checks its dimensions/transforms and rebases valid observed-image
+geometry to normalized-image/global pixels.
 
 ```json
 {
   "schema_version": "ImageDrawingSpec/v1",
   "domain": "mechanical",
   "units": "mm",
+  "inspected_tiles": ["T004"],
   "calibration_candidates": [
     {"id": "cal_1", "value": 80, "pixel_distance": 320,
      "confidence": 0.9, "evidence": {"text": "80 mm overall width dimension"}}
   ],
   "features": [
     {"id": "hole_1", "kind": "hole", "confidence": 0.92,
+     "source_ref": {"schema_version": "VisualSourceRef/v1",
+                    "artifact_role": "tile", "coordinate_space": "observed_image",
+                    "observed_image": {"width": 320, "height": 320},
+                    "source_image": {"width": 640, "height": 640},
+                    "source_coordinate_space": "tile_local",
+                    "global_coordinate_space": "image_global",
+                    "observed_to_source": [[2,0,0],[0,2,0],[0,0,1]],
+                    "source_to_global": [[1,0,384],[0,1,256],[0,0,1]],
+                    "observed_to_global": [[2,0,384],[0,2,256],[0,0,1]],
+                    "image_id": "img_example", "tile_id": "T004"},
      "pixel_bbox": [120, 96, 140, 116],
      "pixel_geometry": {"center": [130, 106], "radius": 10},
-     "evidence": {"text": "circular hole, upper-left of plate"}}
+     "evidence": {"visible_cues": ["closed circular stroke", "clear white interior"],
+                  "text": "upper-left hole in T004"}}
   ],
   "geometry": [
     {"id": "plate", "kind": "rectangle", "confidence": 0.95,

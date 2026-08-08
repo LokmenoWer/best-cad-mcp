@@ -37,6 +37,13 @@ def test_prepare_downscales_oversized_image(tmp_path):
     assert prep["ok"] and prep["embeddable"]
     assert prep["downscaled"]
     assert max(prep["width"], prep["height"]) == 1568
+    assert prep["source_image"] == {"width": 4000, "height": 2000}
+    assert prep["observed_image"] == {"width": 1568, "height": 784}
+    assert prep["observed_to_source"] == [
+        [4000 / 1568, 0.0, 0.0],
+        [0.0, 2000 / 784, 0.0],
+        [0.0, 0.0, 1.0],
+    ]
     assert prep["mime_type"] == "image/png"
     assert prep["image_path"].endswith(".png")
 
@@ -114,6 +121,100 @@ def test_resolve_snapshot_images_unknown_id(tmp_path):
     assert not result["ok"]
 
 
+def test_resolve_snapshot_images_can_embed_specific_dense_tile(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db = make_db(tmp_path)
+    db.upsert_entity(
+        "P1", "Polyline", "AcDbPolyline", layer="OUTLINE",
+        geometry={"vertices": [[0, 0, 0], [80, 0, 0], [80, 40, 0]], "closed": True},
+        bbox=(0, 0, 80, 40), topology_detail="full",
+    )
+    view_png = write_png(tmp_path / "dense-view.png", size=(1024, 768))
+    exported = export_view_image_with_mapping(
+        filepath=view_png,
+        include_overlay=True,
+        include_tiles=True,
+        tile_size=384,
+        database=db,
+    )
+    snapshot = exported["data"]["snapshot"]
+    tile = next(item for item in snapshot["tiles"] if item.get("clean_tile_path"))
+
+    resolved = vision.resolve_snapshot_images(
+        snapshot["snapshot_id"],
+        which="clean",
+        tile_id=tile["tile_id"],
+        database=db,
+    )
+
+    assert resolved["ok"], resolved
+    assert resolved["data"]["tile_id"] == tile["tile_id"]
+    assert resolved["data"]["images"][0]["original_path"] == tile["clean_tile_path"]
+    assert resolved["data"]["coordinate_space"] == "tile_local"
+    assert resolved["data"]["local_to_global"] == tile["local_to_global"]
+
+
+def test_resolved_snapshot_images_expose_exact_global_and_tile_transforms(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    db = make_db(tmp_path)
+    db.upsert_entity(
+        "P1", "Point", "AcDbPoint", layer="MARKERS",
+        geometry={"point": [0, 0, 0]}, bbox=(0, 0, 0, 0),
+        topology_detail="full",
+    )
+    view_png = write_png(tmp_path / "mapped-view.png", size=(1024, 768))
+    exported = export_view_image_with_mapping(
+        filepath=view_png,
+        include_overlay=True,
+        include_tiles=True,
+        tile_size=640,
+        tile_overlap=0.2,
+        database=db,
+    )
+    snapshot = exported["data"]["snapshot"]
+
+    # Old positional order remains valid: snapshot_id, which, max_dim, database.
+    global_result = vision.resolve_snapshot_images(
+        snapshot["snapshot_id"], "clean", 512, db
+    )
+    assert global_result["ok"], global_result
+    global_image = global_result["data"]["images"][0]
+    assert global_image["source_image"] == {"width": 1024, "height": 768}
+    assert global_image["observed_image"] == {"width": 512, "height": 384}
+    assert global_image["observed_to_source"] == [
+        [2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 1.0],
+    ]
+    global_ref = global_result["data"]["source_ref_template"]
+    assert global_ref["coordinate_space"] == "observed_image"
+    assert global_ref["observed_to_global"] == global_image["observed_to_source"]
+
+    tile = next(
+        item for item in snapshot["tiles"]
+        if item["global_pixel_bbox"][0] > 0
+        and item["global_pixel_bbox"][1] > 0
+        and item["image"] == {"width": 640, "height": 640}
+    )
+    tile_result = vision.resolve_snapshot_images(
+        snapshot["snapshot_id"],
+        which="clean",
+        max_dim=320,
+        database=db,
+        tile_id=tile["tile_id"],
+    )
+    assert tile_result["ok"], tile_result
+    tile_image = tile_result["data"]["images"][0]
+    tile_ref = tile_result["data"]["source_ref_template"]
+    x0, y0 = tile["global_pixel_bbox"][:2]
+    assert tile_image["source_image"] == {"width": 640, "height": 640}
+    assert tile_image["observed_image"] == {"width": 320, "height": 320}
+    assert tile_ref["source_coordinate_space"] == "tile_local"
+    assert tile_ref["observed_to_global"] == [
+        [2.0, 0.0, x0], [0.0, 2.0, y0], [0.0, 0.0, 1.0],
+    ]
+
+
 def test_resolve_trace_image_after_prepare(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     from src.cad_understanding.image_trace import prepare_image_trace
@@ -132,6 +233,76 @@ def test_resolve_trace_image_after_prepare(tmp_path, monkeypatch):
     latest = vision.resolve_trace_image(role="normalized", database=db)
     assert latest["ok"]
     assert latest["data"]["image_id"] == image_id
+
+    # Preserve the historical positional order through the new tile option.
+    positional = vision.resolve_trace_image(image_id, "normalized", 320, db)
+    assert positional["ok"], positional
+    assert positional["data"]["vision"]["source_ref_template"][
+        "global_coordinate_space"
+    ] == "image_global"
+
+
+def test_resolve_trace_image_can_embed_a_specific_tile(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from src.cad_understanding.image_trace import prepare_image_trace
+
+    db = make_db(tmp_path)
+    source = write_png(tmp_path / "dense.png", size=(1280, 800), color=(240, 240, 240))
+    prepared = prepare_image_trace(
+        image_path=source,
+        domain="mechanical",
+        tile_size=512,
+        tile_overlap=0.2,
+        database=db,
+    )
+    assert prepared["ok"], prepared
+    tile = next(
+        item for item in prepared["data"]["tiles"]
+        if item["global_pixel_bbox"][0] > 0 and item["global_pixel_bbox"][1] > 0
+    )
+
+    resolved = vision.resolve_trace_image(
+        image_id=prepared["data"]["image_id"],
+        role="normalized",
+        tile_id=tile["tile_id"],
+        database=db,
+    )
+
+    assert resolved["ok"], resolved
+    assert resolved["data"]["tile_id"] == tile["tile_id"]
+    assert resolved["data"]["vision"]["embeddable"]
+    assert resolved["data"]["vision"]["original_path"] == tile["image_path"]
+    assert resolved["data"]["vision"]["image_path"] == tile["image_path"]
+    x1, y1, x2, y2 = tile["global_pixel_bbox"]
+    assert resolved["data"]["vision"]["width"] == x2 - x1
+    assert resolved["data"]["vision"]["height"] == y2 - y1
+
+    scaled = vision.resolve_trace_image(
+        prepared["data"]["image_id"],
+        "normalized",
+        256,
+        db,
+        tile_id=tile["tile_id"],
+    )
+    assert scaled["ok"], scaled
+    scaled_vision = scaled["data"]["vision"]
+    source_width = x2 - x1
+    source_height = y2 - y1
+    assert scaled_vision["source_image"] == {
+        "width": source_width,
+        "height": source_height,
+    }
+    assert max(
+        scaled_vision["observed_image"]["width"],
+        scaled_vision["observed_image"]["height"],
+    ) == 256
+    observed_width = scaled_vision["observed_image"]["width"]
+    observed_height = scaled_vision["observed_image"]["height"]
+    assert scaled["data"]["source_ref_template"]["observed_to_global"] == [
+        [source_width / observed_width, 0.0, x1],
+        [0.0, source_height / observed_height, y1],
+        [0.0, 0.0, 1.0],
+    ]
 
 
 def test_prep_payload_builds_real_image_content(tmp_path):

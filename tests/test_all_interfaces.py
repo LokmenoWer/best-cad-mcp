@@ -678,6 +678,7 @@ class TestMCPToolSchemas(unittest.TestCase):
         self.assertIn("derive_topology", scan_schema["properties"])
         self.assertIn("topology_detail", scan_schema["properties"])
         self.assertIn("clear_understanding", scan_schema["properties"])
+        self.assertIn("capture_visual_geometry", scan_schema["properties"])
 
         recommendation = utility_tools.recommend_cad_tools(
             "visually verify drawing and mark the base plate"
@@ -864,6 +865,33 @@ class TestDataModels(unittest.TestCase):
         self.assertEqual(EntityType.from_object_name("AcDb3dPolyline"), EntityType.POLYLINE_3D)
         self.assertEqual(EntityType.from_object_name("AcDbBlockReference"), EntityType.BLOCK_REF)
         self.assertEqual(EntityType.from_object_name("UnknownType"), EntityType.UNKNOWN)
+
+    def test_arc_angle_contract_prefers_canonical_radian_parameters(self):
+        from src.cad_data_model import ArcEntity
+
+        canonical = ArcEntity(
+            handle="A1",
+            geometry={
+                "start_parameter": 0.5,
+                "end_parameter": 1.0,
+                "parameter_unit": "radian",
+                "start_angle": 999,
+                "angle_unit": "degree",
+            },
+        )
+        degrees = ArcEntity(
+            handle="A2",
+            geometry={
+                "start_angle": 30,
+                "end_angle": 120,
+                "angle_unit": "degree",
+            },
+        )
+
+        self.assertAlmostEqual(canonical.start_angle_deg, 0.5 * 180.0 / 3.141592653589793)
+        self.assertAlmostEqual(canonical.end_angle_deg, 1.0 * 180.0 / 3.141592653589793)
+        self.assertEqual(degrees.start_angle_deg, 30.0)
+        self.assertEqual(degrees.end_angle_deg, 120.0)
 
     def test_point3d(self):
         from src.cad_data_model import Point3D
@@ -2708,6 +2736,7 @@ class TestScanToolBugs(unittest.TestCase):
             2,
             detail_level="minimal",
             include_bounding_boxes=True,
+            capture_visual_geometry=True,
         )
         mock_db.upsert_entity.assert_not_called()
         mock_db.upsert_entities_batch.assert_called_once()

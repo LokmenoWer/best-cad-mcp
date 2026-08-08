@@ -866,22 +866,129 @@ class CADDatabase:
                 pass
 
         primitives, _, _ = cls._derive_topology(entity_type, geometry)
+        # Endpoints alone describe an arc's chord, not its extent. When the
+        # parameter contract is unresolved, prefer a conservative full-circle
+        # box over a confidently wrong zero-height chord box.
+        unresolved_arc = next((
+            primitive for primitive in primitives
+            if str(primitive.get("primitive_type") or "").lower() == "curve"
+            and str(primitive.get("role") or "").lower() == "arc"
+            and (
+                (primitive.get("properties") or {}).get("start_parameter") is None
+                or (primitive.get("properties") or {}).get("sweep") is None
+            )
+        ), None)
+        if unresolved_arc is not None:
+            try:
+                cx = float(unresolved_arc.get("x"))
+                cy = float(unresolved_arc.get("y"))
+                radius = abs(float(unresolved_arc.get("radius")))
+                if radius > 0.0:
+                    return (cx - radius, cy - radius, cx + radius, cy + radius)
+            except (TypeError, ValueError):
+                return None
         xs: List[float] = []
         ys: List[float] = []
         for primitive in primitives:
+            primitive_type = str(primitive.get("primitive_type") or "").lower()
+            role = str(primitive.get("role") or "").lower()
+            if primitive_type == "point" and role == "center":
+                continue
+            curve_center_only = primitive_type == "curve" and role in {"arc", "ellipse"}
             for x_key, y_key in (("x", "y"), ("x2", "y2")):
+                if curve_center_only and (x_key, y_key) == ("x", "y"):
+                    continue
                 x = primitive.get(x_key)
                 y = primitive.get(y_key)
                 if x is not None and y is not None:
                     xs.append(float(x))
                     ys.append(float(y))
+            properties = primitive.get("properties") or {}
             radius = primitive.get("radius")
             x = primitive.get("x")
             y = primitive.get("y")
-            if radius is not None and x is not None and y is not None:
+            if (
+                radius is not None and x is not None and y is not None
+                and not (primitive_type == "curve" and role == "arc")
+            ):
                 r = float(radius)
                 xs.extend([float(x) - r, float(x) + r])
                 ys.extend([float(y) - r, float(y) + r])
+            if primitive_type == "curve" and role == "arc":
+                try:
+                    cx, cy = float(x), float(y)
+                    r = float(radius)
+                    start_parameter = float(properties.get("start_parameter"))
+                    sweep = float(properties.get("sweep"))
+                except (TypeError, ValueError):
+                    continue
+                steps = max(2, min(144, int(math.ceil(abs(sweep) / math.radians(5.0)))))
+                parameters = [
+                    start_parameter + sweep * index / steps
+                    for index in range(steps + 1)
+                ]
+                for cardinal in (0.0, math.pi / 2.0, math.pi, 3.0 * math.pi / 2.0):
+                    directed_delta = (
+                        (cardinal - start_parameter) % (2.0 * math.pi)
+                        if sweep >= 0.0
+                        else (start_parameter - cardinal) % (2.0 * math.pi)
+                    )
+                    if directed_delta <= abs(sweep) + 1e-12:
+                        parameters.append(cardinal)
+                for parameter in parameters:
+                    xs.append(cx + r * math.cos(parameter))
+                    ys.append(cy + r * math.sin(parameter))
+            elif primitive_type == "curve" and role == "ellipse":
+                try:
+                    cx, cy = float(x), float(y)
+                    major = cls._point3(properties.get("major_axis"))
+                    ratio = float(properties.get("radius_ratio"))
+                except (TypeError, ValueError):
+                    continue
+                if not major or ratio <= 0.0:
+                    continue
+                minor_point = cls._point3(properties.get("minor_axis"))
+                minor = (
+                    (minor_point[0], minor_point[1])
+                    if minor_point
+                    else (-major[1] * ratio, major[0] * ratio)
+                )
+                if properties.get("is_arc"):
+                    try:
+                        start_parameter = float(properties.get("start_parameter"))
+                        sweep = float(properties.get("sweep"))
+                    except (TypeError, ValueError):
+                        continue
+                else:
+                    start_parameter, sweep = 0.0, 2.0 * math.pi
+                steps = max(12, min(144, int(math.ceil(abs(sweep) / math.radians(5.0)))))
+                parameters = [
+                    start_parameter + sweep * index / steps
+                    for index in range(steps + 1)
+                ]
+                extrema = (
+                    math.atan2(minor[0], major[0]),
+                    math.atan2(minor[0], major[0]) + math.pi,
+                    math.atan2(minor[1], major[1]),
+                    math.atan2(minor[1], major[1]) + math.pi,
+                )
+                for parameter in extrema:
+                    directed_delta = (
+                        (parameter - start_parameter) % (2.0 * math.pi)
+                        if sweep >= 0.0
+                        else (start_parameter - parameter) % (2.0 * math.pi)
+                    )
+                    if not properties.get("is_arc") or (
+                        directed_delta <= abs(sweep) + 1e-12
+                    ):
+                        parameters.append(parameter)
+                for parameter in parameters:
+                    xs.append(
+                        cx + major[0] * math.cos(parameter) + minor[0] * math.sin(parameter)
+                    )
+                    ys.append(
+                        cy + major[1] * math.cos(parameter) + minor[1] * math.sin(parameter)
+                    )
         if not xs or not ys:
             return None
         return (min(xs), min(ys), max(xs), max(ys))
@@ -942,12 +1049,123 @@ class CADDatabase:
         single_point = cls._first_point(
             geometry, "point", "position", "insertion_point", "insert_point"
         )
+        sampled_points = cls._point_list(geometry.get("sampled_points"))
         vertices = (
+            sampled_points
+            or
             cls._point_list(geometry.get("vertices"))
             or cls._point_list(geometry.get("points"))
             or cls._point_list(geometry.get("fit_points"))
         )
         closed = bool(geometry.get("closed", False))
+        is_arc = "arc" in etype and "ellipse" not in etype
+        is_ellipse = "ellipse" in etype
+        is_spline = "spline" in etype
+        is_curve_entity = (
+            "circle" in etype or is_arc or is_ellipse or is_spline
+        )
+        ellipse_arc_flag = geometry.get("is_arc")
+        ellipse_is_closed = bool(
+            is_ellipse and (
+                ellipse_arc_flag is False
+                or (
+                    (geometry.get("closed") is True or geometry.get("is_closed") is True)
+                    and ellipse_arc_flag is not True
+                )
+            )
+        )
+
+        if is_spline and vertices:
+            start = start or vertices[0]
+            end = end or vertices[-1]
+
+        def angle_radians(primary_key: str, legacy_key: str) -> Optional[float]:
+            value = geometry.get(primary_key)
+            unit = str(geometry.get("parameter_unit") or "").lower()
+            if value is None:
+                value = geometry.get(legacy_key)
+                unit = str(geometry.get("angle_unit") or unit).lower()
+            if value is None:
+                return None
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(number):
+                return None
+            if unit.startswith("deg"):
+                return math.radians(number)
+            if unit.startswith("rad") or primary_key in geometry:
+                return number
+            # Legacy producers mixed radians and degrees. Small degree values
+            # are indistinguishable from radians, so unresolved data must be
+            # rescanned instead of silently constructing the wrong curve.
+            return None
+
+        start_parameter = angle_radians("start_parameter", "start_angle")
+        end_parameter = angle_radians("end_parameter", "end_angle")
+        curve_sweep: Optional[float] = None
+        if start_parameter is not None and end_parameter is not None:
+            raw_sweep = end_parameter - start_parameter
+            # AcDbArc cannot represent a full circle. Equal parameters usually
+            # mean a failed/partial scan, not a 2*pi arc; keep it unresolved.
+            open_parametric_curve = is_arc or (
+                is_ellipse and bool(geometry.get("is_arc"))
+            )
+            if not (open_parametric_curve and abs(raw_sweep) <= 1e-12):
+                # Normalize in constant time. Repeatedly adding 2*pi lets one
+                # huge negative or non-finite scan value hang ingestion.
+                if math.isfinite(raw_sweep):
+                    curve_sweep = raw_sweep % (2.0 * math.pi)
+                    if curve_sweep <= 1e-15:
+                        curve_sweep = 2.0 * math.pi
+        if is_arc and center and geometry.get("radius") is not None:
+            try:
+                radius_value = float(geometry["radius"])
+                if start is None and start_parameter is not None and curve_sweep is not None:
+                    start = [
+                        center[0] + radius_value * math.cos(start_parameter),
+                        center[1] + radius_value * math.sin(start_parameter),
+                        center[2],
+                    ]
+                if end is None and end_parameter is not None and curve_sweep is not None:
+                    end = [
+                        center[0] + radius_value * math.cos(end_parameter),
+                        center[1] + radius_value * math.sin(end_parameter),
+                        center[2],
+                    ]
+            except (TypeError, ValueError):
+                pass
+
+        if is_ellipse and bool(geometry.get("is_arc")) and center:
+            major_axis = cls._first_point(geometry, "major_axis")
+            try:
+                ratio = float(geometry.get("radius_ratio"))
+            except (TypeError, ValueError):
+                ratio = 0.0
+            if major_axis and ratio > 0.0:
+                major_length = math.hypot(major_axis[0], major_axis[1])
+                if major_length > 1e-12:
+                    minor_axis = cls._first_point(geometry, "minor_axis") or [
+                        -major_axis[1] * ratio,
+                        major_axis[0] * ratio,
+                        0.0,
+                    ]
+
+                    def ellipse_point(parameter: Optional[float]) -> Optional[List[float]]:
+                        if parameter is None:
+                            return None
+                        return [
+                            center[0] + major_axis[0] * math.cos(parameter)
+                            + minor_axis[0] * math.sin(parameter),
+                            center[1] + major_axis[1] * math.cos(parameter)
+                            + minor_axis[1] * math.sin(parameter),
+                            center[2],
+                        ]
+
+                    if curve_sweep is not None:
+                        start = start or ellipse_point(start_parameter)
+                        end = end or ellipse_point(end_parameter)
 
         if start and end:
             length = geometry.get("length")
@@ -955,10 +1173,11 @@ class CADDatabase:
                 length = cls._distance(start, end)
             add_primitive("p0", "point", "start", 0, point=start)
             add_primitive("p1", "point", "end", 1, point=end)
-            add_primitive("e0", "line", "segment", 0, point=start,
-                          point2=end, length=float(length))
-            add_relation("e0", "p0", "starts_at")
-            add_relation("e0", "p1", "ends_at")
+            if not is_curve_entity:
+                add_primitive("e0", "line", "segment", 0, point=start,
+                              point2=end, length=float(length))
+                add_relation("e0", "p0", "starts_at")
+                add_relation("e0", "p1", "ends_at")
 
         if center:
             add_primitive("center", "point", "center", 0, point=center)
@@ -976,45 +1195,221 @@ class CADDatabase:
                 add_primitive("s0", "surface", "enclosed_area", 0,
                               parent_key="c0", area=area, is_closed=True)
                 add_relation("s0", "c0", "bounded_by")
-        elif "arc" in etype:
+        elif is_arc:
+            arc_length = geometry.get("arc_length") or geometry.get("length")
+            if arc_length is None and curve_sweep is not None and geometry.get("radius") is not None:
+                try:
+                    arc_length = abs(float(geometry["radius"]) * curve_sweep)
+                except (TypeError, ValueError):
+                    arc_length = None
             add_primitive("c0", "curve", "arc", 0, point=center,
                           radius=geometry.get("radius"),
+                          length=arc_length,
                           properties={
+                              "schema": "CurvePrimitive/v1",
+                              "curve_kind": "circular_arc",
                               "start_angle": geometry.get("start_angle"),
                               "end_angle": geometry.get("end_angle"),
+                              "angle_unit": geometry.get("angle_unit"),
+                              "start_parameter": start_parameter,
+                              "end_parameter": end_parameter,
+                              "sweep": curve_sweep,
+                              "parameter_unit": "radian",
+                              "direction": "ccw",
+                              "normal": geometry.get("normal"),
+                              "start_point": start,
+                              "end_point": end,
+                              "sampling": {
+                                  "method": "analytic_adaptive",
+                                  "approximate": False,
+                              },
                           })
             if center:
                 add_relation("c0", "center", "has_center")
-        elif "ellipse" in etype:
+            if start and end:
+                add_relation("c0", "p0", "starts_at")
+                add_relation("c0", "p1", "ends_at")
+        elif is_ellipse:
             add_primitive("c0", "curve", "ellipse", 0, point=center,
-                          is_closed=not bool(geometry.get("is_arc")),
+                          is_closed=ellipse_is_closed,
                           properties={
+                              "schema": "CurvePrimitive/v1",
+                              "curve_kind": "ellipse_arc" if ellipse_arc_flag is True else "ellipse",
                               "major_axis": geometry.get("major_axis"),
+                              "minor_axis": geometry.get("minor_axis"),
                               "radius_ratio": geometry.get("radius_ratio"),
                               "start_angle": geometry.get("start_angle"),
                               "end_angle": geometry.get("end_angle"),
-                              "is_arc": geometry.get("is_arc"),
+                              "angle_unit": geometry.get("angle_unit"),
+                              "start_parameter": start_parameter,
+                              "end_parameter": end_parameter,
+                              "sweep": curve_sweep,
+                              "parameter_unit": "radian",
+                              "direction": "ccw",
+                              "normal": geometry.get("normal"),
+                              "start_point": start,
+                              "end_point": end,
+                              "is_arc": ellipse_arc_flag,
+                              "sampling": {
+                                  "method": "analytic_adaptive",
+                                  "approximate": False,
+                              },
                           })
             if center:
                 add_relation("c0", "center", "has_center")
+            if ellipse_arc_flag is True and start and end:
+                add_relation("c0", "p0", "starts_at")
+                add_relation("c0", "p1", "ends_at")
+        elif is_spline:
+            spline_length = geometry.get("length")
+            if spline_length is None and len(vertices) >= 2:
+                spline_length = sum(
+                    cls._distance(vertices[index], vertices[index + 1])
+                    for index in range(len(vertices) - 1)
+                )
+            add_primitive(
+                "c0", "curve", "spline", 0,
+                length=spline_length,
+                is_closed=bool(geometry.get("is_closed") or closed),
+                properties={
+                    "schema": "CurvePrimitive/v1",
+                    "curve_kind": "spline",
+                    "degree": geometry.get("degree"),
+                    "start_point": start,
+                    "end_point": end,
+                    "fit_points": geometry.get("fit_points") or geometry.get("points"),
+                    "sampled_points": sampled_points or None,
+                    "control_points": geometry.get("control_points"),
+                    "knots": geometry.get("knots"),
+                    "weights": geometry.get("weights"),
+                    "start_tangent": geometry.get("start_tangent"),
+                    "end_tangent": geometry.get("end_tangent"),
+                    "sampling_contract": (
+                        "sampled_points" if geometry.get("sampled_points")
+                        else "fit_points" if geometry.get("fit_points") or geometry.get("points")
+                        else "endpoints_only"
+                    ),
+                    "sampling": {
+                        "method": (
+                            "explicit_samples" if geometry.get("sampled_points")
+                            else "fit_point_polyline"
+                            if geometry.get("fit_points") or geometry.get("points")
+                            else "endpoint_chord"
+                        ),
+                        "approximate": True,
+                    },
+                },
+            )
+            if start and end:
+                add_relation("c0", "p0", "starts_at")
+                add_relation("c0", "p1", "ends_at")
 
         if vertices:
+            raw_bulges = geometry.get("bulges")
+            bulges: List[float] = []
+            if isinstance(raw_bulges, (list, tuple)):
+                for value in raw_bulges:
+                    try:
+                        numeric = float(value)
+                    except (TypeError, ValueError, OverflowError):
+                        numeric = 0.0
+                    bulges.append(numeric if math.isfinite(numeric) else 0.0)
+            normal = cls._point3(geometry.get("normal"))
+            bulge_plane_supported = bool(
+                normal is None
+                or (
+                    abs(normal[0]) <= 1e-9
+                    and abs(normal[1]) <= 1e-9
+                    and normal[2] > 0.0
+                )
+            )
             for i, point in enumerate(vertices):
-                add_primitive(f"p{i}", "point", "vertex", i, point=point)
-            edge_count = len(vertices) if closed and len(vertices) > 2 else max(len(vertices) - 1, 0)
+                if is_spline and sampled_points:
+                    key, point_role = f"sample{i}", "sample_point"
+                elif is_spline:
+                    key, point_role = f"fit{i}", "fit_point"
+                else:
+                    key, point_role = f"p{i}", "vertex"
+                add_primitive(key, "point", point_role, i, point=point)
+            edge_count = (
+                0 if is_spline
+                else len(vertices) if closed and len(vertices) > 2
+                else max(len(vertices) - 1, 0)
+            )
             for i in range(edge_count):
                 a = vertices[i]
                 b = vertices[(i + 1) % len(vertices)]
-                add_primitive(f"e{i}", "line", "edge", i,
-                              point=a, point2=b, length=cls._distance(a, b))
+                bulge = bulges[i] if i < len(bulges) else 0.0
+                if (
+                    bulge_plane_supported
+                    and 1e-12 < abs(bulge) <= 1e12
+                ):
+                    dx = b[0] - a[0]
+                    dy = b[1] - a[1]
+                    chord = math.hypot(dx, dy)
+                    if chord > 1e-12 and math.isfinite(chord):
+                        sweep = 4.0 * math.atan(bulge)
+                        center_offset = chord * (1.0 - bulge * bulge) / (4.0 * bulge)
+                        arc_center = [
+                            a[0] + dx / 2.0 - dy / chord * center_offset,
+                            a[1] + dy / 2.0 + dx / chord * center_offset,
+                            a[2] + (b[2] - a[2]) / 2.0,
+                        ]
+                        radius = math.hypot(a[0] - arc_center[0], a[1] - arc_center[1])
+                        start_parameter = math.atan2(
+                            a[1] - arc_center[1], a[0] - arc_center[0]
+                        )
+                        end_parameter = start_parameter + sweep
+                        arc_length = abs(radius * sweep)
+                        if (
+                            radius > 1e-12
+                            and all(math.isfinite(value) for value in (
+                                *arc_center, radius, start_parameter,
+                                end_parameter, arc_length,
+                            ))
+                        ):
+                            add_primitive(
+                                f"e{i}", "curve", "arc", i,
+                                point=arc_center,
+                                radius=radius,
+                                length=arc_length,
+                                properties={
+                                    "schema": "CurvePrimitive/v1",
+                                    "curve_kind": "circular_arc",
+                                    "source": "polyline_bulge",
+                                    "bulge": bulge,
+                                    "start_parameter": start_parameter,
+                                    "end_parameter": end_parameter,
+                                    "sweep": sweep,
+                                    "parameter_unit": "radian",
+                                    "direction": "ccw" if sweep > 0.0 else "cw",
+                                    "normal": normal or [0.0, 0.0, 1.0],
+                                    "start_point": a,
+                                    "end_point": b,
+                                    "sampling": {
+                                        "method": "analytic_adaptive",
+                                        "approximate": False,
+                                    },
+                                },
+                            )
+                        else:
+                            add_primitive(f"e{i}", "line", "edge", i,
+                                          point=a, point2=b, length=cls._distance(a, b))
+                    else:
+                        add_primitive(f"e{i}", "line", "edge", i,
+                                      point=a, point2=b, length=cls._distance(a, b))
+                else:
+                    add_primitive(f"e{i}", "line", "edge", i,
+                                  point=a, point2=b, length=cls._distance(a, b))
                 add_relation(f"e{i}", f"p{i}", "starts_at", i)
                 add_relation(f"e{i}", f"p{(i + 1) % len(vertices)}", "ends_at", i)
             is_surface = (
-                closed
+                not is_spline
+                and (closed
                 or "solid" in etype
                 or "region" in etype
                 or "hatch" in etype
-                or geometry.get("area") is not None
+                or geometry.get("area") is not None)
             )
             if is_surface and len(vertices) >= 3:
                 area = geometry.get("area")
@@ -1044,7 +1439,11 @@ class CADDatabase:
         dimensionality = 3 if solid_count else 2 if surface_count else 1 if (line_count or curve_count) else 0
         length = geometry.get("length")
         if length is None:
-            lengths = [p["length"] for p in primitives if p["primitive_type"] == "line" and p.get("length") is not None]
+            lengths = [
+                p["length"] for p in primitives
+                if p["primitive_type"] in {"line", "curve"}
+                and p.get("length") is not None
+            ]
             length = sum(lengths) if lengths else None
         area = geometry.get("area")
         if area is None:

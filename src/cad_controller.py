@@ -2211,37 +2211,88 @@ class CADController:
                     "area": ent.Area,
                 })
             elif obj_name == "AcDbArc":
+                start_parameter = float(ent.StartAngle)
+                end_parameter = float(ent.EndAngle)
                 props.update({
                     "center": list(ent.Center),
                     "radius": ent.Radius,
-                    "start_angle": ent.StartAngle,
-                    "end_angle": ent.EndAngle,
+                    "normal": list(ent.Normal),
+                    "start_point": list(ent.StartPoint),
+                    "end_point": list(ent.EndPoint),
+                    "start_angle": start_parameter,
+                    "end_angle": end_parameter,
+                    "angle_unit": "radian",
+                    "start_parameter": start_parameter,
+                    "end_parameter": end_parameter,
+                    "parameter_unit": "radian",
                     "arc_length": ent.ArcLength,
                     "area": ent.Area,
                 })
             elif obj_name == "AcDbEllipse":
+                start_parameter = float(ent.StartParameter)
+                end_parameter = float(ent.EndParameter)
                 props.update({
                     "center": list(ent.Center),
                     "major_axis": list(ent.MajorAxis),
                     "minor_axis": list(ent.MinorAxis),
                     "radius_ratio": ent.RadiusRatio,
-                    "start_angle": ent.StartParameter * 180.0 / math.pi,
-                    "end_angle": ent.EndParameter * 180.0 / math.pi,
-                    "is_arc": abs((ent.EndParameter - ent.StartParameter) - (2.0 * math.pi)) > 1e-6,
+                    "normal": list(ent.Normal),
+                    "start_point": list(ent.StartPoint),
+                    "end_point": list(ent.EndPoint),
+                    "start_angle": start_parameter * 180.0 / math.pi,
+                    "end_angle": end_parameter * 180.0 / math.pi,
+                    "angle_unit": "degree",
+                    "start_parameter": start_parameter,
+                    "end_parameter": end_parameter,
+                    "parameter_unit": "radian",
+                    "is_arc": abs((end_parameter - start_parameter) - (2.0 * math.pi)) > 1e-6,
                     "area": ent.Area,
                 })
-            elif obj_name in ("AcDbPolyline", "AcDb2dPolyline"):
+            elif obj_name in ("AcDbPolyline", "AcDb2dPolyline", "AcDb3dPolyline"):
+                coordinate_step = 2 if obj_name == "AcDbPolyline" else 3
+                normal = self._scan_point(com_get(ent, "Normal", None))
+                elevation = com_get(ent, "Elevation", 0.0)
+                coordinates = com_get(ent, "Coordinates", None)
+                vertices = (
+                    self._scan_coordinate_points(coordinates, coordinate_step)
+                    if obj_name == "AcDb3dPolyline"
+                    else self._scan_ocs_points_to_wcs(
+                        coordinates,
+                        step=coordinate_step,
+                        normal=normal,
+                        elevation=elevation,
+                    )
+                )
                 props.update({
                     "length": ent.Length,
                     "area": ent.Area,
                     "closed": ent.Closed,
-                    "vertices": [[c[0],c[1]] for c in list(ent.Coordinates)],
+                    "vertices": vertices,
+                    "vertices_coordinate_system": "WCS",
+                    "normal": normal,
+                    "elevation": elevation,
                 })
             elif obj_name == "AcDbSpline":
+                fit_points = self._scan_points(com_get(ent, "FitPoints", None))
+                control_points = self._scan_points(com_get(ent, "ControlPoints", None))
+                knots = list(com_get(ent, "Knots", []) or [])
+                weights = list(com_get(ent, "Weights", []) or [])
+                start_tangent = self._scan_point(com_get(ent, "StartTangent", None))
+                end_tangent = self._scan_point(com_get(ent, "EndTangent", None))
+                closed = bool(com_get(ent, "Closed", com_get(ent, "Closed2", False)))
                 props.update({
-                    "degree": ent.Degree,
-                    "number_of_fit_points": ent.NumberOfFitPoints,
-                    "is_closed": ent.IsClosed,
+                    "degree": com_get(ent, "Degree", 0),
+                    "number_of_fit_points": len(fit_points),
+                    "is_closed": closed,
+                    "closed": closed,
+                    "start_point": fit_points[0] if fit_points else None,
+                    "end_point": fit_points[-1] if fit_points else None,
+                    "fit_points": fit_points,
+                    "control_points": control_points,
+                    "knots": knots,
+                    "weights": weights,
+                    "start_tangent": start_tangent,
+                    "end_tangent": end_tangent,
                 })
             elif obj_name in ("AcDbText", "AcDbMText"):
                 props.update({
@@ -3109,22 +3160,165 @@ class CADController:
     def _scan_point(value: Any) -> Optional[List[float]]:
         try:
             return [
-                round(float(value[0]), 4),
-                round(float(value[1]), 4),
-                round(float(value[2]) if len(value) > 2 else 0.0, 4),
+                round(float(value[0]), 9),
+                round(float(value[1]), 9),
+                round(float(value[2]) if len(value) > 2 else 0.0, 9),
             ]
         except Exception:
             return None
+
+    @classmethod
+    def _scan_points(cls, value: Any) -> List[List[float]]:
+        if value is None:
+            return []
+        try:
+            values = list(value)
+        except Exception:
+            return []
+        if values and isinstance(values[0], (list, tuple)):
+            return [point for point in (cls._scan_point(item) for item in values) if point]
+        step = 3 if len(values) % 3 == 0 else 2
+        return [
+            point
+            for point in (
+                cls._scan_point(values[index:index + step])
+                for index in range(0, len(values) - step + 1, step)
+            )
+            if point
+        ]
+
+    @classmethod
+    def _scan_coordinate_points(cls, value: Any, step: int = 2) -> List[List[float]]:
+        """Decode AutoCAD's flat Coordinates array with an explicit stride."""
+        if value is None:
+            return []
+        try:
+            values = list(value)
+        except Exception:
+            return []
+        stride = 3 if int(step or 2) == 3 else 2
+        if values and isinstance(values[0], (list, tuple)):
+            return [
+                point for point in (cls._scan_point(item) for item in values)
+                if point
+            ]
+        return [
+            point
+            for point in (
+                cls._scan_point(values[index:index + stride])
+                for index in range(0, len(values) - stride + 1, stride)
+            )
+            if point
+        ]
+
+    @classmethod
+    def _scan_ocs_points_to_wcs(cls, value: Any, *, step: int,
+                                normal: Any = None,
+                                elevation: Any = 0.0) -> List[List[float]]:
+        """Decode OCS polyline coordinates and apply AutoCAD's arbitrary axis basis."""
+        points = cls._scan_coordinate_points(value, step)
+        if not points:
+            return []
+        direction = cls._scan_point(normal) or [0.0, 0.0, 1.0]
+        length = math.sqrt(sum(component * component for component in direction))
+        if not math.isfinite(length) or length <= 1e-15:
+            direction = [0.0, 0.0, 1.0]
+        else:
+            direction = [component / length for component in direction]
+        nx, ny, nz = direction
+        # Autodesk's arbitrary-axis algorithm defines an orthonormal OCS basis.
+        if abs(nx) < (1.0 / 64.0) and abs(ny) < (1.0 / 64.0):
+            axis_x = [nz, 0.0, -nx]  # WCS Y axis cross normal.
+        else:
+            axis_x = [-ny, nx, 0.0]  # WCS Z axis cross normal.
+        axis_length = math.sqrt(sum(component * component for component in axis_x))
+        if not math.isfinite(axis_length) or axis_length <= 1e-15:
+            return []
+        axis_x = [component / axis_length for component in axis_x]
+        axis_y = [
+            ny * axis_x[2] - nz * axis_x[1],
+            nz * axis_x[0] - nx * axis_x[2],
+            nx * axis_x[1] - ny * axis_x[0],
+        ]
+        try:
+            ocs_z = float(elevation or 0.0)
+        except (TypeError, ValueError, OverflowError):
+            ocs_z = 0.0
+        if not math.isfinite(ocs_z):
+            ocs_z = 0.0
+        transformed: List[List[float]] = []
+        for point in points:
+            x, y = point[:2]
+            world = [
+                x * axis_x[index]
+                + y * axis_y[index]
+                + ocs_z * direction[index]
+                for index in range(3)
+            ]
+            if all(math.isfinite(component) for component in world):
+                transformed.append([round(component, 9) for component in world])
+        return transformed
+
+    @classmethod
+    def _scan_bulged_polyline_visual_path(cls, ocs_vertices: Any,
+                                           bulges: List[float],
+                                           closed: bool,
+                                           normal: Any = None,
+                                           elevation: Any = 0.0) -> List[List[float]]:
+        """Sample bulged OCS segments before transforming them into WCS."""
+        vertices = cls._scan_coordinate_points(ocs_vertices, 2)
+        if len(vertices) < 2 or not any(abs(value) > 1e-12 for value in bulges):
+            return []
+        pairs = list(zip(vertices, vertices[1:]))
+        if closed and vertices[0][:2] != vertices[-1][:2]:
+            pairs.append((vertices[-1], vertices[0]))
+        sampled: List[List[float]] = [list(pairs[0][0])] if pairs else []
+        for index, (start, end) in enumerate(pairs):
+            bulge = bulges[index] if index < len(bulges) else 0.0
+            dx = end[0] - start[0]
+            dy = end[1] - start[1]
+            chord = math.hypot(dx, dy)
+            if not math.isfinite(bulge) or abs(bulge) <= 1e-12 or chord <= 1e-12:
+                sampled.append(list(end))
+                continue
+            sweep = 4.0 * math.atan(bulge)
+            center_offset = chord * (1.0 - bulge * bulge) / (4.0 * bulge)
+            center_x = start[0] + dx / 2.0 - dy / chord * center_offset
+            center_y = start[1] + dy / 2.0 + dx / chord * center_offset
+            radius = math.hypot(start[0] - center_x, start[1] - center_y)
+            start_angle = math.atan2(start[1] - center_y, start[0] - center_x)
+            segment_count = max(
+                8,
+                min(128, int(math.ceil(abs(sweep) / (math.pi / 48.0)))),
+            )
+            sampled.extend([
+                center_x + radius * math.cos(start_angle + sweep * step / segment_count),
+                center_y + radius * math.sin(start_angle + sweep * step / segment_count),
+                0.0,
+            ] for step in range(1, segment_count + 1))
+        transformed = cls._scan_ocs_points_to_wcs(
+            sampled,
+            step=2,
+            normal=normal,
+            elevation=elevation,
+        )
+        if len(transformed) <= 8192:
+            return transformed
+        last_index = len(transformed) - 1
+        return [
+            transformed[round(index * last_index / 8191)]
+            for index in range(8192)
+        ]
 
     @staticmethod
     def _scan_bbox(ent: Any) -> Optional[List[float]]:
         try:
             min_pt, max_pt = ent.GetBoundingBox()
             return [
-                round(float(min_pt[0]), 4),
-                round(float(min_pt[1]), 4),
-                round(float(max_pt[0]), 4),
-                round(float(max_pt[1]), 4),
+                round(float(min_pt[0]), 9),
+                round(float(min_pt[1]), 9),
+                round(float(max_pt[0]), 9),
+                round(float(max_pt[1]), 9),
             ]
         except Exception:
             return None
@@ -3132,10 +3326,12 @@ class CADController:
     @require_document
     def scan_model_space(self, max_entities: int = 10000,
                          detail_level: str = DetailLevel.MINIMAL,
-                         include_bounding_boxes: bool = True) -> Dict[str, Any]:
+                         include_bounding_boxes: bool = True,
+                         capture_visual_geometry: bool = False) -> Dict[str, Any]:
         """Scan model space with a large-drawing friendly default.
 
-        minimal: handle/type/layer, optionally bbox.
+        minimal: handle/type/layer, optionally bbox. Set capture_visual_geometry
+        to retain boundary paths without enabling every standard property.
         standard/full: also read common properties and simple geometry.
         """
         level = (detail_level or DetailLevel.MINIMAL).lower()
@@ -3163,14 +3359,22 @@ class CADController:
                     "name": obj_name.replace("AcDb", ""),
                     "layer": com_get(ent, "Layer", "0"),
                 }
-                if read_common_properties:
+                capture_entity_geometry = bool(
+                    capture_visual_geometry
+                    and obj_name in {
+                        "AcDbLine", "AcDbCircle", "AcDbArc", "AcDbEllipse",
+                        "AcDbSpline", "AcDbPolyline", "AcDb2dPolyline",
+                        "AcDb3dPolyline",
+                    }
+                )
+                if read_common_properties or capture_entity_geometry:
                     info["color"] = com_get(ent, "Color", 256)
                     info["linetype"] = com_get(ent, "Linetype", "ByLayer")
                 if include_bounding_boxes:
                     bbox = self._scan_bbox(ent)
                     if bbox is not None:
                         info["bbox"] = bbox
-                if read_geometry:
+                if read_geometry or capture_entity_geometry:
                     typed_ent = ent
                     try:
                         typed_ent = win32com.client.Dispatch(ent)
@@ -3183,37 +3387,146 @@ class CADController:
                             info["start"] = start
                         if end:
                             info["end"] = end
-                        info["length"] = round(float(com_get(typed_ent, "Length", 0) or 0), 4)
+                        info["length"] = round(float(com_get(typed_ent, "Length", 0) or 0), 9)
                     elif obj_name == "AcDbCircle":
                         center = self._scan_point(com_get(typed_ent, "Center", None))
                         if center:
                             info["center"] = center
-                        info["radius"] = round(float(com_get(typed_ent, "Radius", 0) or 0), 4)
+                        info["radius"] = round(float(com_get(typed_ent, "Radius", 0) or 0), 9)
                     elif obj_name == "AcDbArc":
                         center = self._scan_point(com_get(typed_ent, "Center", None))
+                        start = self._scan_point(com_get(typed_ent, "StartPoint", None))
+                        end = self._scan_point(com_get(typed_ent, "EndPoint", None))
                         if center:
                             info["center"] = center
-                        info["radius"] = round(float(com_get(typed_ent, "Radius", 0) or 0), 4)
-                        info["start_angle"] = round(float(com_get(typed_ent, "StartAngle", 0) or 0), 4)
-                        info["end_angle"] = round(float(com_get(typed_ent, "EndAngle", 0) or 0), 4)
+                        normal = self._scan_point(com_get(typed_ent, "Normal", None))
+                        if normal:
+                            info["normal"] = normal
+                        if start:
+                            info["start"] = start
+                        if end:
+                            info["end"] = end
+                        info["radius"] = round(float(com_get(typed_ent, "Radius", 0) or 0), 9)
+                        start_parameter = float(com_get(typed_ent, "StartAngle", 0) or 0)
+                        end_parameter = float(com_get(typed_ent, "EndAngle", 0) or 0)
+                        info["start_angle"] = round(start_parameter, 9)
+                        info["end_angle"] = round(end_parameter, 9)
+                        info["angle_unit"] = "radian"
+                        info["start_parameter"] = start_parameter
+                        info["end_parameter"] = end_parameter
+                        info["parameter_unit"] = "radian"
                     elif obj_name == "AcDbEllipse":
                         center = self._scan_point(com_get(typed_ent, "Center", None))
+                        start = self._scan_point(com_get(typed_ent, "StartPoint", None))
+                        end = self._scan_point(com_get(typed_ent, "EndPoint", None))
                         if center:
                             info["center"] = center
+                        normal = self._scan_point(com_get(typed_ent, "Normal", None))
+                        if normal:
+                            info["normal"] = normal
+                        if start:
+                            info["start"] = start
+                        if end:
+                            info["end"] = end
                         major_axis = self._scan_point(com_get(typed_ent, "MajorAxis", None))
                         if major_axis:
                             info["major_axis"] = major_axis
-                        info["radius_ratio"] = round(float(com_get(typed_ent, "RadiusRatio", 0) or 0), 4)
+                        minor_axis = self._scan_point(com_get(typed_ent, "MinorAxis", None))
+                        if minor_axis:
+                            info["minor_axis"] = minor_axis
+                        info["radius_ratio"] = round(float(com_get(typed_ent, "RadiusRatio", 0) or 0), 9)
                         start_param = float(com_get(typed_ent, "StartParameter", 0) or 0)
                         end_param = float(com_get(typed_ent, "EndParameter", 0) or 0)
-                        info["start_angle"] = round(start_param * 180.0 / math.pi, 4)
-                        info["end_angle"] = round(end_param * 180.0 / math.pi, 4)
+                        info["start_angle"] = round(start_param * 180.0 / math.pi, 9)
+                        info["end_angle"] = round(end_param * 180.0 / math.pi, 9)
+                        info["angle_unit"] = "degree"
+                        info["start_parameter"] = start_param
+                        info["end_parameter"] = end_param
+                        info["parameter_unit"] = "radian"
                         info["is_arc"] = abs((end_param - start_param) - (2.0 * math.pi)) > 1e-6
+                    elif obj_name == "AcDbSpline":
+                        info["degree"] = int(com_get(typed_ent, "Degree", 0) or 0)
+                        fit_points = self._scan_points(com_get(typed_ent, "FitPoints", None))
+                        control_points = self._scan_points(com_get(typed_ent, "ControlPoints", None))
+                        if fit_points:
+                            info["fit_points"] = fit_points
+                            info["start"] = fit_points[0]
+                            info["end"] = fit_points[-1]
+                        if control_points:
+                            info["control_points"] = control_points
+                        knots = list(com_get(typed_ent, "Knots", []) or [])
+                        weights = list(com_get(typed_ent, "Weights", []) or [])
+                        if knots:
+                            info["knots"] = knots
+                        if weights:
+                            info["weights"] = weights
+                        start_tangent = self._scan_point(com_get(typed_ent, "StartTangent", None))
+                        end_tangent = self._scan_point(com_get(typed_ent, "EndTangent", None))
+                        if start_tangent:
+                            info["start_tangent"] = start_tangent
+                        if end_tangent:
+                            info["end_tangent"] = end_tangent
+                        closed = bool(com_get(
+                            typed_ent, "Closed", com_get(typed_ent, "Closed2", False)
+                        ))
+                        info["is_closed"] = closed
+                        info["closed"] = closed
                     elif obj_name in ("AcDbText", "AcDbMText"):
                         info["text"] = com_get(typed_ent, "TextString", "")
                     elif "Polyline" in obj_name:
-                        info["length"] = round(float(com_get(typed_ent, "Length", 0) or 0), 4)
-                        info["closed"] = bool(com_get(typed_ent, "Closed", False))
+                        info["length"] = round(float(com_get(typed_ent, "Length", 0) or 0), 9)
+                        closed = bool(com_get(typed_ent, "Closed", False))
+                        info["closed"] = closed
+                        coordinate_step = 2 if obj_name == "AcDbPolyline" else 3
+                        normal = self._scan_point(com_get(typed_ent, "Normal", None))
+                        elevation = com_get(typed_ent, "Elevation", 0.0)
+                        coordinates = com_get(typed_ent, "Coordinates", None)
+                        ocs_vertices: List[List[float]] = []
+                        if obj_name == "AcDb3dPolyline":
+                            vertices = self._scan_coordinate_points(
+                                coordinates, coordinate_step
+                            )
+                        else:
+                            ocs_vertices = self._scan_coordinate_points(
+                                coordinates, coordinate_step
+                            )
+                            vertices = self._scan_ocs_points_to_wcs(
+                                ocs_vertices,
+                                step=coordinate_step,
+                                normal=normal,
+                                elevation=elevation,
+                            )
+                        if vertices:
+                            info["vertices"] = vertices
+                            info["vertices_coordinate_system"] = "WCS"
+                        if normal:
+                            info["normal"] = normal
+                        try:
+                            numeric_elevation = float(elevation or 0.0)
+                        except (TypeError, ValueError, OverflowError):
+                            numeric_elevation = 0.0
+                        if math.isfinite(numeric_elevation):
+                            info["elevation"] = round(numeric_elevation, 9)
+                        if obj_name != "AcDb3dPolyline" and vertices:
+                            bulges: List[float] = []
+                            segment_count = len(vertices) if closed else max(0, len(vertices) - 1)
+                            for vertex_index in range(segment_count):
+                                try:
+                                    bulge = float(typed_ent.GetBulge(vertex_index))
+                                except Exception:
+                                    bulge = 0.0
+                                bulges.append(round(bulge, 12) if math.isfinite(bulge) else 0.0)
+                            if bulges:
+                                info["bulges"] = bulges
+                                visual_path = self._scan_bulged_polyline_visual_path(
+                                    ocs_vertices,
+                                    bulges,
+                                    closed,
+                                    normal=normal,
+                                    elevation=elevation,
+                                )
+                                if visual_path:
+                                    info["visual_path"] = visual_path
                 entities.append(info)
             except Exception as e:
                 entities.append({"index": i, "error": str(e)})
@@ -3224,6 +3537,7 @@ class CADController:
             "scanned": count,
             "truncated": count < total_available,
             "detail_level": level,
+            "capture_visual_geometry": bool(capture_visual_geometry),
             "type_stats": type_stats,
         }
 

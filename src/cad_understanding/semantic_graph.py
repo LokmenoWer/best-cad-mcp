@@ -10,7 +10,6 @@ from src.cad_database import CADDatabase
 
 from .common import (
     all_entities,
-    bbox_area,
     bbox_center,
     bbox_contains,
     bbox_dict,
@@ -30,6 +29,7 @@ from .common import (
     point_distance,
     stable_id,
 )
+from .drawing_graph import infer_cross_entity_closed_profiles
 from .result import ToolResult, ok_result
 
 
@@ -194,6 +194,129 @@ def _read_graph(database: CADDatabase) -> Dict[str, List[Dict[str, Any]]]:
     return {"semantic_objects": objects, "semantic_relations": relations}
 
 
+def _median(values: List[float]) -> float:
+    ordered = sorted(value for value in values if math.isfinite(value))
+    if not ordered:
+        return 0.0
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def _spatial_circle_components(members: List[Dict[str, Any]],
+                               radius: float) -> List[List[Dict[str, Any]]]:
+    """Split equal-radius circles into locally connected candidate patterns."""
+    centers = [circle_center_radius(member)[0] for member in members]
+    nearest: List[float] = []
+    for index, center in enumerate(centers):
+        distances = [
+            point_distance(center, other)
+            for other_index, other in enumerate(centers)
+            if other_index != index and point_distance(center, other) > 1e-9
+        ]
+        if distances:
+            nearest.append(min(distances))
+    local_pitch = _median(nearest)
+    if local_pitch <= 0.0:
+        return []
+    link_limit = max(radius * 4.0, local_pitch * 2.5)
+    unvisited = set(range(len(members)))
+    components: List[List[Dict[str, Any]]] = []
+    while unvisited:
+        pending = [unvisited.pop()]
+        indices: List[int] = []
+        while pending:
+            index = pending.pop()
+            indices.append(index)
+            neighbors = [
+                other_index for other_index in list(unvisited)
+                if point_distance(centers[index], centers[other_index]) <= link_limit
+            ]
+            for other_index in neighbors:
+                unvisited.remove(other_index)
+                pending.append(other_index)
+        if len(indices) >= 3:
+            components.append([members[index] for index in sorted(indices)])
+    return components
+
+
+def _linear_pattern_quality(centers: List[Tuple[float, float]],
+                            radius: float) -> Optional[float]:
+    farthest: Optional[Tuple[Tuple[float, float], Tuple[float, float]]] = None
+    span = 0.0
+    for index, first in enumerate(centers):
+        for second in centers[index + 1:]:
+            distance = point_distance(first, second)
+            if distance > span:
+                span = distance
+                farthest = (first, second)
+    if farthest is None or span <= 1e-9:
+        return None
+    start, end = farthest
+    dx = (end[0] - start[0]) / span
+    dy = (end[1] - start[1]) / span
+    perpendicular_limit = max(radius * 0.35, span * 0.01, 1e-6)
+    projections: List[float] = []
+    for center in centers:
+        rel_x = center[0] - start[0]
+        rel_y = center[1] - start[1]
+        if abs(rel_x * dy - rel_y * dx) > perpendicular_limit:
+            return None
+        projections.append(rel_x * dx + rel_y * dy)
+    projections.sort()
+    gaps = [
+        second - first for first, second in zip(projections, projections[1:])
+        if second - first > 1e-9
+    ]
+    mean_gap = sum(gaps) / len(gaps) if gaps else 0.0
+    if mean_gap <= 0.0 or len(gaps) != len(centers) - 1:
+        return None
+    gap_deviation = math.sqrt(sum(
+        (gap - mean_gap) ** 2 for gap in gaps
+    ) / len(gaps)) / mean_gap
+    return gap_deviation if gap_deviation <= 0.15 else None
+
+
+def _axis_grid_pattern_quality(centers: List[Tuple[float, float]],
+                               radius: float) -> Optional[float]:
+    tolerance = max(radius * 0.35, 1e-6)
+
+    def clustered(values: List[float]) -> List[float]:
+        groups: List[List[float]] = []
+        for value in sorted(values):
+            if not groups or abs(value - sum(groups[-1]) / len(groups[-1])) > tolerance:
+                groups.append([value])
+            else:
+                groups[-1].append(value)
+        return [sum(group) / len(group) for group in groups]
+
+    xs = clustered([center[0] for center in centers])
+    ys = clustered([center[1] for center in centers])
+    if len(xs) < 2 or len(ys) < 2 or len(xs) * len(ys) != len(centers):
+        return None
+    occupied = set()
+    for x, y in centers:
+        x_index = min(range(len(xs)), key=lambda index: abs(xs[index] - x))
+        y_index = min(range(len(ys)), key=lambda index: abs(ys[index] - y))
+        if abs(xs[x_index] - x) > tolerance or abs(ys[y_index] - y) > tolerance:
+            return None
+        occupied.add((x_index, y_index))
+    if len(occupied) != len(centers):
+        return None
+    normalized_deviations: List[float] = []
+    for coordinates in (xs, ys):
+        gaps = [second - first for first, second in zip(coordinates, coordinates[1:])]
+        mean_gap = sum(gaps) / len(gaps) if gaps else 0.0
+        if mean_gap <= 0.0:
+            return None
+        normalized_deviations.append(math.sqrt(sum(
+            (gap - mean_gap) ** 2 for gap in gaps
+        ) / len(gaps)) / mean_gap)
+    quality = max(normalized_deviations, default=0.0)
+    return quality if quality <= 0.15 else None
+
+
 def _detect_circle_patterns(circles: List[Dict[str, Any]],
                             domain: str) -> List[Dict[str, Any]]:
     groups: Dict[float, List[Dict[str, Any]]] = {}
@@ -205,33 +328,59 @@ def _detect_circle_patterns(circles: List[Dict[str, Any]],
         key = round(radius, 3)
         groups.setdefault(key, []).append(entity)
     patterns = []
-    for radius, members in groups.items():
-        if len(members) < 3:
-            continue
-        centers = [circle_center_radius(member)[0] for member in members if circle_center_radius(member)]
-        centroid = [
-            sum(center[0] for center in centers) / len(centers),
-            sum(center[1] for center in centers) / len(centers),
-        ]
-        distances = [point_distance(center, centroid) for center in centers]
-        mean_distance = sum(distances) / len(distances) if distances else 0.0
-        variance = sum((d - mean_distance) ** 2 for d in distances) / len(distances) if distances else 0.0
-        pattern_type = "bolt_circle_pattern" if domain == "mechanical" and mean_distance > radius else "hole_pattern"
-        confidence = 0.82 if variance <= max(radius, 1.0) else 0.68
-        patterns.append(_object_row(
-            pattern_type,
-            f"{len(members)}x radius {radius:g}",
-            [str(member.get("handle")) for member in members],
-            confidence,
-            bbox=bbox_union(bbox_from_row(member) for member in members),
-            properties={
-                "count": len(members),
-                "radius": radius,
-                "estimated_pattern_center": centroid,
-                "center_distance_variance": variance,
-            },
-            source=f"rule:{domain}",
-        ))
+    for radius, radius_members in groups.items():
+        for members in _spatial_circle_components(radius_members, radius):
+            centers = [
+                circle_center_radius(member)[0]
+                for member in members if circle_center_radius(member)
+            ]
+            centroid = [
+                sum(center[0] for center in centers) / len(centers),
+                sum(center[1] for center in centers) / len(centers),
+            ]
+            distances = [point_distance(center, centroid) for center in centers]
+            mean_distance = sum(distances) / len(distances) if distances else 0.0
+            radial_deviation = (
+                math.sqrt(sum(
+                    (distance - mean_distance) ** 2 for distance in distances
+                ) / len(distances)) / mean_distance
+                if mean_distance > 1e-9 else float("inf")
+            )
+            linear_quality = _linear_pattern_quality(centers, radius)
+            grid_quality = _axis_grid_pattern_quality(centers, radius)
+            radial_pattern = mean_distance > radius and radial_deviation <= 0.15
+            if not radial_pattern and linear_quality is None and grid_quality is None:
+                continue
+            pattern_type = (
+                "bolt_circle_pattern"
+                if domain == "mechanical" and radial_pattern else "hole_pattern"
+            )
+            quality = (
+                radial_deviation if radial_pattern
+                else min(
+                    value for value in (linear_quality, grid_quality)
+                    if value is not None
+                )
+            )
+            confidence = max(0.68, min(0.84, 0.84 - 0.5 * quality))
+            patterns.append(_object_row(
+                pattern_type,
+                f"{len(members)}x radius {radius:g}",
+                [str(member.get("handle")) for member in members],
+                confidence,
+                bbox=bbox_union(bbox_from_row(member) for member in members),
+                properties={
+                    "count": len(members),
+                    "radius": radius,
+                    "estimated_pattern_center": centroid,
+                    "radial_deviation_ratio": radial_deviation,
+                    "linear_spacing_deviation_ratio": linear_quality,
+                    "grid_spacing_deviation_ratio": grid_quality,
+                    "spatial_component_count": len(members),
+                },
+                source=f"rule:{domain}",
+                rule_name="coherent_equal_radius_pattern",
+            ))
     return patterns
 
 
@@ -335,6 +484,212 @@ def _add_spatial_relations(objects: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return relations
 
 
+def _finite_profile_polygon(value: Any) -> List[List[float]]:
+    """Return a small, finite 2D profile polygon for nesting checks.
+
+    Semantic nesting is only a prior.  Invalid, unbounded, or degenerate
+    geometry therefore fails closed instead of turning an AABB coincidence
+    into an inner/outer-profile claim.
+    """
+    if not isinstance(value, list) or len(value) > 8192:
+        return []
+    points: List[List[float]] = []
+    for raw in value:
+        if not isinstance(raw, (list, tuple)) or len(raw) < 2:
+            return []
+        try:
+            point = [float(raw[0]), float(raw[1])]
+        except (TypeError, ValueError, OverflowError):
+            return []
+        if not all(math.isfinite(component) for component in point):
+            return []
+        if not points or point != points[-1]:
+            points.append(point)
+    if len(points) > 3 and points[0] == points[-1]:
+        points.pop()
+    if len(points) < 3:
+        return []
+    scale = max(
+        1.0,
+        *(abs(component) for point in points for component in point),
+    )
+    area_twice = abs(math.fsum(
+        (points[index][0] / scale) * (points[(index + 1) % len(points)][1] / scale)
+        - (points[(index + 1) % len(points)][0] / scale) * (points[index][1] / scale)
+        for index in range(len(points))
+    ))
+    return points if math.isfinite(area_twice) and area_twice > 1e-12 else []
+
+
+def _point_on_profile_boundary(point: List[float],
+                               start: List[float],
+                               end: List[float],
+                               tolerance: float) -> bool:
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    length_squared = dx * dx + dy * dy
+    if length_squared <= tolerance * tolerance:
+        return math.hypot(point[0] - start[0], point[1] - start[1]) <= tolerance
+    parameter = min(1.0, max(0.0, (
+        (point[0] - start[0]) * dx + (point[1] - start[1]) * dy
+    ) / length_squared))
+    return math.hypot(
+        point[0] - (start[0] + parameter * dx),
+        point[1] - (start[1] + parameter * dy),
+    ) <= tolerance
+
+
+def _profile_polygon_contains_point(polygon: List[List[float]],
+                                    point: List[float]) -> bool:
+    scale = max(
+        1.0,
+        abs(point[0]),
+        abs(point[1]),
+        *(abs(component) for vertex in polygon for component in vertex),
+    )
+    tolerance = scale * 1e-9
+    for start, end in zip(polygon, [*polygon[1:], polygon[0]]):
+        if _point_on_profile_boundary(point, start, end, tolerance):
+            return True
+    inside = False
+    previous = polygon[-1]
+    for current in polygon:
+        if (previous[1] > point[1]) != (current[1] > point[1]):
+            crossing_x = previous[0] + (
+                (point[1] - previous[1])
+                * (current[0] - previous[0])
+                / (current[1] - previous[1])
+            )
+            if crossing_x >= point[0] - tolerance:
+                inside = not inside
+        previous = current
+    return inside
+
+
+def _profile_containment_method(outer: Dict[str, Any],
+                                inner: Dict[str, Any]) -> Optional[str]:
+    """Return the evidence type when one reconstructed profile contains another."""
+    outer_bbox = outer.get("bbox")
+    inner_bbox = inner.get("bbox")
+    if not outer_bbox or not inner_bbox or not bbox_contains(outer_bbox, inner_bbox):
+        return None
+    outer_area = bbox_area_safe(outer_bbox)
+    inner_area = bbox_area_safe(inner_bbox)
+    scale = max(1.0, outer_area, inner_area)
+    if outer_area - inner_area <= scale * 1e-9:
+        return None
+
+    outer_polygon = _finite_profile_polygon(
+        (outer.get("properties") or {}).get("vertices")
+    )
+    inner_polygon = _finite_profile_polygon(
+        (inner.get("properties") or {}).get("vertices")
+    )
+    if not outer_polygon:
+        return "bbox_fallback"
+
+    if inner_polygon:
+        probes: List[List[float]] = []
+        for start, end in zip(inner_polygon, [*inner_polygon[1:], inner_polygon[0]]):
+            probes.extend([
+                start,
+                [0.75 * start[0] + 0.25 * end[0], 0.75 * start[1] + 0.25 * end[1]],
+                [0.5 * start[0] + 0.5 * end[0], 0.5 * start[1] + 0.5 * end[1]],
+                [0.25 * start[0] + 0.75 * end[0], 0.25 * start[1] + 0.75 * end[1]],
+            ])
+    else:
+        min_x, min_y, max_x, max_y = inner_bbox
+        probes = [
+            [min_x, min_y], [max_x, min_y], [max_x, max_y], [min_x, max_y],
+            [(min_x + max_x) / 2.0, (min_y + max_y) / 2.0],
+        ]
+    return (
+        "polygon_containment"
+        if probes and all(
+            _profile_polygon_contains_point(outer_polygon, point)
+            for point in probes
+        )
+        else None
+    )
+
+
+def _profile_role_objects(objects: List[Dict[str, Any]],
+                          domain: str) -> List[Dict[str, Any]]:
+    """Classify every distinct closed loop by geometric nesting depth."""
+    profiles_by_handles: Dict[Tuple[str, ...], Dict[str, Any]] = {}
+    for obj in objects:
+        if obj.get("object_type") != "closed_profile":
+            continue
+        handles = tuple(sorted({
+            str(handle) for handle in obj.get("entity_handles", []) if handle
+        }))
+        if not handles or not obj.get("bbox"):
+            continue
+        current = profiles_by_handles.get(handles)
+        current_vertices = _finite_profile_polygon(
+            ((current or {}).get("properties") or {}).get("vertices")
+        )
+        vertices = _finite_profile_polygon(
+            (obj.get("properties") or {}).get("vertices")
+        )
+        if current is None or (vertices and not current_vertices):
+            profiles_by_handles[handles] = obj
+
+    profiles = list(profiles_by_handles.values())
+    roles: List[Dict[str, Any]] = []
+    for profile in profiles:
+        containers: List[Tuple[Dict[str, Any], str]] = []
+        for possible_outer in profiles:
+            if possible_outer is profile:
+                continue
+            method = _profile_containment_method(possible_outer, profile)
+            if method:
+                containers.append((possible_outer, method))
+        containers.sort(key=lambda item: (
+            bbox_area_safe(item[0].get("bbox")),
+            str(item[0].get("object_id") or ""),
+        ))
+        depth = len(containers)
+        is_mechanical = domain == "mechanical"
+        object_type = (
+            "outer_profile" if depth == 0 else "inner_profile"
+        ) if is_mechanical else (
+            "outer_closed_profile" if depth == 0 else "inner_closed_profile"
+        )
+        methods = sorted({method for _, method in containers})
+        uses_bbox_fallback = "bbox_fallback" in methods
+        source_confidence = float(profile.get("confidence") or 0.0)
+        confidence = min(
+            max(0.0, source_confidence - 0.02),
+            0.58 if uses_bbox_fallback else (0.72 if depth == 0 else 0.7),
+        )
+        profile_properties = dict(profile.get("properties") or {})
+        roles.append(_object_row(
+            object_type,
+            f"{'outer' if depth == 0 else 'inner'} profile {profile.get('object_id')}",
+            list(profile.get("entity_handles") or []),
+            confidence,
+            bbox=profile.get("bbox"),
+            properties={
+                "selection": "closed profile classified by geometric nesting depth",
+                "profile_object_id": profile.get("object_id"),
+                "nesting_depth": depth,
+                "container_object_ids": [
+                    container.get("object_id") for container, _ in containers
+                ],
+                "containment_methods": methods,
+                "vertices": profile_properties.get("vertices") or [],
+            },
+            source=f"rule:{domain}",
+            rule_name="profile_geometric_nesting",
+            warnings=(
+                ["Profile nesting uses bounding-box fallback because an exact contour was unavailable."]
+                if uses_bbox_fallback else []
+            ),
+        ))
+    return roles
+
+
 def detect_semantic_objects(domain: str = "generic",
                             database: Optional[CADDatabase] = None) -> ToolResult:
     db = get_db(database)
@@ -343,7 +698,6 @@ def detect_semantic_objects(domain: str = "generic",
     objects: List[Dict[str, Any]] = []
     relations: List[Dict[str, Any]] = []
     circles: List[Dict[str, Any]] = []
-    profiles: List[Dict[str, Any]] = []
     dimensions: List[Dict[str, Any]] = []
     texts: List[Dict[str, Any]] = []
     lines: List[Dict[str, Any]] = []
@@ -354,17 +708,19 @@ def detect_semantic_objects(domain: str = "generic",
         text = entity_text(entity)
         bbox = bbox_from_row(entity)
         geom = entity_geometry(entity)
-        if "line" in etype and "polyline" not in etype:
+        if etype.replace(" ", "") in {"line", "acdbline"}:
             lines.append(entity)
         if "polyline" in etype and is_closed_polyline(entity):
             obj_type = "closed_profile"
             confidence = 0.78
             objects.append(_object_row(
                 obj_type, f"closed profile {handle}", [handle], confidence,
-                bbox=bbox, properties={"closed": True}, source=f"rule:{domain}",
+                bbox=bbox, properties={
+                    "closed": True,
+                    "vertices": geom.get("vertices") or geom.get("points") or [],
+                }, source=f"rule:{domain}",
                 rule_name="closed_polyline_profile",
             ))
-            profiles.append(entity)
             specific = _domain_specific_object(entity, domain, etype, text, bbox)
             if specific:
                 obj_type, spec_confidence, spec_props = specific
@@ -373,6 +729,39 @@ def detect_semantic_objects(domain: str = "generic",
                     bbox=bbox, properties=spec_props, source=f"rule:{domain}",
                     rule_name=f"{domain}_{obj_type}",
                 ))
+        elif (
+            (
+                "ellipse" in etype
+                and (
+                    geom.get("is_arc") is False
+                    or (
+                        (geom.get("closed") is True or geom.get("is_closed") is True)
+                        and geom.get("is_arc") is not True
+                    )
+                )
+            )
+            or ("spline" in etype and bool(geom.get("closed") or geom.get("is_closed")))
+        ):
+            curve_kind = "ellipse" if "ellipse" in etype else "spline"
+            approximate = curve_kind == "spline" and not bool(geom.get("sampled_points"))
+            objects.append(_object_row(
+                "closed_profile",
+                f"closed {curve_kind} profile {handle}",
+                [handle],
+                0.76 if curve_kind == "ellipse" else 0.64,
+                bbox=bbox,
+                properties={
+                    "closed": True,
+                    "curve_kind": curve_kind,
+                    "approximate": approximate,
+                },
+                source=f"rule:{domain}",
+                rule_name=f"closed_{curve_kind}_profile",
+                warnings=(
+                    ["Spline profile has no explicit sampled_points; topology is closed but path fidelity is approximate."]
+                    if approximate else []
+                ),
+            ))
         elif "circle" in etype:
             circles.append(entity)
             obj_type = "hole" if domain == "mechanical" else "circle_feature"
@@ -452,39 +841,53 @@ def detect_semantic_objects(domain: str = "generic",
                     rule_name=f"{domain}_{obj_type}",
                 ))
 
+    cross_entity_profiles = infer_cross_entity_closed_profiles(db)
+    for profile in cross_entity_profiles:
+        objects.append(_object_row(
+            "closed_profile",
+            f"cross-entity closed profile {profile['profile_id']}",
+            profile["entity_handles"],
+            profile["confidence"],
+            bbox=tuple(profile["bbox"]),
+            properties={
+                "selection": "drawing-level planar graph bounded face",
+                "member_primitives": profile["member_primitives"],
+                "vertices": profile["vertices"],
+                "junction_vertices": profile.get("junction_vertices", []),
+                "area": profile["area"],
+                "perimeter": profile["perimeter"],
+                "segment_count": profile["segment_count"],
+                "boundary_edge_count": profile.get("boundary_edge_count", profile["segment_count"]),
+                "branch_node_count": profile.get("branch_node_count", 0),
+                "adjacent_bridge_count": profile.get("adjacent_bridge_count", 0),
+                "curve_count": profile.get("curve_count", 0),
+                "approximate_curve_count": profile.get("approximate_curve_count", 0),
+                "max_curve_sampling_error": profile.get(
+                    "max_curve_sampling_error"
+                ),
+                "max_certified_curve_sampling_error": profile.get(
+                    "max_certified_curve_sampling_error", 0.0
+                ),
+                "source_coverage": profile.get("source_coverage", ()),
+                "endpoint_tolerance": profile["endpoint_tolerance"],
+                "max_endpoint_gap": profile["max_endpoint_gap"],
+                "closure_quality": profile["closure_quality"],
+                "topology_evidence": profile.get("topology_evidence", {}),
+            },
+            source=f"rule:{domain}",
+            object_id=profile["profile_id"],
+            # Keep the established rule name stable for downstream filters;
+            # topology_evidence records the stronger bounded-face method.
+            rule_name="cross_entity_endpoint_cycle",
+        ))
+
     pattern_objects = _detect_circle_patterns(circles, domain)
     objects.extend(pattern_objects)
 
-    if profiles:
-        largest = max(profiles, key=lambda row: bbox_area_safe(bbox_from_row(row)))
-        largest_handle = str(largest.get("handle"))
-        objects.append(_object_row(
-            "outer_profile" if domain == "mechanical" else "outer_closed_profile",
-            f"outer profile {largest_handle}",
-            [largest_handle],
-            0.7,
-            bbox=bbox_from_row(largest),
-            properties={"selection": "largest closed profile by bounding box"},
-            source=f"rule:{domain}",
-            rule_name="largest_profile_outer_candidate",
-        ))
-        outer_bbox = bbox_from_row(largest)
-        for profile in profiles:
-            handle = str(profile.get("handle"))
-            if handle == largest_handle:
-                continue
-            profile_bbox = bbox_from_row(profile)
-            if bbox_contains(outer_bbox, profile_bbox):
-                objects.append(_object_row(
-                    "inner_profile" if domain == "mechanical" else "inner_closed_profile",
-                    f"inner profile {handle}",
-                    [handle],
-                    0.62,
-                    bbox=profile_bbox,
-                    properties={"selection": "closed profile inside largest profile"},
-                    source=f"rule:{domain}",
-                    rule_name="inner_profile_candidate",
-                ))
+    # Keep topology (closed_profile) and role (outer/inner) as separate semantic
+    # objects.  This lets consumers ask for a generic loop while preserving the
+    # nesting evidence needed to disambiguate dense, concentric linework.
+    objects.extend(_profile_role_objects(objects, domain))
 
     by_handle: Dict[str, List[Dict[str, Any]]] = {}
     for obj in objects:
@@ -579,6 +982,8 @@ def detect_semantic_objects(domain: str = "generic",
             second_objs = by_handle.get(str(second.get("handle")), [])
             if not first_objs or not second_objs:
                 continue
+            if first_objs[0]["object_id"] == second_objs[0]["object_id"]:
+                continue
             if delta <= 1e-5:
                 relations.append(_relation_row(
                     "parallel_to", first_objs[0]["object_id"], second_objs[0]["object_id"], 0.68,
@@ -615,7 +1020,10 @@ def detect_semantic_objects(domain: str = "generic",
         f"Detected {len(objects)} semantic objects with rule-based {domain} detector.",
         data=graph,
         handles=sorted({h for obj in objects for h in obj.get("entity_handles", [])}),
-        warnings=["Semantic detection is deterministic and rule-based; confidence reflects heuristic evidence."],
+        warnings=[
+            "Semantic detection is deterministic and rule-based; confidence reflects heuristic evidence.",
+            "Cross-entity profiles atomically planarize LINE/POLYLINE crossings with analytic circular and elliptic boundaries; unresolved spline and non-circular curve/curve contact regions fail closed.",
+        ],
         next_tools=["get_semantic_graph", "find_semantic_objects", "extract_drawing_constraints"],
     )
 
@@ -670,6 +1078,7 @@ def find_semantic_objects(object_type: Optional[str] = None,
     matches = []
     for obj in graph["semantic_objects"]:
         score = 0.0
+        exact_type_match = False
         confidence = float(obj.get("confidence") or 0.0)
         if confidence < float(confidence_threshold or 0.0):
             continue
@@ -679,8 +1088,10 @@ def find_semantic_objects(object_type: Optional[str] = None,
             continue
         if query_bbox and not bbox_intersects(_bbox_from_public(obj.get("bbox")), query_bbox):
             continue
-        if object_type_norm and object_type_norm in str(obj.get("object_type", "")).lower():
+        candidate_type = str(obj.get("object_type", "")).lower()
+        if object_type_norm and object_type_norm in candidate_type:
             score += 0.6
+            exact_type_match = candidate_type == object_type_norm
         if label_norm and label_norm in str(obj.get("label", "")).lower():
             score += 0.4
         if handle_norm:
@@ -692,9 +1103,20 @@ def find_semantic_objects(object_type: Optional[str] = None,
         if not any([object_type_norm, label_norm, handle_norm, domain_norm, query_bbox]):
             score = confidence
         if score > 0:
-            matches.append({**obj, "score": round(min(score, 1.0), 3)})
-    matches.sort(key=lambda item: (-item["score"], -float(item.get("confidence") or 0.0), item.get("label", "")))
+            matches.append({
+                **obj,
+                "score": round(min(score, 1.0), 3),
+                "_exact_type_match": exact_type_match,
+            })
+    matches.sort(key=lambda item: (
+        -int(bool(item.get("_exact_type_match"))),
+        -item["score"],
+        -float(item.get("confidence") or 0.0),
+        item.get("label", ""),
+    ))
     matches = matches[:max(1, min(int(top_k or 20), 100))]
+    for item in matches:
+        item.pop("_exact_type_match", None)
     return ok_result(
         f"Found {len(matches)} semantic objects.",
         data={"semantic_objects": matches},

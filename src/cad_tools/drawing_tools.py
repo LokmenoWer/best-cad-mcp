@@ -1,4 +1,5 @@
 """CAD MCP Tools — Drawing primitives and entities."""
+import math
 from typing import Optional, List, Tuple
 from src.cad_controller import get_controller
 from src.cad_database import get_database
@@ -156,7 +157,22 @@ def draw_arc(center_x: float, center_y: float, radius: float,
                      layer=arc.Layer, color=_com_get(arc, "Color", 256),
                      geometry={"center": [center_x, center_y, 0],
                                "radius": radius,
-                               "start_angle": start_angle, "end_angle": end_angle})
+                               "normal": [0, 0, 1],
+                               "start_point": [
+                                   center_x + radius * math.cos(math.radians(start_angle)),
+                                   center_y + radius * math.sin(math.radians(start_angle)),
+                                   0,
+                               ],
+                               "end_point": [
+                                   center_x + radius * math.cos(math.radians(end_angle)),
+                                   center_y + radius * math.sin(math.radians(end_angle)),
+                                   0,
+                               ],
+                               "start_angle": start_angle, "end_angle": end_angle,
+                               "angle_unit": "degree",
+                               "start_parameter": math.radians(start_angle),
+                               "end_parameter": math.radians(end_angle),
+                               "parameter_unit": "radian"})
     return format_success(f"已绘制圆弧", handle=arc.Handle, radius=radius,
                           span=f"{start_angle}° → {end_angle}°")
 
@@ -188,7 +204,13 @@ def draw_ellipse(center_x: float, center_y: float,
                      layer=ell.Layer, color=_com_get(ell, "Color", 256),
                      geometry={"center": [center_x, center_y, 0],
                                "major_axis": [major_x, major_y],
-                               "radius_ratio": radius_ratio})
+                               "minor_axis": [
+                                   -major_y * radius_ratio,
+                                   major_x * radius_ratio,
+                               ],
+                               "radius_ratio": radius_ratio,
+                               "normal": [0, 0, 1],
+                               "is_arc": False})
     return format_success(f"已绘制椭圆", handle=ell.Handle, ratio=radius_ratio)
 
 
@@ -212,9 +234,18 @@ def draw_ellipse_arc(center_x: float, center_y: float,
                      layer=layer_name, color=_com_get(ell, "Color", 256),
                      geometry={"center": [center_x, center_y, 0],
                                "major_axis": [major_x, major_y],
+                               "minor_axis": [
+                                   -major_y * radius_ratio,
+                                   major_x * radius_ratio,
+                               ],
                                "radius_ratio": radius_ratio,
+                               "normal": [0, 0, 1],
                                "start_angle": start_angle,
                                "end_angle": end_angle,
+                               "angle_unit": "degree",
+                               "start_parameter": math.radians(start_angle),
+                               "end_parameter": math.radians(end_angle),
+                               "parameter_unit": "radian",
                                "is_arc": True})
     return format_success("Drawn ellipse arc", handle=handle,
                           layer=layer_name, ratio=radius_ratio,
@@ -379,7 +410,13 @@ def draw_spline(fit_points: List[float],
             pass
     db.upsert_entity(spline.Handle, "Spline", "AcDbSpline",
                      layer=spline.Layer, color=_com_get(spline, "Color", 256),
-                     geometry={"fit_points": pts})
+                     geometry={
+                         "fit_points": pts,
+                         "start_tangent": list(start_tangent) if start_tangent else None,
+                         "end_tangent": list(end_tangent) if end_tangent else None,
+                         "closed": False,
+                         "is_closed": False,
+                     })
     return format_success(f"已绘制样条曲线", handle=spline.Handle, fit_points=len(pts))
 
 

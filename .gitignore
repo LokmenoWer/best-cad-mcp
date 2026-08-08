@@ -38,3 +38,6 @@ goal.md
 # Claude Code
 .claude/*
 !.claude/settings.json
+
+# Local agent/session state
+.omc/

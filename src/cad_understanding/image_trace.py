@@ -20,7 +20,6 @@ from .common import (
     stable_id,
 )
 from .result import ToolResult, error_result, ok_result
-from . import plan as plan_module
 
 SUPPORTED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 SUPPORTED_KINDS = {
@@ -75,6 +74,8 @@ GEOMETRY_KINDS = {
 ANNOTATION_KINDS = {"dimension", "text", "leader"}
 TABLE_KINDS = {"table"}
 DEFAULT_TARGET_WIDTH = 1000.0
+DEFAULT_TRACE_MAX_DIMENSION = 4096
+TRACE_TILE_DEDUPLICATION_TOLERANCE_PX = 0.5
 DEFAULT_LAYERS = {
     "object": "M-OBJECT",
     "hole": "M-HOLE",
@@ -86,6 +87,51 @@ DEFAULT_LAYERS = {
     "reference": "REF-IMAGE",
 }
 BBox = List[float]
+
+_TRACE_DEDUPLICATION_SECTIONS = {"features", "geometry"}
+_TRACE_DEDUPLICATION_KINDS = {
+    "line",
+    "circle",
+    "arc",
+    "ellipse",
+    "ellipse_arc",
+    "polyline",
+    "paired_ellipse_arcs",
+    "rectangle",
+    "chamfered_rectangle",
+    "filleted_rectangle",
+    "hole",
+    "slot",
+    "centerline",
+    "bulkhead",
+}
+_TRACE_REFERENCE_KEYS = {
+    "ids",
+    "member_ids",
+    "members",
+    "instances",
+    "boundary_ids",
+    "boundaries",
+    "source",
+    "target",
+    "from",
+    "to",
+    "from_id",
+    "to_id",
+    "pattern_id",
+    "hatch_id",
+    "member_id",
+    "boundary_id",
+    "geometry_id",
+    "feature_id",
+    "annotation_id",
+    "table_id",
+    "source_member_id",
+    "seed_member_id",
+    "prototype_id",
+    "base_member_id",
+    "prototype_member_id",
+}
 
 
 def _safe_step_id(value: Any, fallback: str) -> str:
@@ -113,7 +159,9 @@ def _image_size(path: Path) -> Tuple[int, int]:
         )
 
 
-def _copy_or_normalize_image(source: Path, target: Path, max_dimension: int = 1800) -> Tuple[str, List[str]]:
+def _copy_or_normalize_image(source: Path,
+                             target: Path,
+                             max_dimension: int = DEFAULT_TRACE_MAX_DIMENSION) -> Tuple[str, List[str]]:
     warnings: List[str] = []
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -177,22 +225,59 @@ def _build_tiles(normalized_path: Path,
     if image_width <= 0 or image_height <= 0:
         return {"tile_index_path": "", "tiles": [], "warnings": ["Image dimensions are unavailable."]}
     step = max(1, int(tile_size * (1.0 - max(0.0, min(tile_overlap, 0.8)))))
-    tiles = []
-    tile_id = 1
-    for y in range(0, image_height, step):
-        y2 = min(image_height, y + tile_size)
-        if y2 - y < max(64, tile_size // 4) and y > 0:
-            continue
-        for x in range(0, image_width, step):
-            x2 = min(image_width, x + tile_size)
-            if x2 - x < max(64, tile_size // 4) and x > 0:
+    tiles: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    source_image = None
+    tile_dir = normalized_path.with_name(f"{normalized_path.stem}_tiles")
+    try:
+        from PIL import Image
+
+        source_image = Image.open(normalized_path)
+        tile_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        warnings.append(
+            "Pillow tile cropping is unavailable; the tile index contains coordinate "
+            f"windows only and no model-viewable local crops: {exc}"
+        )
+    try:
+        tile_id = 1
+        for y in range(0, image_height, step):
+            y2 = min(image_height, y + tile_size)
+            if y2 - y < max(64, tile_size // 4) and y > 0:
                 continue
-            tiles.append({
-                "tile_id": f"T{tile_id:03d}",
-                "pixel_bbox": [float(x), float(y), float(x2), float(y2)],
-                "image_path": str(normalized_path),
-            })
-            tile_id += 1
+            for x in range(0, image_width, step):
+                x2 = min(image_width, x + tile_size)
+                if x2 - x < max(64, tile_size // 4) and x > 0:
+                    continue
+                tile_name = f"T{tile_id:03d}"
+                global_bbox = [float(x), float(y), float(x2), float(y2)]
+                local_width = int(x2 - x)
+                local_height = int(y2 - y)
+                tile_path = tile_dir / f"{tile_name}.png"
+                crop_ready = False
+                if source_image is not None:
+                    source_image.crop((x, y, x2, y2)).save(tile_path)
+                    crop_ready = True
+                tiles.append({
+                    "tile_id": tile_name,
+                    "image_path": str(tile_path) if crop_ready else "",
+                    "crop_ready": crop_ready,
+                    "coordinate_space": "tile_local",
+                    "global_pixel_bbox": global_bbox,
+                    # Compatibility alias retained for existing tile-index consumers.
+                    "pixel_bbox": global_bbox,
+                    "local_pixel_bbox": [0.0, 0.0, float(local_width), float(local_height)],
+                    "image": {"width": local_width, "height": local_height},
+                    "local_to_global": [
+                        [1.0, 0.0, float(x)],
+                        [0.0, 1.0, float(y)],
+                        [0.0, 0.0, 1.0],
+                    ],
+                })
+                tile_id += 1
+    finally:
+        if source_image is not None:
+            source_image.close()
     index_path = normalized_path.with_name(f"{normalized_path.stem}_tiles.json")
     payload = {
         "source_image_path": str(normalized_path),
@@ -202,7 +287,545 @@ def _build_tiles(normalized_path: Path,
         "tiles": tiles,
     }
     index_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    return {"tile_index_path": str(index_path), "tiles": tiles, "warnings": []}
+    return {"tile_index_path": str(index_path), "tiles": tiles, "warnings": warnings}
+
+
+def _load_tile_index(trace: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Load a prepared trace's immutable tile sidecar without touching the DWG."""
+    path = Path(str((trace or {}).get("tile_index_path") or ""))
+    if not path.exists() or not path.is_file():
+        return {"tiles": []}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"tiles": []}
+    return payload if isinstance(payload, dict) else {"tiles": []}
+
+
+def _trace_tiles_by_id(trace: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    return {
+        str(tile.get("tile_id") or "").strip().upper(): tile
+        for tile in _load_tile_index(trace).get("tiles", [])
+        if isinstance(tile, dict) and str(tile.get("tile_id") or "").strip()
+    }
+
+
+_ABSOLUTE_POINT_KEYS = {
+    "center", "start", "end", "start_point", "end_point", "point", "position",
+    "insertion_point", "text_point", "leader_point", "origin", "measure_point",
+    "chord_point", "dim_line_point", "array_center", "pattern_center", "polar_center",
+    "p1", "p2",
+}
+_ABSOLUTE_POINT_LIST_KEYS = {
+    "vertices", "points", "polyline", "samples", "sample_points", "measure_points",
+    "pixel_points", "chamfer_points", "extension_points", "boundary_points",
+    "control_points",
+}
+_PIXEL_BBOX_KEYS = {"pixel_bbox", "bbox"}
+_PIXEL_VECTOR_KEYS = {"major_axis"}
+_PIXEL_SCALAR_KEYS = {
+    "radius", "major_radius", "minor_radius", "pixel_radius", "pixel_distance",
+    "pixel_length", "diameter", "spacing", "offset",
+}
+
+
+def _translate_pixel_payload(value: Any,
+                             offset_x: float,
+                             offset_y: float,
+                             parent_key: str = "") -> Any:
+    """Translate absolute pixel coordinates while preserving vectors and measurements."""
+    if parent_key in _PIXEL_BBOX_KEYS and isinstance(value, (list, tuple)) and len(value) >= 4:
+        try:
+            return [
+                float(value[0]) + offset_x,
+                float(value[1]) + offset_y,
+                float(value[2]) + offset_x,
+                float(value[3]) + offset_y,
+                *list(value[4:]),
+            ]
+        except Exception:
+            return value
+    if parent_key in _ABSOLUTE_POINT_KEYS and isinstance(value, (list, tuple)) and len(value) >= 2:
+        try:
+            return [float(value[0]) + offset_x, float(value[1]) + offset_y, *list(value[2:])]
+        except Exception:
+            return value
+    if parent_key in _ABSOLUTE_POINT_LIST_KEYS and isinstance(value, (list, tuple)):
+        if value and all(isinstance(component, (int, float)) for component in value):
+            flat = list(value)
+            translated_flat: List[Any] = []
+            for index in range(0, len(flat), 2):
+                if index + 1 >= len(flat):
+                    translated_flat.append(flat[index])
+                    break
+                translated_flat.extend([
+                    float(flat[index]) + offset_x,
+                    float(flat[index + 1]) + offset_y,
+                ])
+            return translated_flat
+        translated = []
+        for point in value:
+            if isinstance(point, (list, tuple)) and len(point) >= 2:
+                try:
+                    translated.append([
+                        float(point[0]) + offset_x,
+                        float(point[1]) + offset_y,
+                        *list(point[2:]),
+                    ])
+                    continue
+                except Exception:
+                    pass
+            translated.append(_translate_pixel_payload(point, offset_x, offset_y))
+        return translated
+    if isinstance(value, dict):
+        return {
+            key: nested if key in {"source_ref", "evidence"} else _translate_pixel_payload(
+                nested, offset_x, offset_y, key
+            )
+            for key, nested in value.items()
+        }
+    if isinstance(value, list):
+        return [_translate_pixel_payload(item, offset_x, offset_y) for item in value]
+    return value
+
+
+def _pixel_points_for_bounds(value: Any, parent_key: str = "") -> List[List[float]]:
+    points: List[List[float]] = []
+    if parent_key in _PIXEL_BBOX_KEYS and isinstance(value, (list, tuple)) and len(value) >= 4:
+        try:
+            return [[float(value[0]), float(value[1])], [float(value[2]), float(value[3])]]
+        except Exception:
+            return []
+    if parent_key in _ABSOLUTE_POINT_KEYS and isinstance(value, (list, tuple)) and len(value) >= 2:
+        try:
+            return [[float(value[0]), float(value[1])]]
+        except Exception:
+            return []
+    if parent_key in _ABSOLUTE_POINT_LIST_KEYS and isinstance(value, (list, tuple)):
+        if value and all(isinstance(component, (int, float)) for component in value):
+            for index in range(0, len(value) - 1, 2):
+                points.append([float(value[index]), float(value[index + 1])])
+            return points
+        for point in value:
+            if isinstance(point, (list, tuple)) and len(point) >= 2:
+                try:
+                    points.append([float(point[0]), float(point[1])])
+                except Exception:
+                    pass
+        return points
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if key not in {"source_ref", "evidence"}:
+                points.extend(_pixel_points_for_bounds(nested, key))
+    elif isinstance(value, list):
+        for item in value:
+            points.extend(_pixel_points_for_bounds(item))
+    return points
+
+
+def _positive_image_dimensions(value: Any) -> Optional[Tuple[float, float]]:
+    if not isinstance(value, dict):
+        return None
+    try:
+        width = float(value.get("width"))
+        height = float(value.get("height"))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not all(math.isfinite(component) and component > 0.0
+               for component in (width, height)):
+        return None
+    if (
+        not math.isclose(width, round(width), rel_tol=0.0, abs_tol=1e-9)
+        or not math.isclose(height, round(height), rel_tol=0.0, abs_tol=1e-9)
+    ):
+        return None
+    return float(round(width)), float(round(height))
+
+
+def _finite_affine_matrix(value: Any) -> Optional[List[List[float]]]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        return None
+    matrix: List[List[float]] = []
+    for row in value:
+        if not isinstance(row, (list, tuple)) or len(row) != 3:
+            return None
+        try:
+            numeric_row = [float(component) for component in row]
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not all(math.isfinite(component) for component in numeric_row):
+            return None
+        matrix.append(numeric_row)
+    if not all(
+        math.isclose(matrix[2][index], expected, rel_tol=0.0, abs_tol=1e-12)
+        for index, expected in enumerate((0.0, 0.0, 1.0))
+    ):
+        return None
+    return matrix
+
+
+def _matrix_multiply(left: List[List[float]],
+                     right: List[List[float]]) -> List[List[float]]:
+    return [
+        [
+            float(sum(
+                left[row][index] * right[index][column] for index in range(3)
+            ))
+            for column in range(3)
+        ]
+        for row in range(3)
+    ]
+
+
+def _matrices_close(actual: Any, expected: List[List[float]]) -> bool:
+    matrix = _finite_affine_matrix(actual)
+    return bool(matrix) and all(
+        math.isclose(
+            matrix[row][column], expected[row][column],
+            rel_tol=1e-10, abs_tol=1e-10,
+        )
+        for row in range(3)
+        for column in range(3)
+    )
+
+
+def _trace_tile_coordinate_contract(tile: Dict[str, Any]) -> Optional[
+        Tuple[float, float, List[List[float]]]
+]:
+    global_bbox = _normalize_bbox(
+        tile.get("global_pixel_bbox") or tile.get("pixel_bbox")
+    )
+    dimensions = _positive_image_dimensions(tile.get("image"))
+    if global_bbox is None or dimensions is None:
+        return None
+    width, height = dimensions
+    if (
+        not math.isclose(
+            global_bbox[2] - global_bbox[0], width,
+            rel_tol=0.0, abs_tol=1e-9,
+        )
+        or not math.isclose(
+            global_bbox[3] - global_bbox[1], height,
+            rel_tol=0.0, abs_tol=1e-9,
+        )
+    ):
+        return None
+    expected = [
+        [1.0, 0.0, global_bbox[0]],
+        [0.0, 1.0, global_bbox[1]],
+        [0.0, 0.0, 1.0],
+    ]
+    if tile.get("local_to_global") is not None and not _matrices_close(
+        tile.get("local_to_global"), expected
+    ):
+        return None
+    return width, height, expected
+
+
+def _has_pixel_scalar(value: Any, parent_key: str = "") -> bool:
+    if parent_key in _PIXEL_SCALAR_KEYS and isinstance(value, (int, float)):
+        return True
+    if isinstance(value, dict):
+        return any(
+            _has_pixel_scalar(nested, key)
+            for key, nested in value.items()
+            if key not in {"source_ref", "evidence", "coordinate_normalization"}
+        )
+    if isinstance(value, list):
+        return any(_has_pixel_scalar(item) for item in value)
+    return False
+
+
+def _transform_pixel_payload(value: Any,
+                             scale_x: float,
+                             scale_y: float,
+                             offset_x: float,
+                             offset_y: float,
+                             parent_key: str = "") -> Any:
+    """Apply a safe scale/translation to absolute pixel geometry."""
+    if parent_key in _PIXEL_BBOX_KEYS and isinstance(value, (list, tuple)) and len(value) >= 4:
+        try:
+            return [
+                float(value[0]) * scale_x + offset_x,
+                float(value[1]) * scale_y + offset_y,
+                float(value[2]) * scale_x + offset_x,
+                float(value[3]) * scale_y + offset_y,
+                *list(value[4:]),
+            ]
+        except (TypeError, ValueError, OverflowError):
+            return value
+    if parent_key in _ABSOLUTE_POINT_KEYS and isinstance(value, (list, tuple)) and len(value) >= 2:
+        try:
+            return [
+                float(value[0]) * scale_x + offset_x,
+                float(value[1]) * scale_y + offset_y,
+                *list(value[2:]),
+            ]
+        except (TypeError, ValueError, OverflowError):
+            return value
+    if parent_key in _PIXEL_VECTOR_KEYS and isinstance(value, (list, tuple)) and len(value) >= 2:
+        try:
+            return [
+                float(value[0]) * scale_x,
+                float(value[1]) * scale_y,
+                *list(value[2:]),
+            ]
+        except (TypeError, ValueError, OverflowError):
+            return value
+    if parent_key in _ABSOLUTE_POINT_LIST_KEYS and isinstance(value, (list, tuple)):
+        if value and all(isinstance(component, (int, float)) for component in value):
+            flat = list(value)
+            transformed_flat: List[Any] = []
+            for index in range(0, len(flat), 2):
+                if index + 1 >= len(flat):
+                    transformed_flat.append(flat[index])
+                    break
+                transformed_flat.extend([
+                    float(flat[index]) * scale_x + offset_x,
+                    float(flat[index + 1]) * scale_y + offset_y,
+                ])
+            return transformed_flat
+        transformed = []
+        for point in value:
+            if isinstance(point, (list, tuple)) and len(point) >= 2:
+                try:
+                    transformed.append([
+                        float(point[0]) * scale_x + offset_x,
+                        float(point[1]) * scale_y + offset_y,
+                        *list(point[2:]),
+                    ])
+                    continue
+                except (TypeError, ValueError, OverflowError):
+                    pass
+            transformed.append(_transform_pixel_payload(
+                point, scale_x, scale_y, offset_x, offset_y
+            ))
+        return transformed
+    if parent_key in _PIXEL_SCALAR_KEYS and isinstance(value, (int, float)):
+        # The caller rejects non-uniform scaling when scalar pixel lengths are
+        # present, so either axis is the same exact conversion here.
+        return float(value) * scale_x
+    if isinstance(value, dict):
+        return {
+            key: nested if key in {"source_ref", "evidence", "coordinate_normalization"}
+            else _transform_pixel_payload(
+                nested, scale_x, scale_y, offset_x, offset_y, key
+            )
+            for key, nested in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _transform_pixel_payload(
+                item, scale_x, scale_y, offset_x, offset_y
+            )
+            for item in value
+        ]
+    return value
+
+
+def _normalize_observed_trace_item(item: Dict[str, Any],
+                                   source_ref: Dict[str, Any],
+                                   trace: Optional[Dict[str, Any]]) -> Tuple[
+                                       Dict[str, Any], List[str]
+                                   ]:
+    if not trace:
+        return item, ["observed-image source_ref requires a prepared image trace"]
+    if str(source_ref.get("schema_version") or "") != "VisualSourceRef/v1":
+        return item, [
+            "observed-image source_ref must use schema_version VisualSourceRef/v1"
+        ]
+    image_id = str(source_ref.get("image_id") or "")
+    if not image_id or image_id != str(trace.get("image_id") or ""):
+        return item, ["source_ref.image_id does not match the prepared image trace"]
+    observed_dimensions = _positive_image_dimensions(source_ref.get("observed_image"))
+    declared_source_dimensions = _positive_image_dimensions(source_ref.get("source_image"))
+    global_dimensions = _positive_image_dimensions({
+        "width": trace.get("image_width"),
+        "height": trace.get("image_height"),
+    })
+    if (
+        observed_dimensions is None
+        or declared_source_dimensions is None
+        or global_dimensions is None
+    ):
+        return item, ["source_ref image dimensions must be finite positive integers"]
+    tile_id = str(source_ref.get("tile_id") or "").strip().upper()
+    if tile_id:
+        tile = _trace_tiles_by_id(trace).get(tile_id)
+        if tile is None:
+            return item, [
+                f"unknown source_ref.tile_id {tile_id}; it is not in the prepared trace"
+            ]
+        tile_contract = _trace_tile_coordinate_contract(tile)
+        if tile_contract is None:
+            return item, [f"trace tile {tile_id} has an invalid coordinate contract"]
+        source_width, source_height, source_to_global = tile_contract
+        expected_source_space = "tile_local"
+    else:
+        source_width, source_height = global_dimensions
+        source_to_global = [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+        expected_source_space = "image_global"
+    declared_width, declared_height = declared_source_dimensions
+    if (
+        not math.isclose(declared_width, source_width, rel_tol=0.0, abs_tol=1e-9)
+        or not math.isclose(declared_height, source_height, rel_tol=0.0, abs_tol=1e-9)
+    ):
+        return item, ["source_ref source dimensions do not match the prepared artifact"]
+    if str(source_ref.get("source_coordinate_space") or "") != expected_source_space:
+        return item, [
+            f"source_ref.source_coordinate_space must be {expected_source_space}"
+        ]
+    if str(source_ref.get("global_coordinate_space") or "") != "image_global":
+        return item, ["source_ref.global_coordinate_space must be image_global"]
+    observed_width, observed_height = observed_dimensions
+    if observed_width > source_width or observed_height > source_height:
+        return item, ["observed image dimensions cannot exceed mapped source dimensions"]
+    width_ratio = observed_width / source_width
+    height_ratio = observed_height / source_height
+    rounding_tolerance = max(1.0 / source_width, 1.0 / source_height) + 1e-12
+    if abs(width_ratio - height_ratio) > rounding_tolerance:
+        return item, ["observed image dimensions are not a valid aspect-preserving resize"]
+    observed_to_source = [
+        [source_width / observed_width, 0.0, 0.0],
+        [0.0, source_height / observed_height, 0.0],
+        [0.0, 0.0, 1.0],
+    ]
+    observed_to_global = _matrix_multiply(source_to_global, observed_to_source)
+    for key, expected in (
+        ("observed_to_source", observed_to_source),
+        ("source_to_global", source_to_global),
+        ("observed_to_global", observed_to_global),
+    ):
+        if not _matrices_close(source_ref.get(key), expected):
+            return item, [
+                f"source_ref.{key} is missing or inconsistent with image dimensions"
+            ]
+    observed_points = _pixel_points_for_bounds({
+        key: value for key, value in item.items()
+        if key not in {"source_ref", "evidence", "coordinate_normalization"}
+    })
+    if any(
+        not math.isfinite(point[0]) or not math.isfinite(point[1])
+        or point[0] < 0.0 or point[1] < 0.0
+        or point[0] > observed_width or point[1] > observed_height
+        for point in observed_points
+    ):
+        return item, ["observed-image pixel geometry is outside the embedded image bounds"]
+    scale_x = observed_to_source[0][0]
+    scale_y = observed_to_source[1][1]
+    if (
+        not math.isclose(scale_x, scale_y, rel_tol=1e-10, abs_tol=1e-10)
+        and _has_pixel_scalar(item)
+    ):
+        return item, [
+            "non-uniform observed-image scaling cannot safely normalize scalar pixel measurements"
+        ]
+    translated = _transform_pixel_payload(
+        item,
+        scale_x,
+        scale_y,
+        source_to_global[0][2],
+        source_to_global[1][2],
+    )
+    global_width, global_height = global_dimensions
+    global_points = _pixel_points_for_bounds({
+        key: value for key, value in translated.items()
+        if key not in {"source_ref", "evidence", "coordinate_normalization"}
+    })
+    if any(
+        not math.isfinite(point[0]) or not math.isfinite(point[1])
+        or point[0] < 0.0 or point[1] < 0.0
+        or point[0] > global_width or point[1] > global_height
+        for point in global_points
+    ):
+        return item, ["normalized pixel geometry is outside the trace image bounds"]
+    normalized_ref = dict(source_ref)
+    normalized_ref["observed_coordinate_space"] = "observed_image"
+    normalized_ref["coordinate_space"] = "image_global"
+    translated["source_ref"] = normalized_ref
+    translated["coordinate_normalization"] = {
+        "normalized_coordinate_space": "image_global",
+        "observed_coordinate_space": "observed_image",
+        "tile_id": tile_id,
+        "observed_to_source": observed_to_source,
+        "source_to_global": source_to_global,
+        "observed_to_global": observed_to_global,
+    }
+    return translated, []
+
+
+def _normalize_item_coordinate_frame(raw: Dict[str, Any],
+                                     trace: Optional[Dict[str, Any]]) -> Tuple[Dict[str, Any], List[str]]:
+    """Rebase tile-local VLM evidence into normalized-image/global pixels."""
+    item = dict(raw)
+    normalization = item.get("coordinate_normalization")
+    if isinstance(normalization, dict) and normalization.get("normalized_coordinate_space") == "image_global":
+        return item, []
+    source_ref = item.get("source_ref")
+    if source_ref in (None, ""):
+        return item, []
+    if not isinstance(source_ref, dict):
+        return item, ["source_ref must be an object"]
+    source_ref = dict(source_ref)
+    coordinate_space = str(source_ref.get("coordinate_space") or "").strip().lower()
+    tile_id = str(source_ref.get("tile_id") or "").strip().upper()
+    if coordinate_space in {"observed_image", "model_image", "rendered_image"}:
+        return _normalize_observed_trace_item(item, source_ref, trace)
+    if tile_id and not coordinate_space:
+        return item, ["source_ref.coordinate_space is required when tile_id is provided"]
+    if coordinate_space in {"", "image_global", "global", "normalized_global", "source_global"}:
+        source_ref["coordinate_space"] = "image_global"
+        item["source_ref"] = source_ref
+        return item, []
+    if coordinate_space not in {"tile_local", "local"}:
+        return item, ["source_ref.coordinate_space must be image_global or tile_local"]
+    if not tile_id:
+        return item, ["source_ref.tile_id is required for tile_local coordinates"]
+    tile = _trace_tiles_by_id(trace).get(tile_id)
+    if tile is None:
+        return item, [f"unknown source_ref.tile_id {tile_id}; it is not in the prepared trace"]
+    global_bbox = tile.get("global_pixel_bbox") or tile.get("pixel_bbox") or []
+    local_image = tile.get("image") or {}
+    if not isinstance(global_bbox, list) or len(global_bbox) < 4:
+        return item, [f"tile {tile_id} has no valid global_pixel_bbox"]
+    offset_x, offset_y = float(global_bbox[0]), float(global_bbox[1])
+    local_width = float(local_image.get("width") or (float(global_bbox[2]) - offset_x))
+    local_height = float(local_image.get("height") or (float(global_bbox[3]) - offset_y))
+    local_points = _pixel_points_for_bounds({
+        key: value for key, value in item.items() if key not in {"source_ref", "evidence"}
+    })
+    if any(
+        point[0] < 0.0 or point[1] < 0.0
+        or point[0] > local_width or point[1] > local_height
+        for point in local_points
+    ):
+        return item, [f"tile-local pixel geometry is outside {tile_id} bounds"]
+    local_bbox = _normalize_bbox(item.get("pixel_bbox") or item.get("bbox"))
+    translated = _translate_pixel_payload(item, offset_x, offset_y)
+    translated_ref = dict(source_ref)
+    translated_ref.update({"artifact_role": "tile", "tile_id": tile_id, "coordinate_space": "tile_local"})
+    translated["coordinate_normalization"] = {
+        "normalized_coordinate_space": "image_global",
+        "observed_coordinate_space": "tile_local",
+        "tile_id": tile_id,
+        "local_to_global": tile.get("local_to_global") or [
+            [1.0, 0.0, offset_x], [0.0, 1.0, offset_y], [0.0, 0.0, 1.0],
+        ],
+    }
+    if local_bbox:
+        translated["coordinate_normalization"]["local_pixel_bbox"] = local_bbox
+        translated["coordinate_normalization"]["global_pixel_bbox"] = [
+            local_bbox[0] + offset_x,
+            local_bbox[1] + offset_y,
+            local_bbox[2] + offset_x,
+            local_bbox[3] + offset_y,
+        ]
+    translated["source_ref"] = translated_ref
+    return translated, []
 
 
 def _normalize_bbox(value: Any) -> Optional[BBox]:
@@ -251,6 +874,414 @@ def _number(value: Any) -> Optional[float]:
     if not math.isfinite(number):
         return None
     return number
+
+
+def _trace_values_close(left: Any,
+                        right: Any,
+                        tolerance: float = TRACE_TILE_DEDUPLICATION_TOLERANCE_PX) -> bool:
+    """Compare normalized geometry payloads without relaxing structure."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return left is right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return (
+            math.isfinite(float(left))
+            and math.isfinite(float(right))
+            and math.isclose(
+                float(left), float(right), rel_tol=0.0, abs_tol=tolerance
+            )
+        )
+    if isinstance(left, dict) and isinstance(right, dict):
+        return set(left) == set(right) and all(
+            _trace_values_close(left[key], right[key], tolerance)
+            for key in left
+        )
+    if isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
+        return len(left) == len(right) and all(
+            _trace_values_close(a, b, tolerance) for a, b in zip(left, right)
+        )
+    return left == right
+
+
+def _trace_points_close(left: Sequence[Sequence[float]],
+                        right: Sequence[Sequence[float]],
+                        tolerance: float = TRACE_TILE_DEDUPLICATION_TOLERANCE_PX) -> bool:
+    return len(left) == len(right) and all(
+        len(a) >= 2
+        and len(b) >= 2
+        and math.dist((float(a[0]), float(a[1])), (float(b[0]), float(b[1])))
+        <= tolerance
+        for a, b in zip(left, right)
+    )
+
+
+def _trace_paths_equivalent(left: Sequence[Sequence[float]],
+                            right: Sequence[Sequence[float]],
+                            closed: bool) -> bool:
+    """Match paths independent of traversal direction and closed-path start vertex."""
+    if len(left) != len(right) or not left:
+        return False
+    candidates: List[List[Sequence[float]]] = [list(right), list(reversed(right))]
+    if closed:
+        candidates = [
+            candidate[offset:] + candidate[:offset]
+            for candidate in candidates
+            for offset in range(len(candidate))
+        ]
+    return any(_trace_points_close(left, candidate) for candidate in candidates)
+
+
+def _trace_geometry_payload(value: Any) -> Any:
+    """Remove observation-only metadata from nested primitive descriptions."""
+    if isinstance(value, dict):
+        ignored = {
+            "confidence",
+            "evidence",
+            "fit_error_px",
+            "source_ref",
+            "coordinate_normalization",
+            "source_observations",
+        }
+        return {
+            key: _trace_geometry_payload(nested)
+            for key, nested in value.items()
+            if key not in ignored
+        }
+    if isinstance(value, list):
+        return [_trace_geometry_payload(item) for item in value]
+    return value
+
+
+def _trace_geometry_descriptor(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return a conservative, kind-aware descriptor in image-global pixels."""
+    kind = str(item.get("kind") or item.get("type") or "").strip().lower()
+    if kind not in _TRACE_DEDUPLICATION_KINDS:
+        return None
+    raw_geometry = item.get("pixel_geometry")
+    geometry = raw_geometry if isinstance(raw_geometry, dict) else {}
+
+    if kind in {"line", "centerline"}:
+        points = _points(
+            geometry.get("points")
+            or geometry.get("vertices")
+            or item.get("points")
+        )
+        if len(points) >= 2:
+            return {"mode": "path", "closed": False, "points": [points[0], points[-1]]}
+        start = _point(
+            geometry.get("p1")
+            or geometry.get("start")
+            or geometry.get("start_point")
+            or item.get("p1")
+        )
+        end = _point(
+            geometry.get("p2")
+            or geometry.get("end")
+            or geometry.get("end_point")
+            or item.get("p2")
+        )
+        if start and end:
+            return {"mode": "path", "closed": False, "points": [start, end]}
+
+    if kind in {"circle", "hole"}:
+        center = _point(geometry.get("center") or item.get("center"))
+        radius = _number(
+            geometry.get("radius")
+            if geometry.get("radius") is not None
+            else item.get("radius")
+        )
+        if center and radius is not None:
+            return {"mode": "radial", "center": center, "radius": radius}
+
+    points = _points(
+        geometry.get("vertices")
+        or geometry.get("points")
+        or geometry.get("samples")
+        or item.get("vertices")
+        or item.get("points")
+    )
+    if points:
+        closed = bool(
+            geometry.get("closed")
+            or item.get("closed")
+            or kind in {
+                "circle",
+                "hole",
+                "rectangle",
+                "chamfered_rectangle",
+                "filleted_rectangle",
+                "slot",
+            }
+        )
+        if closed and len(points) > 1 and _trace_points_close(points[:1], points[-1:]):
+            points = points[:-1]
+        return {"mode": "path", "closed": closed, "points": points}
+
+    parameter_keys = (
+        "center",
+        "radius",
+        "major_radius",
+        "minor_radius",
+        "major_axis",
+        "major_vector",
+        "radius_ratio",
+        "minor_ratio",
+        "axis_ratio",
+        "start_angle",
+        "end_angle",
+        "start_parameter",
+        "end_parameter",
+        "start",
+        "end",
+        "p1",
+        "p2",
+        "closed",
+        "bulges",
+        "segments",
+        "curves",
+    )
+    parameters = {
+        key: _trace_geometry_payload(geometry[key])
+        for key in parameter_keys
+        if key in geometry
+    }
+    if parameters:
+        return {"mode": "parameters", "parameters": parameters}
+
+    bbox = _normalize_bbox(item.get("pixel_bbox") or item.get("bbox"))
+    if bbox:
+        return {"mode": "bbox", "bbox": bbox}
+    return None
+
+
+def _trace_geometry_equivalent(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+    if str(left.get("kind") or "").lower() != str(right.get("kind") or "").lower():
+        return False
+    left_descriptor = _trace_geometry_descriptor(left)
+    right_descriptor = _trace_geometry_descriptor(right)
+    if not left_descriptor or not right_descriptor:
+        return False
+    if left_descriptor.get("mode") != right_descriptor.get("mode"):
+        return False
+    if left_descriptor["mode"] == "path":
+        if bool(left_descriptor.get("closed")) != bool(right_descriptor.get("closed")):
+            return False
+        return _trace_paths_equivalent(
+            left_descriptor["points"],
+            right_descriptor["points"],
+            bool(left_descriptor.get("closed")),
+        )
+    if left_descriptor["mode"] == "radial":
+        return (
+            _trace_points_close(
+                [left_descriptor["center"]], [right_descriptor["center"]]
+            )
+            and math.isclose(
+                float(left_descriptor["radius"]),
+                float(right_descriptor["radius"]),
+                rel_tol=0.0,
+                abs_tol=TRACE_TILE_DEDUPLICATION_TOLERANCE_PX,
+            )
+        )
+    return _trace_values_close(left_descriptor, right_descriptor)
+
+
+def _trace_semantics_compatible(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+    """Refuse to merge coincident primitives with conflicting semantic fields."""
+    observation_keys = {
+        "id",
+        "confidence",
+        "evidence",
+        "source_ref",
+        "coordinate_normalization",
+        "pixel_bbox",
+        "bbox",
+        "pixel_geometry",
+        "source_observations",
+        "observation_ids",
+        "deduplicated_observation_count",
+    }
+    shared = (set(left) & set(right)) - observation_keys
+    return all(
+        _trace_values_close(left[key], right[key], tolerance=1e-9)
+        for key in shared
+    )
+
+
+def _trace_item_tile_ids(item: Dict[str, Any]) -> List[str]:
+    values: List[Dict[str, Any]] = [item]
+    observations = item.get("source_observations")
+    if isinstance(observations, list):
+        values.extend(value for value in observations if isinstance(value, dict))
+    tile_ids: List[str] = []
+    for value in values:
+        source_ref = value.get("source_ref")
+        normalization = value.get("coordinate_normalization")
+        tile_id = str(
+            (source_ref.get("tile_id") if isinstance(source_ref, dict) else "")
+            or (
+                normalization.get("tile_id")
+                if isinstance(normalization, dict)
+                else ""
+            )
+            or ""
+        ).strip().upper()
+        if tile_id and tile_id not in tile_ids:
+            tile_ids.append(tile_id)
+    return tile_ids
+
+
+def _trace_tiles_overlap(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+    left_bbox = _normalize_bbox(
+        left.get("global_pixel_bbox") or left.get("pixel_bbox")
+    )
+    right_bbox = _normalize_bbox(
+        right.get("global_pixel_bbox") or right.get("pixel_bbox")
+    )
+    if left_bbox is None or right_bbox is None:
+        return False
+    return (
+        min(left_bbox[2], right_bbox[2]) > max(left_bbox[0], right_bbox[0])
+        and min(left_bbox[3], right_bbox[3]) > max(left_bbox[1], right_bbox[1])
+    )
+
+
+def _trace_items_have_overlapping_tile_provenance(
+    left: Dict[str, Any],
+    right: Dict[str, Any],
+    tiles_by_id: Dict[str, Dict[str, Any]],
+) -> bool:
+    left_tile_ids = _trace_item_tile_ids(left)
+    right_tile_ids = _trace_item_tile_ids(right)
+    return any(
+        left_tile_id != right_tile_id
+        and left_tile_id in tiles_by_id
+        and right_tile_id in tiles_by_id
+        and _trace_tiles_overlap(
+            tiles_by_id[left_tile_id], tiles_by_id[right_tile_id]
+        )
+        for left_tile_id in left_tile_ids
+        for right_tile_id in right_tile_ids
+    )
+
+
+def _trace_source_observation(item: Dict[str, Any]) -> Dict[str, Any]:
+    observation = {"id": str(item.get("id") or "")}
+    for key in (
+        "confidence",
+        "source_ref",
+        "coordinate_normalization",
+        "pixel_bbox",
+        "pixel_geometry",
+        "evidence",
+    ):
+        if key in item:
+            observation[key] = item[key]
+    return observation
+
+
+def _trace_observations(item: Dict[str, Any]) -> List[Dict[str, Any]]:
+    raw = item.get("source_observations")
+    if isinstance(raw, list) and raw:
+        return [value for value in raw if isinstance(value, dict)]
+    return [_trace_source_observation(item)]
+
+
+def _merge_trace_tile_observation(canonical: Dict[str, Any],
+                                  duplicate: Dict[str, Any]) -> None:
+    observations = [*_trace_observations(canonical), *_trace_observations(duplicate)]
+    unique: List[Dict[str, Any]] = []
+    signatures = set()
+    for observation in observations:
+        signature = json.dumps(observation, sort_keys=True, default=str)
+        if signature not in signatures:
+            signatures.add(signature)
+            unique.append(observation)
+    canonical["source_observations"] = unique
+    observation_ids = list(dict.fromkeys(
+        str(observation.get("id") or "")
+        for observation in unique
+        if str(observation.get("id") or "")
+    ))
+    canonical["observation_ids"] = observation_ids
+    canonical["deduplicated_observation_count"] = max(0, len(unique) - 1)
+    observation_keys = {
+        "id",
+        "confidence",
+        "evidence",
+        "source_ref",
+        "coordinate_normalization",
+        "pixel_bbox",
+        "bbox",
+        "pixel_geometry",
+        "source_observations",
+        "observation_ids",
+        "deduplicated_observation_count",
+    }
+    for key, value in duplicate.items():
+        if key not in observation_keys and key not in canonical:
+            canonical[key] = value
+
+
+def _find_equivalent_trace_item(
+    section: str,
+    candidate: Dict[str, Any],
+    existing: Sequence[Dict[str, Any]],
+    tiles_by_id: Dict[str, Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if section not in _TRACE_DEDUPLICATION_SECTIONS:
+        return None
+    for item in existing:
+        if (
+            _trace_items_have_overlapping_tile_provenance(
+                item, candidate, tiles_by_id
+            )
+            and _trace_geometry_equivalent(item, candidate)
+            and _trace_semantics_compatible(item, candidate)
+        ):
+            return item
+    return None
+
+
+def _canonical_trace_id(value: str, aliases: Dict[str, str]) -> str:
+    current = value
+    visited = set()
+    while current in aliases and current not in visited:
+        visited.add(current)
+        current = aliases[current]
+    return current
+
+
+def _remap_trace_references(value: Any,
+                            aliases: Dict[str, str],
+                            parent_key: str = "") -> Any:
+    """Remap removed observation IDs without rewriting evidence/provenance."""
+    if not aliases:
+        return value
+    if parent_key in _TRACE_REFERENCE_KEYS and isinstance(value, str):
+        return _canonical_trace_id(value, aliases)
+    if isinstance(value, dict):
+        return {
+            key: nested
+            if key in {
+                "evidence",
+                "source_ref",
+                "coordinate_normalization",
+                "source_observations",
+                "deduplication",
+            }
+            else _remap_trace_references(nested, aliases, key)
+            for key, nested in value.items()
+        }
+    if isinstance(value, list):
+        remapped = [
+            _remap_trace_references(item, aliases, parent_key) for item in value
+        ]
+        if parent_key in _TRACE_REFERENCE_KEYS and all(
+            isinstance(item, str) for item in remapped
+        ):
+            return list(dict.fromkeys(remapped))
+        return remapped
+    return value
 
 
 def _text_blob(value: Any) -> str:
@@ -499,7 +1530,8 @@ def _raw_items_for_section(spec: Dict[str, Any], section: str) -> List[Dict[str,
 
 def _normalize_component_hypotheses(spec: Dict[str, Any],
                                     image_width: int,
-                                    image_height: int) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+                                    image_height: int,
+                                    trace: Optional[Dict[str, Any]] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     raw_hypotheses = spec.get("component_hypotheses", [])
     errors: List[Dict[str, Any]] = []
     normalized: List[Dict[str, Any]] = []
@@ -512,7 +1544,10 @@ def _normalize_component_hypotheses(spec: Dict[str, Any],
         if not isinstance(raw, dict):
             errors.append({"path": f"component_hypotheses[{index}]", "errors": ["hypothesis must be an object"], "item": raw})
             continue
+        original_raw = raw
+        raw, coordinate_errors = _normalize_item_coordinate_frame(raw, trace)
         item_errors: List[str] = []
+        item_errors.extend(coordinate_errors)
         hyp_id = str(raw.get("id") or f"component_hypothesis_{index + 1}").strip()
         if hyp_id in seen:
             item_errors.append(f"duplicate id {hyp_id}")
@@ -537,7 +1572,11 @@ def _normalize_component_hypotheses(spec: Dict[str, Any],
         if bbox and image_width > 0 and image_height > 0 and not _bbox_in_image(bbox, image_width, image_height):
             item_errors.append("pixel_bbox is outside image bounds")
         if item_errors:
-            errors.append({"path": f"component_hypotheses.{hyp_id or index}", "errors": item_errors, "item": raw})
+            errors.append({
+                "path": f"component_hypotheses.{hyp_id or index}",
+                "errors": item_errors,
+                "item": original_raw,
+            })
             continue
         normalized.append({
             **raw,
@@ -678,6 +1717,24 @@ def prepare_image_trace(image_path: str,
             "domain": str(domain or "mechanical"),
             "vision_artifacts": vision_artifacts,
             "tiles": tiles.get("tiles", []),
+            "attention_strategy": {
+                "mode": "global_then_local",
+                "global_pass": "Use the normalized image for layout, views, and repeated structure.",
+                "local_pass": "Call get_trace_source_image(tile_id=...) for fine linework before emitting an item.",
+                "reconcile": "Return tile-local evidence with source_ref; validation rebases it to image-global pixels.",
+            },
+            "coordinate_contract": {
+                "global": {"coordinate_space": "image_global", "origin": "top_left"},
+                "tile": {
+                    "source_ref": {
+                        "artifact_role": "tile",
+                        "tile_id": "T001",
+                        "coordinate_space": "tile_local",
+                    },
+                    "origin": "tile_top_left",
+                    "normalization": "validator_rebases_to_image_global",
+                },
+            },
             "vlm_contract": "Use prompt copy_drawing_from_image and return ImageDrawingSpec/v1 JSON.",
         },
         warnings=warnings,
@@ -721,24 +1778,71 @@ def validate_image_drawing_spec(spec: Any,
             structural_errors.append({"path": section, "message": f"{section} must be a list."})
     width = int((trace or {}).get("image_width") or 0)
     height = int((trace or {}).get("image_height") or 0)
-    component_hypotheses, component_errors = _normalize_component_hypotheses(spec, width, height)
+    tiles_by_id = _trace_tiles_by_id(trace)
+    available_tile_ids = set(tiles_by_id)
+    raw_inspected_tiles = spec.get("inspected_tiles", [])
+    inspected_tiles: List[str] = []
+    if raw_inspected_tiles in (None, ""):
+        raw_inspected_tiles = []
+    if not isinstance(raw_inspected_tiles, list):
+        structural_errors.append({"path": "inspected_tiles", "message": "inspected_tiles must be a list when provided."})
+    else:
+        inspected_tiles = list(dict.fromkeys(
+            str(value or "").strip().upper() for value in raw_inspected_tiles if str(value or "").strip()
+        ))
+        unknown_inspected = [tile_id for tile_id in inspected_tiles if available_tile_ids and tile_id not in available_tile_ids]
+        if unknown_inspected:
+            structural_errors.append({
+                "path": "inspected_tiles",
+                "message": f"unknown prepared tile IDs: {unknown_inspected}",
+            })
+    component_hypotheses, component_errors = _normalize_component_hypotheses(
+        spec, width, height, trace=trace
+    )
     structural_errors.extend(component_errors)
-    ids = set()
+    valid_items_by_id: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+    deduplication_aliases: Dict[str, str] = {}
+    deduplication_events: List[Dict[str, Any]] = []
     normalized_items: Dict[str, List[Dict[str, Any]]] = {
         "features": [],
         "geometry": [],
         "annotations": [],
         "tables": [],
     }
+    normalized_calibration_candidates: List[Dict[str, Any]] = []
+    raw_calibration_candidates = spec.get("calibration_candidates", [])
+    if isinstance(raw_calibration_candidates, list):
+        for index, raw_candidate in enumerate(raw_calibration_candidates):
+            if not isinstance(raw_candidate, dict):
+                item_errors_list.append({
+                    "path": f"calibration_candidates[{index}]",
+                    "errors": ["calibration candidate must be an object"],
+                    "item": raw_candidate,
+                })
+                continue
+            normalized_candidate, coordinate_errors = _normalize_item_coordinate_frame(raw_candidate, trace)
+            if coordinate_errors:
+                item_errors_list.append({
+                    "path": f"calibration_candidates[{index}]",
+                    "errors": coordinate_errors,
+                    "item": raw_candidate,
+                })
+                continue
+            normalized_calibration_candidates.append(normalized_candidate)
+    elif raw_calibration_candidates not in (None, ""):
+        structural_errors.append({
+            "path": "calibration_candidates",
+            "message": "calibration_candidates must be a list.",
+        })
     for section, raw in _iter_spec_items(spec):
+        original_raw = raw
+        raw, coordinate_errors = _normalize_item_coordinate_frame(raw, trace)
         item_errors: List[str] = []
+        item_errors.extend(coordinate_errors)
         item_id = str(raw.get("id") or "").strip()
         kind = str(raw.get("kind") or raw.get("type") or "").strip().lower()
         if not item_id:
             item_errors.append("id is required")
-        elif item_id in ids:
-            item_errors.append(f"duplicate id {item_id}")
-        ids.add(item_id)
         if kind not in SUPPORTED_KINDS:
             item_errors.append(f"kind must be one of {sorted(SUPPORTED_KINDS)}")
         if section == "features" and kind not in FEATURE_KINDS:
@@ -798,17 +1902,82 @@ def validate_image_drawing_spec(spec: Any,
             members = raw.get("members") or raw.get("member_ids") or raw.get("instances")
             if not members:
                 item_errors.append("pattern requires members/member_ids/instances so repeated features are not flattened")
+        candidate = {
+            **raw,
+            "id": item_id,
+            "kind": kind,
+            "confidence": round(float(confidence), 4),
+            "pixel_bbox": bbox,
+            "evidence": evidence,
+        }
+        canonical: Optional[Dict[str, Any]] = None
+        if not item_errors and item_id:
+            existing_id = valid_items_by_id.get(item_id)
+            if existing_id is not None:
+                existing_section, existing_item = existing_id
+                if (
+                    existing_section == section
+                    and _trace_items_have_overlapping_tile_provenance(
+                        existing_item, candidate, tiles_by_id
+                    )
+                    and _trace_geometry_equivalent(existing_item, candidate)
+                    and _trace_semantics_compatible(existing_item, candidate)
+                ):
+                    canonical = existing_item
+                else:
+                    item_errors.append(f"duplicate id {item_id}")
+            else:
+                canonical = _find_equivalent_trace_item(
+                    section,
+                    candidate,
+                    normalized_items[section],
+                    tiles_by_id,
+                )
         if item_errors:
-            item_errors_list.append({"path": f"{section}.{item_id or '<missing>'}", "errors": item_errors, "item": raw})
-        else:
-            normalized_items[section].append({
-                **raw,
-                "id": item_id,
-                "kind": kind,
-                "confidence": round(float(confidence), 4),
-                "pixel_bbox": bbox,
-                "evidence": evidence,
+            item_errors_list.append({
+                "path": f"{section}.{item_id or '<missing>'}",
+                "errors": item_errors,
+                "item": original_raw,
             })
+        elif canonical is not None:
+            canonical_id = str(canonical.get("id") or "")
+            _merge_trace_tile_observation(canonical, candidate)
+            if item_id != canonical_id:
+                deduplication_aliases[item_id] = canonical_id
+            valid_items_by_id[item_id] = (section, canonical)
+            deduplication_events.append({
+                "section": section,
+                "canonical_id": canonical_id,
+                "observation_id": item_id,
+                "source_tile_ids": _trace_item_tile_ids(candidate),
+            })
+        else:
+            normalized_items[section].append(candidate)
+            valid_items_by_id[item_id] = (section, candidate)
+
+    existing_deduplication = spec.get("deduplication")
+    if not isinstance(existing_deduplication, dict):
+        existing_deduplication = {}
+    existing_aliases = existing_deduplication.get("id_aliases")
+    effective_aliases: Dict[str, str] = {
+        str(alias): str(canonical)
+        for alias, canonical in (
+            existing_aliases.items() if isinstance(existing_aliases, dict) else []
+        )
+        if str(alias) and str(canonical)
+    }
+    effective_aliases.update(deduplication_aliases)
+    if effective_aliases:
+        normalized_items = {
+            section: [
+                _remap_trace_references(item, effective_aliases)
+                for item in items
+            ]
+            for section, items in normalized_items.items()
+        }
+    normalized_relations = _remap_trace_references(
+        spec.get("relations", []), effective_aliases
+    )
     valid_count = sum(len(items) for items in normalized_items.values())
     all_errors = structural_errors + item_errors_list
     # Hard-fail only when the spec is structurally broken, or when not a single
@@ -837,14 +2006,57 @@ def validate_image_drawing_spec(spec: Any,
         warnings.append(
             f"Accepted {valid_count} item(s); rejected {len(item_errors_list)} invalid item(s): {preview}"
         )
+    if deduplication_events:
+        warnings.append(
+            "Merged "
+            f"{len(deduplication_events)} equivalent observation(s) from "
+            "overlapping tiles after image-global coordinate normalization; "
+            "explicit observation IDs and source provenance were retained."
+        )
+    observed_tile_ids_set = set()
+    for items in [
+        *normalized_items.values(),
+        component_hypotheses,
+        normalized_calibration_candidates,
+    ]:
+        for item in items:
+            observed_tile_ids_set.update(_trace_item_tile_ids(item))
+    observed_tile_ids = sorted(observed_tile_ids_set)
+    missing_coverage = [tile_id for tile_id in observed_tile_ids if tile_id not in inspected_tiles]
+    if missing_coverage:
+        warnings.append(
+            "Tile-local evidence was accepted, but inspected_tiles does not list "
+            f"{missing_coverage}; add them so local attention coverage is auditable."
+        )
+    deduplication = dict(existing_deduplication)
+    if effective_aliases or deduplication_events or deduplication:
+        existing_events = deduplication.get("events")
+        if not isinstance(existing_events, list):
+            existing_events = []
+        merged_events = [
+            *[event for event in existing_events if isinstance(event, dict)],
+            *deduplication_events,
+        ]
+        deduplication.update({
+            "schema_version": "ImageTraceDeduplication/v1",
+            "coordinate_space": "image_global",
+            "tolerance_px": TRACE_TILE_DEDUPLICATION_TOLERANCE_PX,
+            "merged_observation_count": len(merged_events),
+            "id_aliases": effective_aliases,
+            "events": merged_events,
+        })
     normalized = {
         **spec,
         "domain": domain,
+        "inspected_tiles": inspected_tiles,
+        "calibration_candidates": normalized_calibration_candidates,
         "features": normalized_items["features"],
         "geometry": normalized_items["geometry"],
         "annotations": normalized_items["annotations"],
         "tables": normalized_items["tables"],
+        "relations": normalized_relations,
         "component_hypotheses": component_hypotheses,
+        **({"deduplication": deduplication} if deduplication else {}),
     }
     return ok_result(
         f"Validated ImageDrawingSpec/v1 ({valid_count} item(s)"
@@ -995,6 +2207,10 @@ def prepare_visual_semantic_context(image_id: Optional[str] = None,
         warnings.extend(artifact_warnings)
     else:
         warnings.append("Normalized image path is unavailable; visual artifacts could not be prepared.")
+    tile_index = _load_tile_index(trace)
+    prepared_tiles = [
+        tile for tile in tile_index.get("tiles", []) if isinstance(tile, dict)
+    ]
 
     sections = {
         section: len(_raw_items_for_section(spec_data, section))
@@ -1010,12 +2226,14 @@ def prepare_visual_semantic_context(image_id: Optional[str] = None,
                 "height": int(trace.get("image_height") or 0),
                 "normalized_image_path": str(normalized_path) if normalized_path else "",
                 "tile_index_path": trace.get("tile_index_path") or "",
+                "tiles": prepared_tiles,
             },
             "vision_artifacts": artifacts,
             "existing_spec_summary": sections,
             "vlm_tasks": [
                 "Inspect the normalized image for global mechanical layout and view type.",
-                "Use high_contrast and edges artifacts to separate contours, hatches, centerlines, dimensions, and text.",
+                "Select relevant tile IDs and call get_trace_source_image(tile_id=...) to inspect real local crops before resolving dense or fine linework.",
+                "Use high_contrast and edges artifacts as auxiliary evidence; do not substitute them for local source crops.",
                 "Return top-k open-vocabulary component_hypotheses with evidence and missing_evidence.",
                 "Keep uncertain or ambiguous component names as *_like hypotheses rather than forced labels.",
             ],
@@ -1023,6 +2241,7 @@ def prepare_visual_semantic_context(image_id: Optional[str] = None,
                 "target": "ImageDrawingSpec/v1.component_hypotheses",
                 "required_fields": ["id", "label", "confidence", "evidence"],
                 "optional_fields": ["pixel_bbox", "missing_evidence", "related_feature_ids", "view_type"],
+                "tile_evidence": "Tile-local observations require source_ref with artifact_role=tile, exact tile_id, and coordinate_space=tile_local.",
                 "label_policy": "Use open-vocabulary labels such as flange_like_component, bushing_or_hub_like_component, cover_like_component, bracket_like_component, shaft_like_component.",
                 "evidence_policy": "Every hypothesis must cite visible drawing evidence and name missing evidence when the view is partial or ambiguous.",
             },

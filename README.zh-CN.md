@@ -329,7 +329,15 @@ CAD 理解类工具返回统一的 `ToolResult` 结构：
 
 只读理解工具不会修改 DWG。语义对象、约束、验证报告、视图快照和 VLM 映射信息会存入工作区数据库。
 
+跨实体闭合轮廓会先对直线交点以及直线与圆弧、圆、椭圆弧或完整椭圆的解析交点做原子化平面分割，再执行半边面遍历。切点、端点、不同 Z 平面以及低于拓扑分辨率的近切根和微小面会分别处理；没有误差界的样条内部交点或预算耗尽会安全拒绝，不会把未完整分割的外轮廓当成正确图形。面遍历前还会审计曲线—曲线接触：圆形曲线对和重合的闭合二次曲线按解析几何处理；其余重叠的有界误差带或无证书区域会安全拒绝，因为系统尚未插入一般曲线—曲线解析根。轮廓包围盒包含圆和椭圆的解析极值；稳定轮廓 ID 基于物理边界段，不依赖延长线的源参数比例或闭合曲线的任意参数接缝，因此延长构造线、反转遍历方向、加入偶然切点或整体平移不会改变同一轮廓的 ID。
+
 `scan_all_entities(clear_db=true)` 默认会清空当前 thread 的旧语义对象、约束、验证报告和视图快照。只有确实要跨扫描保留缓存时才传 `clear_understanding=false`。
+
+公开扫描工具默认还会设置 `capture_visual_geometry=true`。因此即使使用
+`detail_level="minimal"`，也会保留精确视觉定位所需的少量原始边界几何，例如
+LINE 端点以及 POLYLINE 顶点和 bulge。只有确认本次扫描不会用于视觉审阅时，才应
+把它设为 `false` 以执行纯元数据扫描。Polyline 的 OCS 坐标会转换为 WCS，带
+bulge 的线段会先在 OCS 中采样再变换，避免 elevation 或旋转法向量造成路径偏移。
 
 关键理解工具包括：
 
@@ -390,7 +398,11 @@ CADPlan 校验默认禁止原始 `send_command`、SQL mutation、purge 和 audit
 
 - 干净视图导出图；
 - 带数字 ID 的可选 overlay 图；
-- 记录视图参数、可见 handle、像素框和映射数据的 sidecar JSON。
+- 记录视图参数、可见 handle、像素框、LINE/POLYLINE 像素路径、语义轮廓和映射数据的 sidecar JSON。
+
+快照 schema 为 `cad-view-snapshot/v3`，overlay 与 tile sidecar 分别使用
+`cad-overlay-items/v2` 和 `cad-view-tiles/v2`；三者都会给出
+`grounding_geometry_version="path-polygon/v1"`，以便调用方区分支持真实路径/多边形的证据与旧版纯 bbox 证据。
 
 AutoCAD COM 导出的是 WMF，而 VLM 接口无法读取 WMF。快照会给出 `vlm_ready`、
 `vlm_image_path` 和 `vlm_blocked_reason`，让 agent 明确知道导出的文件能否发给
@@ -401,7 +413,13 @@ VLM。当系统存在栅格转换器（ImageMagick、wand、Inkscape 或 LibreOf
 依赖 VLM 审阅前可运行 `check_runtime_environment(require_visual_export=true)`
 检测缺失的渲染器。
 
-VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；返回 overlay ID 时使用 `ground_vlm_overlay_id(snapshot_id, overlay_id)`。编辑前应对最可能的候选实体调用 `explain_entity`。
+VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；若模型同时判断了对象类型，可传 `semantic_type="closed_profile"`。系统按真实线段/折线路径和语义多边形定位，不会把斜线的轴对齐包围框当成实体区域，也会排除凹形轮廓包围框中的空缺区域。返回 overlay ID 时使用 `ground_vlm_overlay_id(snapshot_id, overlay_id)`。编辑前应对最可能的候选实体调用 `explain_entity`。
+
+`submit_vlm_review` 会同时核对 finding 中提供的 overlay ID、像素框、`semantic_type` 和 claimed handles。单条边可作为完整语义轮廓的成员证据；不完整的 handle 组或互相冲突的定位来源会保守地标记为 `ambiguous`。协调结果会随 finding 持久化，歧义 finding 不会进入语义融合或校验问题提升。
+
+`VLMGroundingAudit/v1` 还会在 SQLite 读回后保留归一化的 `source_ref`、坐标变换、
+`semantic_type` 和最终定位选择。默认审阅提示词契约为
+`vlm_review_drawing/v3`。
 
 顶视或平面模型空间视图最可靠。带 twist、UCS、三维视图或复杂布局视口的场景会返回警告或较低置信度。
 
@@ -416,11 +434,16 @@ VLM 返回像素框时使用 `ground_vlm_region(snapshot_id, bbox)`；返回 ove
 - `render_drawing_view(...)`：一次调用即导出当前 AutoCAD 视图*并*返回内联渲染
   图像，同时附带世界/像素/handle 映射。这是编辑后确认图纸状态最快的方式。
 - `get_snapshot_image(snapshot_id=None, which="auto")`：查看此前导出的视图
-  （干净图或带编号的 overlay）；`snapshot_id=None` 取最新快照。
+  （干净图或带编号的 overlay）；`snapshot_id=None` 取最新快照。使用
+  `tile_id="T004"` 可查看真实局部 crop。每个带映射的内联图都会返回
+  `source_ref_template`；模型应把它原样附在基于该图测得的 finding 上。校验器会
+  核对图像尺寸和 observed-to-source/global 矩阵，并把自动缩放后的像素精确换算到
+  snapshot-global 坐标。
 - `view_image(path)`：查看任意本地图像——临摹工作流中的源图、参考图，或任何
   导出文件。
 - `get_trace_source_image(role="normalized")`：查看已准备好的 trace 产物，让
-  临摹模型在生成 `ImageDrawingSpec/v1` 之前先看到真实源图。
+  临摹模型在生成 `ImageDrawingSpec/v1` 之前先看到真实源图；tile crop 使用相同的
+  observed-image 变换契约与全局图像坐标对齐。
 - `get_vision_capabilities()`：报告可内联格式与已安装的渲染器。
 
 WMF（AutoCAD 原生 COM 导出）在存在渲染器时会自动转为 PNG，BMP/TIFF 会被转码，

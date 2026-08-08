@@ -2,7 +2,10 @@ import math
 import struct
 from pathlib import Path
 
+import pytest
+
 from src.cad_database import CADDatabase
+from src.cad_understanding import vision
 from src.cad_understanding.image_trace import (
     compile_image_spec_to_cad_plan,
     prepare_image_trace,
@@ -49,6 +52,61 @@ def write_bmp(path: Path, width: int = 64, height: int = 48):
         0,
     )
     path.write_bytes(header + dib + pixel_data)
+
+
+def write_dense_trace_png(path: Path, width: int = 1280, height: int = 800) -> Path:
+    """Create a large, position-sensitive fixture for tile/crop assertions."""
+    image_module = pytest.importorskip("PIL.Image")
+    draw_module = pytest.importorskip("PIL.ImageDraw")
+    image = image_module.new("RGB", (width, height), "white")
+    draw = draw_module.Draw(image)
+    draw.rectangle((0, 0, width // 2 - 1, height // 2 - 1), fill=(255, 220, 220))
+    draw.rectangle((width // 2, 0, width - 1, height // 2 - 1), fill=(220, 255, 220))
+    draw.rectangle((0, height // 2, width // 2 - 1, height - 1), fill=(220, 220, 255))
+    draw.rectangle((width // 2, height // 2, width - 1, height - 1), fill=(255, 245, 180))
+    # Thin, dense strokes make it easy to detect a crop accidentally pointing
+    # at the full normalized image while remaining representative of CAD input.
+    for x in range(20, width, 24):
+        draw.line((x, 0, x, height - 1), fill=(20, 20, 20), width=1)
+    for y in range(16, height, 24):
+        draw.line((0, y, width - 1, y), fill=(40, 40, 40), width=1)
+    image.save(path)
+    return path
+
+
+def tile_local_line_spec(tile_id: str,
+                         bbox=None,
+                         points=None):
+    return {
+        "schema_version": "ImageDrawingSpec/v1",
+        "domain": "mechanical",
+        "units": "mm",
+        "calibration_candidates": [],
+        "features": [],
+        "geometry": [
+            {
+                "id": "tile_line",
+                "kind": "line",
+                "confidence": 0.91,
+                "source_ref": {
+                    "artifact_role": "tile",
+                    "tile_id": tile_id,
+                    "coordinate_space": "tile_local",
+                },
+                "pixel_bbox": bbox or [10, 20, 110, 120],
+                "pixel_geometry": {
+                    "points": points or [[10, 20], [110, 120]],
+                },
+                "evidence": {
+                    "visible_cues": ["continuous thin stroke between two junctions"],
+                },
+            }
+        ],
+        "annotations": [],
+        "relations": [],
+        "tables": [],
+        "uncertainties": [],
+    }
 
 
 def sample_spec():
@@ -327,6 +385,217 @@ def test_prepare_image_trace_with_bmp(tmp_path, monkeypatch):
     assert artifacts[0]["role"] == "normalized"
     assert Path(artifacts[0]["image_path"]).exists()
     assert result["data"]["tiles"]
+
+
+def test_prepare_image_trace_writes_real_positioned_tile_crops(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    image_module = pytest.importorskip("PIL.Image")
+    db = make_db(tmp_path)
+    source = write_dense_trace_png(tmp_path / "dense.png")
+
+    result = prepare_image_trace(
+        str(source),
+        tile_size=512,
+        tile_overlap=0.2,
+        database=db,
+    )
+
+    assert result["ok"], result
+    normalized_path = Path(result["data"]["normalized_image_path"]).resolve()
+    tiles = result["data"]["tiles"]
+    assert len(tiles) > 1
+    tile_paths = [Path(tile["image_path"]).resolve() for tile in tiles]
+    assert len(set(tile_paths)) == len(tile_paths)
+    assert all(path.exists() for path in tile_paths)
+    assert all(path != normalized_path for path in tile_paths)
+
+    with image_module.open(normalized_path) as normalized:
+        for tile, tile_path in zip(tiles, tile_paths):
+            x1, y1, x2, y2 = [int(value) for value in tile["global_pixel_bbox"]]
+            assert tile["local_to_global"] == [
+                [1.0, 0.0, float(x1)],
+                [0.0, 1.0, float(y1)],
+                [0.0, 0.0, 1.0],
+            ]
+            with image_module.open(tile_path) as crop:
+                assert crop.size == (x2 - x1, y2 - y1)
+                assert crop.getpixel((0, 0)) == normalized.getpixel((x1, y1))
+                assert crop.getpixel((crop.width - 1, crop.height - 1)) == normalized.getpixel((x2 - 1, y2 - 1))
+
+
+def test_validate_image_spec_rebases_tile_local_bbox_and_points(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db = make_db(tmp_path)
+    source = write_dense_trace_png(tmp_path / "dense.png")
+    prepared = prepare_image_trace(
+        str(source),
+        tile_size=512,
+        tile_overlap=0.2,
+        database=db,
+    )
+    assert prepared["ok"], prepared
+    tile = next(
+        item for item in prepared["data"]["tiles"]
+        if item["global_pixel_bbox"][0] > 0 and item["global_pixel_bbox"][1] > 0
+    )
+    x0, y0 = tile["global_pixel_bbox"][:2]
+
+    result = validate_image_drawing_spec(
+        tile_local_line_spec(tile["tile_id"]),
+        image_id=prepared["data"]["image_id"],
+        database=db,
+    )
+
+    assert result["ok"], result
+    line = result["data"]["spec"]["geometry"][0]
+    assert line["pixel_bbox"] == [x0 + 10, y0 + 20, x0 + 110, y0 + 120]
+    assert line["pixel_geometry"]["points"] == [
+        [x0 + 10, y0 + 20],
+        [x0 + 110, y0 + 120],
+    ]
+    assert line["source_ref"] == {
+        "artifact_role": "tile",
+        "tile_id": tile["tile_id"],
+        "coordinate_space": "tile_local",
+    }
+    assert line["coordinate_normalization"]["normalized_coordinate_space"] == "image_global"
+
+    # Normalized specs may be validated again by a later agent/tool boundary;
+    # the tile origin must not be applied twice.
+    repeated = validate_image_drawing_spec(
+        result["data"]["spec"],
+        image_id=prepared["data"]["image_id"],
+        database=db,
+    )
+    assert repeated["ok"], repeated
+    assert repeated["data"]["spec"]["geometry"][0]["pixel_bbox"] == line["pixel_bbox"]
+
+
+def test_emitted_downscaled_trace_templates_round_trip_global_and_tile(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    db = make_db(tmp_path)
+    prepared = prepare_image_trace(
+        str(write_dense_trace_png(tmp_path / "downscaled-trace.png")),
+        tile_size=512,
+        tile_overlap=0.2,
+        database=db,
+    )
+    assert prepared["ok"], prepared
+    image_id = prepared["data"]["image_id"]
+
+    global_view = vision.resolve_trace_image(
+        image_id, "normalized", 640, db
+    )
+    assert global_view["ok"], global_view
+    global_ref = global_view["data"]["source_ref_template"]
+    global_spec = tile_local_line_spec("")
+    global_item = global_spec["geometry"][0]
+    global_item["source_ref"] = global_ref
+    global_item["pixel_bbox"] = [10, 20, 50, 60]
+    global_item["pixel_geometry"]["points"] = [[10, 20], [50, 60]]
+
+    global_result = validate_image_drawing_spec(
+        global_spec, image_id=image_id, database=db
+    )
+
+    assert global_result["ok"], global_result
+    normalized_global = global_result["data"]["spec"]["geometry"][0]
+    assert normalized_global["pixel_bbox"] == [20.0, 40.0, 100.0, 120.0]
+    assert normalized_global["pixel_geometry"]["points"] == [
+        [20.0, 40.0], [100.0, 120.0],
+    ]
+    assert normalized_global["source_ref"]["coordinate_space"] == "image_global"
+
+    tampered_spec = tile_local_line_spec("")
+    tampered_item = tampered_spec["geometry"][0]
+    tampered_item["source_ref"] = {
+        **global_ref,
+        "observed_to_global": [
+            [3.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 1.0],
+        ],
+    }
+    rejected = validate_image_drawing_spec(
+        tampered_spec, image_id=image_id, database=db
+    )
+    assert not rejected["ok"]
+    assert "inconsistent" in " ".join(
+        rejected["data"]["errors"][0]["errors"]
+    ).lower()
+
+    tile = next(
+        item for item in prepared["data"]["tiles"]
+        if item["global_pixel_bbox"][0] > 0
+        and item["image"] == {"width": 512, "height": 512}
+    )
+    tile_view = vision.resolve_trace_image(
+        image_id, "normalized", 256, db, tile_id=tile["tile_id"]
+    )
+    assert tile_view["ok"], tile_view
+    tile_spec = tile_local_line_spec(tile["tile_id"])
+    tile_item = tile_spec["geometry"][0]
+    tile_item["source_ref"] = tile_view["data"]["source_ref_template"]
+    tile_item["pixel_bbox"] = [10, 20, 50, 60]
+    tile_item["pixel_geometry"]["points"] = [[10, 20], [50, 60]]
+
+    tile_result = validate_image_drawing_spec(
+        tile_spec, image_id=image_id, database=db
+    )
+
+    assert tile_result["ok"], tile_result
+    normalized_tile = tile_result["data"]["spec"]["geometry"][0]
+    x0, y0 = tile["global_pixel_bbox"][:2]
+    assert normalized_tile["pixel_bbox"] == [
+        x0 + 20.0, y0 + 40.0, x0 + 100.0, y0 + 120.0,
+    ]
+    assert normalized_tile["pixel_geometry"]["points"] == [
+        [x0 + 20.0, y0 + 40.0],
+        [x0 + 100.0, y0 + 120.0],
+    ]
+    assert normalized_tile["coordinate_normalization"]["observed_to_global"] == [
+        [2.0, 0.0, x0], [0.0, 2.0, y0], [0.0, 0.0, 1.0],
+    ]
+
+
+@pytest.mark.parametrize("invalid_source", ["unknown_tile", "outside_tile"])
+def test_validate_image_spec_rejects_invalid_tile_local_evidence(tmp_path, monkeypatch, invalid_source):
+    monkeypatch.chdir(tmp_path)
+    db = make_db(tmp_path)
+    source = write_dense_trace_png(tmp_path / "dense.png")
+    prepared = prepare_image_trace(
+        str(source),
+        tile_size=512,
+        tile_overlap=0.2,
+        database=db,
+    )
+    assert prepared["ok"], prepared
+    tile = prepared["data"]["tiles"][0]
+
+    if invalid_source == "unknown_tile":
+        spec = tile_local_line_spec("T999")
+    else:
+        x1, y1, x2, y2 = tile["global_pixel_bbox"]
+        tile_width = x2 - x1
+        spec = tile_local_line_spec(
+            tile["tile_id"],
+            bbox=[tile_width - 10, 10, tile_width + 10, 30],
+            points=[[tile_width - 10, 10], [tile_width + 10, 30]],
+        )
+
+    result = validate_image_drawing_spec(
+        spec,
+        image_id=prepared["data"]["image_id"],
+        database=db,
+    )
+
+    assert not result["ok"]
+    messages = " ".join(
+        " ".join(error.get("errors", [error.get("message", "")]))
+        for error in result["data"]["errors"]
+    ).lower()
+    assert "tile" in messages
+    assert "unknown" in messages if invalid_source == "unknown_tile" else "outside" in messages
 
 
 def test_prepare_visual_semantic_context_returns_vlm_contract(tmp_path, monkeypatch):

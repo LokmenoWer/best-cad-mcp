@@ -55,7 +55,8 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
                       detail_level: str = "minimal",
                       include_bounding_boxes: bool = True,
                       derive_topology: bool = True,
-                      topology_detail: str = "summary") -> str:
+                      topology_detail: str = "summary",
+                      capture_visual_geometry: bool = True) -> str:
     """扫描当前图纸所有实体并保存到数据库。
 
     这是 AI 理解图纸内容的核心工具 — 将 CAD 图形数据转换为结构化数据，
@@ -75,6 +76,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
         max_entities,
         detail_level=detail_level,
         include_bounding_boxes=include_bounding_boxes,
+        capture_visual_geometry=capture_visual_geometry,
     )
     entities = result.get("entities", [])
     type_stats = result.get("type_stats", {})
@@ -109,6 +111,10 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
         lines.append("Topology derivation skipped for fast large-drawing scans.")
     elif (topology_detail or "").lower() == "summary":
         lines.append("Topology summaries were derived; use topology_detail='full' when primitive/relation topology is needed.")
+    if capture_visual_geometry:
+        lines.append(
+            "Boundary path geometry was captured for visual grounding, including minimal scans."
+        )
     if clear_annotations:
         lines.append("Model-private spatial annotations were cleared.")
     else:

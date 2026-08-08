@@ -374,7 +374,8 @@ TOOL_DESCRIPTIONS = {
         "overlay image inline so the model can visually review the current "
         "drawing and ground VLM findings. snapshot_id defaults to the latest "
         "snapshot. Pair with ground_vlm_region/ground_vlm_overlay_id and confirm "
-        "candidates with explain_entity."
+        "candidates with explain_entity. Echo the returned source_ref_template "
+        "for pixels measured in an embedded/downscaled image."
     ),
     "render_drawing_view": (
         "Render the current AutoCAD view AND see it in one call: exports a mapped "
@@ -384,10 +385,12 @@ TOOL_DESCRIPTIONS = {
         "export_view_image_with_mapping when the model itself needs to look."
     ),
     "get_trace_source_image": (
-        "SEE a prepared image-trace artifact (normalized, high_contrast, or edges) "
+        "SEE a prepared image-trace artifact (normalized, high_contrast, edges, or a real local crop selected by tile_id) "
         "for the active trace. Call after prepare_image_trace so the model looks "
-        "at the real source it is copying before producing ImageDrawingSpec/v1, "
-        "instead of working blind from a path."
+        "at the real source it is copying before producing ImageDrawingSpec/v1. "
+        "For dense point/line drawings, inspect the global image first and then "
+        "request relevant tile IDs; echo the returned source_ref_template for "
+        "observed-image coordinates instead of working blind from a path."
     ),
     "get_vision_capabilities": (
         "Report whether this server can show images to the model and which "
@@ -2802,7 +2805,8 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
                       detail_level: str = "minimal",
                       include_bounding_boxes: bool = True,
                       derive_topology: bool = True,
-                      topology_detail: str = "summary") -> str:
+                      topology_detail: str = "summary",
+                      capture_visual_geometry: bool = True) -> str:
     """扫描当前图纸中的所有实体并保存到数据库。
 
     这是 AI 理解图纸的核心工具 — 它将 AutoCAD 中的图形对象转换为结构化数据，
@@ -2820,6 +2824,7 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         include_bounding_boxes: 是否读取实体包围盒，便于后续空间查询。
         derive_topology: 是否生成拓扑表。默认生成轻量摘要，便于 agent 识别。
         topology_detail: summary/full/none。summary 只写拓扑摘要，full 写点线面关系。
+        capture_visual_geometry: 即使 minimal 扫描也保留精确边界路径；默认开启以支持视觉定位。
     """
     return query_tools.scan_all_entities(
         clear_db=clear_db,
@@ -2830,6 +2835,7 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         include_bounding_boxes=include_bounding_boxes,
         derive_topology=derive_topology,
         topology_detail=topology_detail,
+        capture_visual_geometry=capture_visual_geometry,
     )
 
 
@@ -5301,16 +5307,20 @@ def view_image(ctx: Context, path: str, max_dim: int = 1568, label: str = "") ->
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
 def get_snapshot_image(ctx: Context, snapshot_id: Optional[str] = None,
-                       which: str = "auto", max_dim: int = 1568) -> Any:
+                       which: str = "auto", max_dim: int = 1568,
+                       tile_id: Optional[str] = None) -> Any:
     """Embed a prior view snapshot's image(s) so the model can review them.
 
     Args:
         snapshot_id: Snapshot to view; None uses the most recent snapshot.
         which: "auto" (overlay if present else clean), "clean", "overlay", or "both".
+        tile_id: Optional dense-view crop such as "T004". The result includes
+            its tile-local to snapshot-global transform. Echo the returned
+            source_ref_template when reporting pixels from the embedded image.
         max_dim: Long-edge pixel cap for downscaling (default 1568).
     """
     result = understanding_vision.resolve_snapshot_images(
-        snapshot_id=snapshot_id, which=which, max_dim=max_dim)
+        snapshot_id=snapshot_id, which=which, tile_id=tile_id, max_dim=max_dim)
     return _vision_tool_result(result)
 
 
@@ -5323,7 +5333,10 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
                         which: str = "auto", include_overlay: bool = True,
                         overlay_style: str = "bbox",
                         overlay_granularity: str = "entity",
-                        max_dim: int = 1568) -> Any:
+                        max_dim: int = 1568,
+                        include_tiles: bool = False,
+                        tile_size: int = 640,
+                        tile_overlap: float = 0.2) -> Any:
     """Export the current AutoCAD view with mapping AND embed the rendered image.
 
     Returns the world/pixel/handle mapping summary as text plus the rendered
@@ -5337,7 +5350,13 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
         which: Which image(s) to show: "auto", "clean", "overlay", or "both".
         include_overlay: Render the numbered overlay image for ID grounding.
         overlay_style: "bbox" or "som" (Set-of-Mark style labels).
-        overlay_granularity: "entity", "primitive", or "both".
+        overlay_granularity: "entity", "primitive", "both", "semantic",
+            "adaptive", or "all". Adaptive prefers semantic shape marks on
+            dense views and entity marks on sparse views.
+        include_tiles: Emit real clean/overlay crops for later
+            get_snapshot_image(tile_id=...) calls.
+        tile_size: Tile edge length in snapshot pixels.
+        tile_overlap: Fractional overlap used to protect boundary features.
         max_dim: Long-edge pixel cap for the embedded image (default 1568).
     """
     export = understanding_view.export_view_image_with_mapping(
@@ -5346,6 +5365,9 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
         include_entity_bboxes=True,
         overlay_granularity=overlay_granularity,
         overlay_style=overlay_style,
+        include_tiles=include_tiles,
+        tile_size=tile_size,
+        tile_overlap=tile_overlap,
     )
     if not export.get("ok"):
         return [export]
@@ -5356,13 +5378,13 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
     vision_result = understanding_vision.resolve_snapshot_images(
         snapshot_id=snapshot_id, which=which, max_dim=max_dim)
     image_blocks = _vision_image_blocks(vision_result)
-    # Lead with the export mapping (handles, transforms, vlm readiness, next_tools)
-    # then attach the rendered image(s) the model should look at. If no raster
-    # could be embedded (e.g. WMF with no converter), include the vision result
-    # so the model still learns exactly why and what to install.
+    # Lead with the export mapping, then retain the vision summary containing
+    # the exact observed-image coordinate contract/source_ref template before
+    # attaching the rendered image(s). The summary must not disappear merely
+    # because image embedding succeeded.
     if not image_blocks:
         return [export, vision_result]
-    return [export, *image_blocks]
+    return [export, vision_result, *image_blocks]
 
 
 @mcp.tool(
@@ -5371,16 +5393,20 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
 def get_trace_source_image(ctx: Context, image_id: Optional[str] = None,
-                           role: str = "normalized", max_dim: int = 1568) -> Any:
+                           role: str = "normalized", max_dim: int = 1568,
+                           tile_id: Optional[str] = None) -> Any:
     """Embed a prepared image-trace artifact so the model sees the real source.
 
     Args:
         image_id: Trace to view; None uses the most recent prepared trace.
         role: "normalized", "high_contrast", "edges", or "source".
+        tile_id: Optional prepared tile such as "T004". When set, embeds the
+            real local crop and returns its exact observed-to-image-global
+            transform and source_ref_template.
         max_dim: Long-edge pixel cap for downscaling (default 1568).
     """
     result = understanding_vision.resolve_trace_image(
-        image_id=image_id, role=role, max_dim=max_dim)
+        image_id=image_id, role=role, tile_id=tile_id, max_dim=max_dim)
     return _vision_tool_result(result)
 
 
@@ -5438,9 +5464,23 @@ def map_pixel_region_to_world_bbox(ctx: Context, snapshot_id: str,
 )
 def ground_vlm_region(ctx: Context, snapshot_id: str,
                       bbox: List[float],
-                      top_k: int = 10) -> Dict[str, Any]:
-    """Ground a VLM pixel bbox to likely AutoCAD handles from a mapped snapshot."""
-    return understanding_view.ground_vlm_region(snapshot_id, bbox, top_k=top_k)
+                      top_k: int = 10,
+                      semantic_type: Optional[str] = None) -> Dict[str, Any]:
+    """Ground a VLM pixel bbox to unique handles and multi-handle shape candidates.
+
+    LINE/POLYLINE and analytic curve candidates use actual pixel paths instead of
+    filled axis-aligned extents. An optional semantic_type (for example
+    ``closed_profile``) conditionally reranks only when an exact, spatially
+    supported semantic shape exists; it is not a hard filter.
+    The result includes an explicit ambiguity margin between distinct handle
+    groups; decision depth is independent of display top_k.
+    """
+    return understanding_view.ground_vlm_region(
+        snapshot_id,
+        bbox,
+        top_k=top_k,
+        semantic_type=semantic_type,
+    )
 
 
 @mcp.tool(
@@ -5469,7 +5509,7 @@ def submit_vlm_review(ctx: Context,
                       snapshot_id: str,
                       review: Dict[str, Any],
                       source_model: str = "unknown",
-                      prompt_version: str = "vlm_review_drawing/v2",
+                      prompt_version: str = "vlm_review_drawing/v3",
                       top_k: int = 10) -> Dict[str, Any]:
     """Validate, ground, and store VLM review findings in SQLite only."""
     return understanding_vlm.submit_vlm_review(
@@ -5517,12 +5557,21 @@ def fuse_vlm_findings_into_semantic_graph(ctx: Context,
 def evaluate_vlm_grounding(ctx: Context,
                            ground_truth: List[Dict[str, Any]],
                            snapshot_id: Optional[str] = None,
-                           top_k: int = 3) -> Dict[str, Any]:
-    """Score persisted VLM findings against expected handles and issue labels."""
+                           top_k: int = 3,
+                           ground_truth_exhaustive: bool = True) -> Dict[str, Any]:
+    """Score retrieval, exact/alternative handle groups, and issue labels.
+
+    Use expected_handle_group for one complete shape (expected_handles is a
+    compatibility alias), expected_alternative_groups for mutually valid
+    ambiguous decisions, and expected_status to enable decision metrics.
+    Set ground_truth_exhaustive=False for sampled annotations; unmatched
+    findings are then treated as unknown and exhaustive precision is omitted.
+    """
     return understanding_vlm.evaluate_vlm_grounding(
         ground_truth=ground_truth,
         snapshot_id=snapshot_id,
         top_k=top_k,
+        ground_truth_exhaustive=ground_truth_exhaustive,
     )
 
 

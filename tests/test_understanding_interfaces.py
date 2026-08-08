@@ -1,4 +1,5 @@
 import importlib
+import inspect
 import sys
 import types
 from pathlib import Path
@@ -77,6 +78,26 @@ def test_server_understanding_tool_functions_importable():
         "get_cad_resource",
     ]:
         assert callable(getattr(server, name))
+
+    evaluator_signature = inspect.signature(server.evaluate_vlm_grounding)
+    assert "ground_truth_exhaustive" in evaluator_signature.parameters
+    with patch.object(
+        server.understanding_vlm,
+        "evaluate_vlm_grounding",
+        return_value={"ok": True},
+    ) as evaluate:
+        server.evaluate_vlm_grounding(
+            None,
+            [],
+            top_k=5,
+            ground_truth_exhaustive=False,
+        )
+    evaluate.assert_called_once_with(
+        ground_truth=[],
+        snapshot_id=None,
+        top_k=5,
+        ground_truth_exhaustive=False,
+    )
 
     prompt_root = Path(__file__).resolve().parents[1] / "prompts"
     assert server.understand_existing_drawing() == (

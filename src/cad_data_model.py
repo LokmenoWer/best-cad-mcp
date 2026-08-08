@@ -263,11 +263,19 @@ class ArcEntity(CADEntity):
 
     @property
     def start_angle_deg(self) -> float:
-        return self.geometry.get("start_angle", 0.0) * 180.0 / math.pi
+        if self.geometry.get("start_parameter") is not None:
+            value = float(self.geometry["start_parameter"])
+            return value if str(self.geometry.get("parameter_unit") or "radian").lower().startswith("deg") else value * 180.0 / math.pi
+        value = float(self.geometry.get("start_angle", 0.0))
+        return value if str(self.geometry.get("angle_unit") or "").lower().startswith("deg") else value * 180.0 / math.pi
 
     @property
     def end_angle_deg(self) -> float:
-        return self.geometry.get("end_angle", 0.0) * 180.0 / math.pi
+        if self.geometry.get("end_parameter") is not None:
+            value = float(self.geometry["end_parameter"])
+            return value if str(self.geometry.get("parameter_unit") or "radian").lower().startswith("deg") else value * 180.0 / math.pi
+        value = float(self.geometry.get("end_angle", 0.0))
+        return value if str(self.geometry.get("angle_unit") or "").lower().startswith("deg") else value * 180.0 / math.pi
 
 
 @dataclass

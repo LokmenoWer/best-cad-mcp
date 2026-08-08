@@ -322,16 +322,26 @@ structured result.
 2. `prepare_visual_semantic_context(image_id)` to gather normalized,
    high-contrast, and edge-emphasized VLM inputs plus the open-vocabulary
    component hypothesis contract.
-3. Use the `copy_drawing_from_image` prompt with the normalized image and tile
-   index, then ask the VLM for `ImageDrawingSpec/v1` JSON.
-4. `validate_image_drawing_spec(spec, image_id)`.
-5. `submit_image_drawing_spec(image_id, spec, source_model=...)`.
-6. `compile_image_spec_to_cad_plan(image_id)`.
-7. `validate_image_fidelity_contract(spec, cad_plan)`.
-8. `validate_cad_plan`, then `dry_run_cad_plan`.
-9. Execute only when modification is authorized:
+3. Use the normalized image for the global layout pass. For dense point/line
+   regions, inspect real local crops with
+   `get_trace_source_image(image_id, tile_id="T...")` before extracting fine
+   geometry. Each embedded global/tile image returns a `source_ref_template`
+   containing its actual observed dimensions and exact transforms.
+4. Ask the VLM for `ImageDrawingSpec/v1` JSON. Every observation measured from
+   an embedded image echoes that `source_ref_template` unchanged. The validator
+   rejects unknown/tampered/out-of-bounds contracts and composes downscale plus
+   tile translation into global-image coordinates. Equivalent observations
+   from genuinely overlapping tiles are merged only after that normalization;
+   `ImageTraceDeduplication/v1` retains ID aliases and every source observation,
+   while nearby distinct features remain separate.
+5. `validate_image_drawing_spec(spec, image_id)`.
+6. `submit_image_drawing_spec(image_id, spec, source_model=...)`.
+7. `compile_image_spec_to_cad_plan(image_id)`.
+8. `validate_image_fidelity_contract(spec, cad_plan)`.
+9. `validate_cad_plan`, then `dry_run_cad_plan`.
+10. Execute only when modification is authorized:
    `execute_cad_plan(..., allow_modify=true, transactional=true)`.
-10. `scan_all_entities`, `build_drawing_ir`, `validate_geometry`, and
+11. `scan_all_entities`, `build_drawing_ir`, `validate_geometry`, and
    `export_view_image_with_mapping(include_overlay=true)` for visual diff.
 
 Fidelity rules are strict. A chamfered square must not become a square, a
@@ -405,6 +415,13 @@ the workspace database.
 validation reports, and view snapshots for the active thread by default. Pass
 `clear_understanding=false` only when cached understanding artifacts should
 survive a rescan.
+
+The public scan tool also defaults `capture_visual_geometry=true`. Thus a
+`detail_level="minimal"` scan still records the small amount of authored
+boundary geometry needed for precise grounding (for example LINE endpoints and
+POLYLINE vertices/bulges). Polyline OCS coordinates are converted to WCS, and
+bulged segments are sampled before that transform. Set it to `false` only for a
+metadata-only scan that will not feed visual review.
 
 Key understanding tools include:
 
@@ -515,12 +532,65 @@ attempts when rollback is enabled.
 
 - a clean view export,
 - an optional overlay image with numeric IDs, and
-- a sidecar JSON file with view parameters, visible handles, pixel boxes, and
-  mapping data.
+- a sidecar JSON file with view parameters, visible handles, pixel boxes,
+  authored LINE/POLYLINE pixel paths, semantic contours, and mapping data.
 
-For dense drawings, pass `overlay_granularity="both"` to include primitive
-overlay IDs such as `E001.P02`, `overlay_style="som"` for Set-of-Mark-style
-labels, and `include_tiles=true` to emit a tile index for large-view review.
+Snapshots identify themselves as `cad-view-snapshot/v3`; overlay and tile
+sidecars use `cad-overlay-items/v2` and `cad-view-tiles/v2`. Each also reports
+`grounding_geometry_version="path-polygon/v1"`, so consumers can distinguish
+path/polygon-aware evidence from legacy bbox-only artifacts.
+
+For dense drawings, run `detect_semantic_objects` and prefer
+`overlay_granularity="adaptive"`: sparse views retain entity IDs, while crowded
+views use semantic shape IDs such as `S001` so labels do not cover every fine
+stroke. Use `overlay_granularity="both"` only for a focused region that needs
+primitive IDs such as `E001.P02`; use `"all"` when the same numbered overlay
+must expose entity/primitive IDs and semantic `S...` IDs together.
+`ground_vlm_region` clips authored stroke
+paths against the observed region and measures point-to-path distance instead
+of treating a diagonal line's axis-aligned bbox as filled geometry. Semantic
+profiles are localized against their actual polygon, including concave notches.
+It deduplicates repeated primitive/entity candidates by handle and returns multi-handle
+`shape_candidates`, a `recommended_candidate`, and an ambiguity margin.
+Ambiguity is decided between distinct canonical handle groups, so entity and
+semantic views of the same object do not compete with one another; the decision
+pool also remains at least two groups deep when callers request `top_k=1`.
+When semantic intent is supplied, complete semantic shapes form the decision
+pool and their member edges/endpoints cannot impersonate the requested object.
+Nested profiles use contour extent as well as containment, while contours whose
+entire projected footprint is below one pixel abstain from region grounding.
+Independent LINE/POLYLINE entities are planarized at crossings and T-junctions,
+bridges are removed, and bounded half-edge faces are promoted to multi-handle
+`closed_profile` objects. This preserves shared-edge cells and contours with
+dangling construction branches without enumerating exponential graph cycles.
+When two independent, unbranched authored LINE loops cross, their original
+endpoint cycles are retained alongside the atomic faces as source-continuity
+hypotheses. This recovery rejects open/T/shared/coincident contacts and does
+not create an outer union across adjacent cells.
+ARC and ELLIPSE-ARC boundaries retain their analytic model, while SPLINE
+fit-point boundaries remain explicitly approximate and receive lower confidence.
+Analytic curves are sampled adaptively by
+bounded chord error, including shallow arcs that fixed angular sampling would
+erase from thin profiles. Automatic face inference accepts only +Z planar curve
+normals and rejects non-coplanar loops. LINE crossings with circular or
+elliptic curves—including full circles and ellipses—are solved in the source
+parameter domain, classified as crossing,
+endpoint, tangent, or below-resolution, and split atomically before the half-edge
+walk. Exact curve tangents order the resulting half-edges, and child arc lengths
+are recomputed from their true parameter intervals. Interior contacts with an
+uncertified SPLINE sample chain, an exhausted intersection budget, or roots and
+faces below topology resolution fail closed instead of promoting a partially
+planarized outer face. Curve/curve contacts are audited before the face walk:
+exact circular pairs and coincident closed conics are handled geometrically;
+other overlapping certified error tubes (and uncertified overlap regions) fail
+closed because general curve/curve root insertion is not yet supported.
+Profile bounding boxes include analytic circular/elliptic extrema, and stable
+profile IDs use physical boundary runs rather than authored line fractions or a
+closed curve's arbitrary parameter seam. Extending a construction tail,
+reversing traversal, inserting an incidental tangent vertex, or rigidly moving
+the same member handles therefore does not rename the inferred face.
+Center/hidden/dimension linework is excluded. Pass `include_tiles=true` for
+large-view review.
 
 AutoCAD COM exports WMF, which no VLM API can read. The snapshot reports
 `vlm_ready`, `vlm_image_path`, and `vlm_blocked_reason` so the agent knows
@@ -533,19 +603,40 @@ degraded snapshots set `transform_confidence="low"` when image dimensions had
 to be estimated. Run `check_runtime_environment(require_visual_export=true)` to
 detect missing renderers before relying on VLM review.
 
-Use `ground_vlm_region(snapshot_id, bbox)` for VLM pixel boxes and
+Use `ground_vlm_region(snapshot_id, bbox, semantic_type="closed_profile")` when
+the VLM has a type hypothesis (omit `semantic_type` when it does not), and
 `ground_vlm_overlay_id(snapshot_id, overlay_id)` for overlay IDs. Call
 `explain_entity` on top candidates before editing.
 
 Structured VLM review output can be validated and persisted with
 `validate_vlm_review_output`, `submit_vlm_review`, and `get_vlm_findings`.
+When a finding supplies more than one localization source, submission evaluates
+all of them: a referenced entity overlay may corroborate membership in a larger
+semantic profile, while an incomplete claimed-handle group or a conflicting
+overlay/bbox pair fails closed as `ambiguous`. The reconciliation and conflicts
+are persisted with the finding. `VLMGroundingAudit/v1` also preserves the
+normalized `source_ref`, coordinate transform, `semantic_type`, and grounding
+selection across SQLite readback; ambiguous findings are excluded from
+semantic fusion and validation-issue promotion. The default review prompt
+contract is `vlm_review_drawing/v3`.
 Confirmed findings can be fused into the semantic graph with
 `fuse_vlm_findings_into_semantic_graph` or promoted into validation reports with
 `promote_vlm_finding_to_validation_issue`. `analyze_engineering_drawing_stages`
 returns a staged engineering-drawing interpretation JSON covering layout
 segmentation, annotation detection, VLM parsing, and reconciliation.
 `evaluate_vlm_grounding` scores persisted findings against expected handles and
-issue types for regression suites. CAD-IR also exposes a `vlm_findings` section,
+issue types for regression suites. Use `expected_handle_group` for one complete
+multi-handle shape and `expected_alternative_groups` for mutually valid ambiguous
+decisions (`expected_handles` remains a compatibility alias for one exact group).
+Use `expected_equivalent_handle_groups` for interchangeable complete groups
+that should not count as ambiguity.
+Set `ground_truth_exhaustive=false` for sampled annotations so unmatched
+findings remain unknown and precision metrics that require complete labels are
+reported as unavailable rather than misleadingly treating them as errors.
+In addition to legacy any-handle retrieval, it reports exact-group accuracy,
+group precision/recall/F1, top-k exact-group recall, alternative top-k coverage,
+ambiguity counts/precision/recall, tile-equivalence invariance, and decision
+accuracy when ground truth supplies `expected_status`. CAD-IR also exposes a `vlm_findings` section,
 and resources include
 `cad://drawing/current/vlm-findings` and
 `cad://drawing/current/engineering-interpretation`.
@@ -568,11 +659,19 @@ can run a real perceive → act-by-handle → re-render → verify loop:
   This is the fastest way to confirm drawing state after edits.
 - `get_snapshot_image(snapshot_id=None, which="auto")` shows a previously
   exported view (clean or numbered overlay); `snapshot_id=None` uses the latest.
+  When a dense view was rendered with `include_tiles=true`, pass
+  `tile_id="T004"` to see the real local clean/overlay crop. Every mapped
+  embedded image returns a `source_ref_template`; echo it unchanged with VLM
+  findings measured in that image. Validation verifies its dimensions and
+  observed-to-source/global matrices, then rebases even automatically
+  downscaled pixels to snapshot-global coordinates.
 - `view_image(path)` shows any local image — the source drawing to copy in an
   image-trace workflow, a reference picture, or any exported file.
-- `get_trace_source_image(role="normalized")` shows a prepared image-trace
-  artifact so the tracing model looks at the real source before producing
-  `ImageDrawingSpec/v1`.
+- `get_trace_source_image(role="normalized")` shows the prepared global trace;
+  `get_trace_source_image(tile_id="T004")` shows a true local crop without
+  downsampling the entire sheet into the model's visual token budget. The tile
+  result carries the same validated observed-image transform contract needed
+  to reconcile local evidence globally.
 - `get_vision_capabilities()` reports embeddable formats and installed renderers.
 
 WMF (AutoCAD's native COM export) is auto-converted to PNG when a renderer is
