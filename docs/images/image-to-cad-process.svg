@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="700" viewBox="0 0 1600 700" role="img" aria-labelledby="title desc">
+  <title id="title">Guarded image-to-CAD process</title>
+  <desc id="desc">A seven-stage workflow from source image preparation through VLM ImageDrawingSpec, fidelity validation, CADPlan dry-run, explicit execution, and visual comparison, with the non-mutating and mutating stages clearly separated.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#08131f"/>
+      <stop offset="1" stop-color="#17304a"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".24"/>
+    </filter>
+    <marker id="arrow" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto">
+      <path d="M0 0L11 5.5L0 11Z" fill="#65d1ff"/>
+    </marker>
+    <marker id="loopArrow" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto">
+      <path d="M0 0L11 5.5L0 11Z" fill="#ff9f7a"/>
+    </marker>
+    <style>
+      .ui{font-family:"Segoe UI",Arial,sans-serif}
+      .mono{font-family:Consolas,"Courier New",monospace}
+      .card{fill:#12263a;stroke:#365a75;stroke-width:1.5}
+      .cardTitle{font:700 14px "Segoe UI",Arial,sans-serif;fill:#f2f8fc}
+      .tool{font:11px Consolas,"Courier New",monospace;fill:#9edfff}
+      .detail{font:12px "Segoe UI",Arial,sans-serif;fill:#9fb4c4}
+    </style>
+  </defs>
+
+  <rect width="1600" height="700" rx="30" fill="url(#bg)"/>
+  <g class="ui">
+    <text x="58" y="61" fill="#f5fbff" font-size="29" font-weight="750">From one image to a verified DWG—through explicit gates</text>
+    <text x="58" y="94" fill="#9db5c9" font-size="16">Feature preservation is checked before execution; visual comparison closes the loop after AutoCAD changes.</text>
+  </g>
+
+  <!-- connection arrows -->
+  <g fill="none" stroke="#65d1ff" stroke-width="2.6" marker-end="url(#arrow)">
+    <path d="M250 330H274"/><path d="M467 330H491"/><path d="M684 330H708"/>
+    <path d="M901 330H925"/><path d="M1118 330H1142"/><path d="M1335 330H1359"/>
+  </g>
+
+  <!-- 1 source -->
+  <g transform="translate(58 138)" filter="url(#shadow)">
+    <rect class="card" width="192" height="378" rx="20"/>
+    <circle cx="28" cy="29" r="17" fill="#65d1ff"/><text class="ui" x="28" y="35" text-anchor="middle" fill="#07131e" font-size="16" font-weight="800">1</text>
+    <text class="cardTitle" x="55" y="34">SOURCE IMAGE</text>
+    <rect x="20" y="70" width="152" height="135" rx="10" fill="#f8fbfc" stroke="#678398"/>
+    <g transform="translate(34 83)" fill="none" stroke="#19303e" stroke-width="2">
+      <path d="M4 99H124V112H4ZM19 99L35 76M109 99L93 76"/>
+      <circle cx="64" cy="53" r="43"/><circle cx="64" cy="53" r="18"/>
+      <circle cx="42" cy="31" r="4"/><circle cx="86" cy="31" r="4"/><circle cx="42" cy="75" r="4"/><circle cx="86" cy="75" r="4"/>
+    </g>
+    <text class="detail" x="20" y="237">External raster or PDF</text>
+    <text class="detail" x="20" y="257">Dimensions may calibrate scale</text>
+    <rect x="20" y="285" width="152" height="54" rx="10" fill="#0c1c2b"/>
+    <text class="tool" x="31" y="307">image_path</text>
+    <text class="tool" x="31" y="325">domain="mechanical"</text>
+  </g>
+
+  <!-- 2 prepare -->
+  <g transform="translate(275 138)" filter="url(#shadow)">
+    <rect class="card" width="192" height="378" rx="20"/>
+    <circle cx="28" cy="29" r="17" fill="#65d1ff"/><text class="ui" x="28" y="35" text-anchor="middle" fill="#07131e" font-size="16" font-weight="800">2</text>
+    <text class="cardTitle" x="55" y="34">NORMALIZE + TILE</text>
+    <g transform="translate(24 72)">
+      <rect width="144" height="132" rx="10" fill="#eef5f8" stroke="#668397"/>
+      <g fill="#d5e5ec" stroke="#7893a5">
+        <rect x="10" y="10" width="58" height="49"/><rect x="76" y="10" width="58" height="49"/>
+        <rect x="10" y="68" width="58" height="49"/><rect x="76" y="68" width="58" height="49"/>
+      </g>
+      <circle cx="70" cy="64" r="35" fill="none" stroke="#17a5c8" stroke-width="2"/>
+      <path d="M0 64H144M72 0V132" stroke="#17a5c8" stroke-width="1" stroke-dasharray="5 4"/>
+    </g>
+    <text class="detail" x="20" y="237">Global image + detail crops</text>
+    <text class="detail" x="20" y="257">Pixel coordinate contract</text>
+    <rect x="20" y="285" width="152" height="54" rx="10" fill="#0c1c2b"/>
+    <text class="tool" x="31" y="307">prepare_image_trace</text>
+    <text class="tool" x="31" y="325">get_trace_source_image</text>
+  </g>
+
+  <!-- 3 vlm spec -->
+  <g transform="translate(492 138)" filter="url(#shadow)">
+    <rect class="card" width="192" height="378" rx="20"/>
+    <circle cx="28" cy="29" r="17" fill="#ffd166"/><text class="ui" x="28" y="35" text-anchor="middle" fill="#1d180c" font-size="16" font-weight="800">3</text>
+    <text class="cardTitle" x="55" y="34">VLM SPEC</text>
+    <rect x="20" y="70" width="152" height="135" rx="10" fill="#0b1825" stroke="#56768a"/>
+    <g class="mono" font-size="10.5">
+      <text x="31" y="93" fill="#d7e8f3">{ <tspan fill="#75d6ff">"features"</tspan>: [</text>
+      <text x="42" y="112" fill="#a9e5bf">"stepped_bore",</text>
+      <text x="42" y="131" fill="#a9e5bf">"hole_pattern",</text>
+      <text x="42" y="150" fill="#a9e5bf">"centerline"</text>
+      <text x="31" y="169" fill="#d7e8f3">], <tspan fill="#75d6ff">"confidence"</tspan>: <tspan fill="#ffd166">.96</tspan>,</text>
+      <text x="31" y="188" fill="#75d6ff">"uncertainties"<tspan fill="#d7e8f3">: [...] }</tspan></text>
+    </g>
+    <text class="detail" x="20" y="237">ImageDrawingSpec/v1</text>
+    <text class="detail" x="20" y="257">Evidence on every item</text>
+    <rect x="20" y="285" width="152" height="54" rx="10" fill="#0c1c2b"/>
+    <text class="tool" x="31" y="307">validate_image_</text>
+    <text class="tool" x="31" y="325">drawing_spec</text>
+  </g>
+
+  <!-- 4 compile -->
+  <g transform="translate(709 138)" filter="url(#shadow)">
+    <rect class="card" width="192" height="378" rx="20"/>
+    <circle cx="28" cy="29" r="17" fill="#ffd166"/><text class="ui" x="28" y="35" text-anchor="middle" fill="#1d180c" font-size="16" font-weight="800">4</text>
+    <text class="cardTitle" x="55" y="34">COMPILE PLAN</text>
+    <g transform="translate(20 70)">
+      <rect width="152" height="135" rx="10" fill="#102235" stroke="#56768a"/>
+      <g class="ui" font-size="10" font-weight="700">
+        <rect x="13" y="13" width="126" height="26" rx="8" fill="#173d58" stroke="#65d1ff"/><text x="76" y="30" text-anchor="middle" fill="#dff6ff">draw_circle → $bore</text>
+        <path d="M76 39V50" stroke="#65d1ff"/>
+        <rect x="13" y="50" width="126" height="26" rx="8" fill="#273329" stroke="#72e0a8"/><text x="76" y="67" text-anchor="middle" fill="#d9f6e6">array_polar → $holes</text>
+        <path d="M76 76V87" stroke="#65d1ff"/>
+        <rect x="13" y="87" width="126" height="34" rx="8" fill="#3d3021" stroke="#ffd166"/><text x="76" y="102" text-anchor="middle" fill="#fff0bd">postcondition:</text><text x="76" y="115" text-anchor="middle" fill="#fff0bd">concentric</text>
+      </g>
+    </g>
+    <text class="detail" x="20" y="237">Dependencies + variables</text>
+    <text class="detail" x="20" y="257">Semantic operations retained</text>
+    <rect x="20" y="285" width="152" height="54" rx="10" fill="#0c1c2b"/>
+    <text class="tool" x="31" y="307">compile_image_spec_</text>
+    <text class="tool" x="31" y="325">to_cad_plan</text>
+  </g>
+
+  <!-- 5 validate -->
+  <g transform="translate(926 138)" filter="url(#shadow)">
+    <rect class="card" width="192" height="378" rx="20"/>
+    <circle cx="28" cy="29" r="17" fill="#ffd166"/><text class="ui" x="28" y="35" text-anchor="middle" fill="#1d180c" font-size="16" font-weight="800">5</text>
+    <text class="cardTitle" x="55" y="34">GATE + DRY-RUN</text>
+    <g transform="translate(20 70)" class="ui">
+      <rect width="152" height="135" rx="10" fill="#102235" stroke="#56768a"/>
+      <circle cx="32" cy="29" r="12" fill="#72e0a8"/><path d="M26 29L30 33L38 24" fill="none" stroke="#0c2519" stroke-width="2.5"/>
+      <text x="53" y="34" fill="#d7e8f3" font-size="11">fidelity contract</text>
+      <circle cx="32" cy="67" r="12" fill="#72e0a8"/><path d="M26 67L30 71L38 62" fill="none" stroke="#0c2519" stroke-width="2.5"/>
+      <text x="53" y="72" fill="#d7e8f3" font-size="11">plan validation</text>
+      <circle cx="32" cy="105" r="12" fill="#72e0a8"/><path d="M26 105L30 109L38 100" fill="none" stroke="#0c2519" stroke-width="2.5"/>
+      <text x="53" y="110" fill="#d7e8f3" font-size="11">dry-run effects</text>
+    </g>
+    <text class="detail" x="20" y="237">Reject feature loss</text>
+    <text class="detail" x="20" y="257">No AutoCAD call in dry-run</text>
+    <rect x="20" y="285" width="152" height="54" rx="10" fill="#0c1c2b"/>
+    <text class="tool" x="31" y="307">validate_cad_plan</text>
+    <text class="tool" x="31" y="325">dry_run_cad_plan</text>
+  </g>
+
+  <!-- 6 execute -->
+  <g transform="translate(1143 138)" filter="url(#shadow)">
+    <rect width="192" height="378" rx="20" fill="#17354a" stroke="#ff9f7a" stroke-width="2"/>
+    <circle cx="28" cy="29" r="17" fill="#ff9f7a"/><text class="ui" x="28" y="35" text-anchor="middle" fill="#25120b" font-size="16" font-weight="800">6</text>
+    <text class="cardTitle" x="55" y="34">EXECUTE</text>
+    <g transform="translate(20 70)" class="ui">
+      <rect width="152" height="135" rx="10" fill="#0d2030" stroke="#ff9f7a"/>
+      <path d="M76 22L119 40V70C119 94 101 112 76 121C51 112 33 94 33 70V40Z" fill="#3a2630" stroke="#ff9f7a" stroke-width="2"/>
+      <path d="M57 70L70 83L97 55" fill="none" stroke="#ffb79e" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text class="detail" x="20" y="237">Explicit authorization</text>
+    <text class="detail" x="20" y="257">Transactional + fail-fast</text>
+    <rect x="20" y="285" width="152" height="54" rx="10" fill="#0c1c2b"/>
+    <text class="tool" x="31" y="307">allow_modify=true</text>
+    <text class="tool" x="31" y="325">transactional=true</text>
+  </g>
+
+  <!-- 7 verify -->
+  <g transform="translate(1360 138)" filter="url(#shadow)">
+    <rect width="182" height="378" rx="20" fill="#153747" stroke="#72e0a8" stroke-width="2"/>
+    <circle cx="28" cy="29" r="17" fill="#72e0a8"/><text class="ui" x="28" y="35" text-anchor="middle" fill="#0b2418" font-size="16" font-weight="800">7</text>
+    <text class="cardTitle" x="55" y="34">VERIFY</text>
+    <g transform="translate(15 70)">
+      <rect width="152" height="135" rx="10" fill="#eef5f8" stroke="#668397"/>
+      <g transform="translate(12 13)" fill="none" stroke="#19303e" stroke-width="1.7">
+        <circle cx="50" cy="48" r="37"/><circle cx="50" cy="48" r="16"/><path d="M4 94H96V106H4Z"/>
+      </g>
+      <path d="M86 84L99 97L127 60" fill="none" stroke="#2fae70" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text class="detail" x="16" y="237">Rescan + geometry check</text>
+    <text class="detail" x="16" y="257">Source/render visual diff</text>
+    <rect x="15" y="279" width="152" height="68" rx="10" fill="#0c1c2b"/>
+    <text class="tool" x="25" y="301">scan_all_entities</text>
+    <text class="tool" x="25" y="320">export_view_image_</text>
+    <text class="tool" x="25" y="337">with_mapping</text>
+  </g>
+
+  <!-- mutation boundary -->
+  <g class="ui">
+    <path d="M58 555V580H1118V555" fill="none" stroke="#65d1ff" stroke-width="2"/>
+    <rect x="396" y="569" width="386" height="39" rx="19.5" fill="#0c1d2c" stroke="#35617e"/>
+    <circle cx="416" cy="588.5" r="5" fill="#65d1ff"/>
+    <text x="433" y="594" fill="#bdeaff" font-size="13" font-weight="700">NON-MUTATING · PREPARE, UNDERSTAND, VALIDATE</text>
+    <path d="M1143 555V580H1335V555" fill="none" stroke="#ff9f7a" stroke-width="2"/>
+    <rect x="1136" y="569" width="206" height="39" rx="19.5" fill="#2b1d25" stroke="#ff9f7a"/>
+    <text x="1239" y="594" text-anchor="middle" fill="#ffd7c9" font-size="13" font-weight="700">DWG MODIFICATION</text>
+    <path d="M1360 555V580H1542V555" fill="none" stroke="#72e0a8" stroke-width="2"/>
+    <rect x="1362" y="569" width="178" height="39" rx="19.5" fill="#172b24" stroke="#72e0a8"/>
+    <text x="1451" y="594" text-anchor="middle" fill="#d7f4e3" font-size="13" font-weight="700">EVIDENCE</text>
+  </g>
+
+  <!-- repair loop -->
+  <path d="M1447 624C1447 661 1030 665 1030 625C1030 610 1015 605 1000 605" fill="none" stroke="#ff9f7a" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#loopArrow)"/>
+  <g class="ui">
+    <rect x="567" y="625" width="435" height="38" rx="19" fill="#281d24" stroke="#855266"/>
+    <text x="784.5" y="650" text-anchor="middle" fill="#ffc9b6" font-size="13">Mismatch or failed contract → repair the spec/plan → validate again</text>
+  </g>
+</svg>

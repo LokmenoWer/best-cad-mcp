@@ -14,10 +14,10 @@
 
 [English](https://github.com/LokmenoWer/best-cad-mcp/blob/master/README.md) · [快速开始](#快速开始) · [安全工作流](#受控工作流) · [工具档位](#工具档位) · [安全模型](#安全模型)
 
-![通过已验证 CADPlan 创建并由 AutoCAD 导出的安装板](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-hero.png)
+![法兰轴承座复杂部件的三视图机械图](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/complex-part-three-view.svg)
 
-*真实的 AutoCAD 导出：结构化工具、语义扫描、几何验证与视觉复核在同一条
-工作流内完成。*
+*信息更完整的正投影示例：主视图、俯视图、右侧剖视图，以及隐藏线、中心线、
+真实尺寸意图、特征标注和受控标题栏。*
 
 > [!IMPORTANT]
 > best-cad-mcp 仍处于 Beta。它面向“操作员能审阅计划和证据”的本地受控流程，
@@ -171,15 +171,29 @@ python -m pip install -e ".[visual]"
 通过 `CAD_MCP_TOOL_PROFILE=lean|core|full` 选择档位；还可以用
 `CAD_MCP_TOOLS_INCLUDE` 和 `CAD_MCP_TOOLS_EXCLUDE` 做细粒度控制。
 
-## 从真实 CAD 到定位证据
+## 从视觉理解到可定位的 CAD 证据
 
-首页安装板是真实 AutoCAD 导出，不是生成式 UI 示意图。它来自一次真实 MCP
-会话：CADPlan 已先验证和 dry-run，执行后重新扫描、验证，再由 AutoCAD 导出。
-下图说明独立定位层如何在保持几何可读的同时附加精确句柄。
+首页图是一个遵循通用机械制图习惯的 README 说明图，部件采用带法兰、轴承孔、
+加强筋和安装槽的轴承座。它把实用机械流程必须保留的信息放在同一张图里：投影
+关系、剖切、孔槽、隐藏几何、中心线、尺寸意图和图纸元数据。真实会话中仍以
+AutoCAD 为唯一真实数据源，并以实际导出的视图作为视觉证据。
 
-![把干净 CAD 几何映射到路径、多边形和句柄证据](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/visual-grounding.zh-CN.svg)
+VLM 审阅不应只返回一句自然语言描述。结构化结果可以同时携带观察到的特征、
+像素证据、尺寸与注释、几何关系、置信度和未解决的不确定项；随后再把这些主张
+定位到语义对象和精确的 AutoCAD 句柄候选，确认后才进入修改规划。
+
+![VLM 以 ImageDrawingSpec 特征、关系、不确定项和句柄候选返回理解结果](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/vlm-structured-understanding.svg)
+
+图中展示的是节选后的 `ImageDrawingSpec/v1`。完整结果还会保留 schema 要求的
+标定候选、几何、注释、表格和来源证据。低置信度观察会继续留在
+`uncertainties`，不会被悄悄转换成 CAD 几何。
 
 ### 从单张图片临摹机械图
+
+完整路径把“不修改图纸的理解与验证”和唯一一次需要明确授权的 DWG 修改阶段
+分开，执行后再通过重新扫描和视觉差异比较闭环。
+
+![从源图准备到视觉复核的受控图像转 CAD 流程](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/image-to-cad-process.svg)
 
 典型循环如下：
 
