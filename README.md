@@ -14,10 +14,11 @@ result, and export visual evidence without hiding agent state inside the drawing
 
 [简体中文](https://github.com/LokmenoWer/best-cad-mcp/blob/master/README.zh-CN.md) · [Install](#quick-start) · [Workflow](#the-guarded-workflow) · [Tool profiles](#tool-profiles) · [Safety](#safety-model)
 
-![A mounting plate created from a validated CADPlan and exported from AutoCAD](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-hero.png)
+![Three-view mechanical drawing of a flanged bearing housing](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/complex-part-three-view.svg)
 
-*A real AutoCAD export produced through best-cad-mcp: structured tools, semantic
-scan, validation, and visual verification in one workflow.*
+*A feature-rich orthographic sample: front and top projections, a sectioned
+side view, hidden geometry, centerlines, dimensions, feature callouts, and a
+controlled title block.*
 
 > [!IMPORTANT]
 > best-cad-mcp is beta software. It is designed for controlled local workflows
@@ -181,16 +182,34 @@ Select a profile with `CAD_MCP_TOOL_PROFILE=lean|core|full`. Fine-grained
 allow/deny controls are also available through
 `CAD_MCP_TOOLS_INCLUDE` and `CAD_MCP_TOOLS_EXCLUDE`.
 
-## From real CAD to grounded evidence
+## From visual understanding to grounded CAD evidence
 
-The hero mounting plate is a real AutoCAD export, not a generated UI mockup. It
-was created during a live MCP session from a validated and dry-run CADPlan,
-then rescanned and validated before export. The diagram below illustrates how a
-separate grounding layer keeps geometry readable while attaching exact handles.
+The hero drawing is a standards-aware README illustration of a flanged bearing
+housing. It deliberately combines the kinds of information a useful mechanical
+workflow must preserve: projected views, a section, holes and slots, hidden
+geometry, centerlines, real dimension intent, and drawing metadata. In a live
+session, AutoCAD remains the source of truth and exported views provide the
+visual evidence.
 
-![Clean CAD geometry mapped to path, polygon, and handle evidence](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/visual-grounding.svg)
+A VLM review should return more than a caption. The structured result can carry
+observed features, pixel evidence, dimensions, annotations, relations,
+confidence, and unresolved uncertainty. Grounding then resolves those claims
+to semantic objects and exact AutoCAD handle candidates before an edit is
+planned.
+
+![VLM output expressed as ImageDrawingSpec features, relations, uncertainty, and grounded handle candidates](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/vlm-structured-understanding.svg)
+
+The diagram shows an abridged `ImageDrawingSpec/v1` payload. A complete payload
+also preserves calibration candidates, geometry, annotations, tables, and
+source evidence required by the schema. Low-confidence observations stay in
+`uncertainties`; they are not silently converted into CAD geometry.
 
 ### Copy a mechanical drawing from one image
+
+The full path separates non-mutating understanding from the one explicitly
+authorized DWG modification stage, then closes with a rescan and visual diff.
+
+![Guarded image-to-CAD sequence from source preparation through visual verification](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/image-to-cad-process.svg)
 
 A typical tracing loop is:
 
