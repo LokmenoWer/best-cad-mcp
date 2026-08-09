@@ -191,8 +191,15 @@ VLM 审阅不应只返回一句自然语言描述。下面两张图来自同一�
 | --- | --- |
 | ![用于真实视觉审阅的主视图 tile](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-cad-real_tiles/readme-cad-real_T002.png) | ![主视图 tile 上映射出的真实 AutoCAD 句柄](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-cad-real_tiles/readme-cad-real_T002_overlay.png) |
 
+覆盖图按 WMF 选择集导出画框配准，而不是套用当前视口。实现保留 AutoCAD 实测的
+微小等比例画框边距，并排除旧的通用视口留白。本次真实截图中，映射后的主视图
+原点为 `(734.870, 331.032)` px，PNG 上实际观察到的青色中心线交点为
+`(735, 331)` px，最大误差仅 `0.13 px`。
+
 真实的 `vlm_review_drawing/v3` 返回先通过 schema 校验，再在不预填句柄的情况下
-提交定位。中央孔落到句柄 `8A`，圆头安装槽语义轮廓落到 `115`，标题栏语义组落到
+提交定位。四个区域均直接从栅格图观察得到，并与该图的尺寸和 SHA-256 绑定；如果
+AutoCAD 重新导出了不同图片，采集脚本会拒绝复用这些框。中央孔落到句柄 `8A`，
+圆头安装槽语义轮廓落到 `115`，标题栏语义组落到
 `236`。剖面线对应两个得分接近的真实 hatch，因此正确保留为 `ambiguous`。
 
 ```json
@@ -204,8 +211,10 @@ VLM 审阅不应只返回一句自然语言描述。下面两张图来自同一�
 }
 ```
 
-可继续检查[原始 VLM 返回](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-raw.json)、
+可继续检查[与原图哈希绑定的视觉观测](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-observed.json)、
+[提交的 VLM 返回](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-raw.json)、
 [定位后的结果](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-grounded.json)、
+[像素/世界坐标对齐检查](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/view-alignment-check.json)、
 [CADPlan dry-run](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/cadplan-dry-run.json)
 和[零问题几何验证](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/geometry-validation.json)。
 

@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import sys
 from pathlib import Path
 from typing import Any
+
+from PIL import Image
 
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -63,86 +66,97 @@ def _structured_result(result: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _build_vlm_review(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Return the actual visual review authored from the exported CAD raster.
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
-    The regions correspond to features inspected in readme-cad-real.png.  They
-    intentionally contain no claimed AutoCAD handles: handle membership must be
-    established by submit_vlm_review from the snapshot mapping, not guessed by
-    the visual reviewer.
+
+def _load_vlm_review(review_path: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Load a human/VLM-authored raster observation and bind it to this snapshot.
+
+    The source image hash is mandatory.  This prevents a bbox observed on one
+    raster from being silently reused after AutoCAD re-exports a different one.
+    No bbox is synthesized from the CAD transform in this function.
     """
+    envelope = json.loads(review_path.read_text(encoding="utf-8"))
+    source_image = envelope.get("source_image", {})
+    review = envelope.get("review")
+    if not isinstance(source_image, dict) or not isinstance(review, dict):
+        raise RuntimeError("Review file must contain source_image and review objects.")
+
+    with Image.open(CLEAN_IMAGE_PATH) as image:
+        actual_size = [int(image.width), int(image.height)]
+    expected_size = [int(source_image.get("width", 0)), int(source_image.get("height", 0))]
+    actual_hash = _sha256(CLEAN_IMAGE_PATH)
+    expected_hash = str(source_image.get("sha256") or "").lower()
+    if expected_size != actual_size or expected_hash != actual_hash:
+        raise RuntimeError(
+            "VLM observation does not belong to the current AutoCAD raster: "
+            f"expected size/hash {expected_size}/{expected_hash}, "
+            f"got {actual_size}/{actual_hash}."
+        )
+
     snapshot_id = str(snapshot.get("snapshot_id") or "")
-    source_ref = {
-        "schema_version": "VisualSourceRef/v1",
-        "snapshot_id": snapshot_id,
-        "coordinate_space": "snapshot_global",
+    if not snapshot_id:
+        raise RuntimeError("The exported snapshot has no snapshot_id.")
+    review = json.loads(json.dumps(review))
+    review["snapshot_id"] = snapshot_id
+    for finding in review.get("findings", []):
+        if not isinstance(finding, dict):
+            continue
+        source_ref = finding.setdefault("source_ref", {})
+        source_ref.update({
+            "schema_version": "VisualSourceRef/v1",
+            "snapshot_id": snapshot_id,
+            "coordinate_space": "snapshot_global",
+        })
+    return review
+
+
+def _verify_front_center_alignment(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Compare mapped world origin with cyan centerlines in the real raster."""
+    matrix = snapshot.get("world_to_pixel") or []
+    if len(matrix) != 3 or any(len(row) != 3 for row in matrix):
+        raise RuntimeError("Snapshot is missing a 3x3 world_to_pixel matrix.")
+    mapped_x = float(matrix[0][2])
+    mapped_y = float(matrix[1][2])
+
+    with Image.open(CLEAN_IMAGE_PATH) as source:
+        image = source.convert("RGB")
+        width, height = image.size
+        pixels = image.load()
+        x1, x2 = int(width * 0.15), int(width * 0.50)
+        y1, y2 = int(height * 0.08), int(height * 0.50)
+        x_counts = [0] * width
+        y_counts = [0] * height
+        for y in range(y1, y2):
+            for x in range(x1, x2):
+                red, green, blue = pixels[x, y]
+                if red < 120 and green > 140 and blue > 140:
+                    x_counts[x] += 1
+                    y_counts[y] += 1
+    observed_x = float(max(range(x1, x2), key=x_counts.__getitem__))
+    observed_y = float(max(range(y1, y2), key=y_counts.__getitem__))
+    delta_x = mapped_x - observed_x
+    delta_y = mapped_y - observed_y
+    evidence = {
+        "schema_version": "cad-view-alignment-check/v1",
+        "image_path": str(CLEAN_IMAGE_PATH),
+        "image_sha256": _sha256(CLEAN_IMAGE_PATH),
+        "mapped_world_origin_px": [round(mapped_x, 3), round(mapped_y, 3)],
+        "observed_front_centerline_intersection_px": [observed_x, observed_y],
+        "delta_px": [round(delta_x, 3), round(delta_y, 3)],
+        "max_abs_delta_px": round(max(abs(delta_x), abs(delta_y)), 3),
+        "tolerance_px": 2.0,
     }
-    return {
-        "schema_version": "cad-vlm-review/v1",
-        "snapshot_id": snapshot_id,
-        "review_summary": {
-            "drawing_type": "mechanical orthographic drawing",
-            "recognized_part": "flanged bearing housing",
-            "views": ["front", "top", "right section A-A"],
-            "annotations": ["linear and diametric dimensions", "centerlines", "section hatch", "title block"],
-            "visible_defect_assessment": "No obvious broken or duplicate geometry is visible in the exported raster.",
-            "uncertainty": "Material and nominal dimensions are read from visible CAD text; manufacturing tolerances are not specified.",
-        },
-        "findings": [
-            {
-                "finding_id": "readme-vlm-central-bore",
-                "issue_type": "recognized_central_bore",
-                "severity": "info",
-                "confidence": 0.99,
-                "semantic_type": "circular_bore",
-                "bbox": [740.0, 308.0, 894.0, 463.0],
-                "source_ref": source_ref,
-                "evidence": {
-                    "observation": "The front view has a clear central circular bore inside two concentric flange steps.",
-                    "visible_features": ["continuous circular outline", "shared centerlines", "concentric stepped rings"],
-                },
-            },
-            {
-                "finding_id": "readme-vlm-mounting-slot",
-                "issue_type": "recognized_mounting_slot",
-                "severity": "info",
-                "confidence": 0.96,
-                "semantic_type": "closed_profile",
-                "bbox": [575.0, 965.0, 612.0, 1002.0],
-                "source_ref": source_ref,
-                "evidence": {
-                    "observation": "The top view shows a rounded mounting slot composed of two straight sides and two semicircular ends.",
-                    "visible_features": ["closed obround contour", "one of four symmetric base slots"],
-                },
-            },
-            {
-                "finding_id": "readme-vlm-section-hatch",
-                "issue_type": "recognized_section_hatch",
-                "severity": "info",
-                "confidence": 0.98,
-                "semantic_type": "hatch",
-                "bbox": [1432.0, 232.0, 1738.0, 350.0],
-                "source_ref": source_ref,
-                "evidence": {
-                    "observation": "The right-side A-A view contains an ANSI31-style hatched upper material region around the stepped bearing seat.",
-                    "visible_features": ["parallel diagonal hatch strokes", "sectioned solid boundary", "central unhatched bore"],
-                },
-            },
-            {
-                "finding_id": "readme-vlm-title-block",
-                "issue_type": "recognized_title_block",
-                "severity": "info",
-                "confidence": 0.99,
-                "semantic_type": "title_block",
-                "bbox": [1292.0, 860.0, 1932.0, 1138.0],
-                "source_ref": source_ref,
-                "evidence": {
-                    "observation": "The lower-right title block identifies a flanged bearing housing, drawing MCP-REAL-001A, revision A, material QT500-7, scale 1:1, and millimetre units.",
-                    "visible_features": ["bordered title block", "drawing and revision cells", "material, scale, and units fields"],
-                },
-            },
-        ],
-    }
+    evidence["passed"] = evidence["max_abs_delta_px"] <= evidence["tolerance_px"]
+    _write_json("view-alignment-check.json", evidence)
+    if not evidence["passed"]:
+        raise RuntimeError(f"Pixel/world alignment check failed: {evidence}")
+    return evidence
 
 
 def _step(step_id: str, op: str, args: dict[str, Any], *, save_as: str | None = None,
@@ -311,7 +325,7 @@ async def _call(client: Client, name: str, arguments: dict[str, Any], artifact_n
     return result
 
 
-async def capture(*, execute: bool) -> None:
+async def capture(*, execute: bool, review_path: Path | None = None) -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     plan = _build_plan()
@@ -381,44 +395,48 @@ async def capture(*, execute: bool) -> None:
         )
         if not snapshot.get("vlm_ready"):
             raise RuntimeError("The exported AutoCAD view is not VLM-ready.")
-        review = _build_vlm_review(snapshot)
-        _write_json("vlm-review-raw.json", review)
-        await _call(client, "validate_vlm_review_output", {
-            "review": review,
-            "snapshot_id": snapshot["snapshot_id"],
-        }, "vlm-review-validation.json")
-        submitted_review = await _call(client, "submit_vlm_review", {
-            "snapshot_id": snapshot["snapshot_id"],
-            "review": review,
-            "source_model": "Codex visual review of the real AutoCAD raster",
-            "prompt_version": "vlm_review_drawing/v3",
-            "top_k": 10,
-        }, "vlm-review-grounded.json")
-        await _call(client, "get_vlm_findings", {
-            "snapshot_id": snapshot["snapshot_id"],
-            "limit": 100,
-        }, "vlm-findings.json")
-        await _call(client, "analyze_engineering_drawing_stages", {
-            "snapshot_id": snapshot["snapshot_id"],
-            "domain": "mechanical",
-        }, "engineering-review-stages.json")
-        grounded_findings = (
-            _structured_result(submitted_review)
-            .get("data", {})
-            .get("findings", [])
-        )
-        grounded_handles = sorted({
-            str(handle)
-            for finding in grounded_findings
-            if isinstance(finding, dict)
-            for handle in finding.get("grounded_handles", [])
-            if handle
-        })
-        explanations: dict[str, Any] = {}
-        for handle in grounded_handles[:8]:
-            explanation = await _call(client, "explain_entity", {"handle": handle})
-            explanations[handle] = _jsonable_tool_result(explanation)
-        _write_json("vlm-grounded-entity-explanations.json", explanations)
+        _verify_front_center_alignment(snapshot)
+        if review_path is not None:
+            review = _load_vlm_review(review_path, snapshot)
+            _write_json("vlm-review-raw.json", review)
+            await _call(client, "validate_vlm_review_output", {
+                "review": review,
+                "snapshot_id": snapshot["snapshot_id"],
+            }, "vlm-review-validation.json")
+            submitted_review = await _call(client, "submit_vlm_review", {
+                "snapshot_id": snapshot["snapshot_id"],
+                "review": review,
+                "source_model": "Codex visual review of the real AutoCAD raster",
+                "prompt_version": "vlm_review_drawing/v3",
+                "top_k": 10,
+            }, "vlm-review-grounded.json")
+            await _call(client, "get_vlm_findings", {
+                "snapshot_id": snapshot["snapshot_id"],
+                "limit": 100,
+            }, "vlm-findings.json")
+            await _call(client, "analyze_engineering_drawing_stages", {
+                "snapshot_id": snapshot["snapshot_id"],
+                "domain": "mechanical",
+            }, "engineering-review-stages.json")
+            grounded_findings = (
+                _structured_result(submitted_review)
+                .get("data", {})
+                .get("findings", [])
+            )
+            grounded_handles = sorted({
+                str(handle)
+                for finding in grounded_findings
+                if isinstance(finding, dict)
+                for handle in finding.get("grounded_handles", [])
+                if handle
+            })
+            explanations: dict[str, Any] = {}
+            for handle in grounded_handles[:8]:
+                explanation = await _call(client, "explain_entity", {"handle": handle})
+                explanations[handle] = _jsonable_tool_result(explanation)
+            _write_json("vlm-grounded-entity-explanations.json", explanations)
+        else:
+            print("VLM_REVIEW_SKIPPED: inspect the hash-locked raster before submitting regions.", flush=True)
         await _call(client, "save_drawing", {"filepath": str(DWG_PATH)}, "save-drawing.json")
         await _call(client, "get_document_info", {}, "document-info-after.json")
         await _call(client, "get_active_space_info", {}, "active-space-after.json")
@@ -428,8 +446,13 @@ async def capture(*, execute: bool) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--execute", action="store_true", help="Execute the validated plan and export the drawing.")
+    parser.add_argument(
+        "--review-file",
+        type=Path,
+        help="Hash-locked VLM observation envelope authored from the exported raster.",
+    )
     options = parser.parse_args()
-    asyncio.run(capture(execute=options.execute))
+    asyncio.run(capture(execute=options.execute, review_path=options.review_file))
     return 0
 
 

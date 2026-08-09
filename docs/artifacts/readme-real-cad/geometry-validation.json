@@ -10,7 +10,7 @@
           "score": 100.0,
           "issue_count": 0,
           "issues": [],
-          "generated_at": "2026-08-08T03:28:40.058003+00:00",
+          "generated_at": "2026-08-09T11:38:45.411640+00:00",
           "recommended_next_tools": [
             "summarize_drawing"
           ]
@@ -26,7 +26,7 @@
   "content": [
     {
       "type": "text",
-      "text": "{\n  \"ok\": true,\n  \"message\": \"Validation completed with 0 issues.\",\n  \"data\": {\n    \"validation_report\": {\n      \"passed\": true,\n      \"score\": 100.0,\n      \"issue_count\": 0,\n      \"issues\": [],\n      \"generated_at\": \"2026-08-08T03:28:40.058003+00:00\",\n      \"recommended_next_tools\": [\n        \"summarize_drawing\"\n      ]\n    }\n  },\n  \"handles\": [],\n  \"warnings\": [],\n  \"next_tools\": [\n    \"summarize_drawing\"\n  ]\n}"
+      "text": "{\n  \"ok\": true,\n  \"message\": \"Validation completed with 0 issues.\",\n  \"data\": {\n    \"validation_report\": {\n      \"passed\": true,\n      \"score\": 100.0,\n      \"issue_count\": 0,\n      \"issues\": [],\n      \"generated_at\": \"2026-08-09T11:38:45.411640+00:00\",\n      \"recommended_next_tools\": [\n        \"summarize_drawing\"\n      ]\n    }\n  },\n  \"handles\": [],\n  \"warnings\": [],\n  \"next_tools\": [\n    \"summarize_drawing\"\n  ]\n}"
     }
   ]
 }

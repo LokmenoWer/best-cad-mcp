@@ -1,4 +1,5 @@
 import json
+import struct
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -67,6 +68,72 @@ def test_wmf_converter_uses_windows_gdi_fallback(tmp_path, monkeypatch):
     monkeypatch.setattr(view_grounding.subprocess, "run", run_converter)
 
     assert view_grounding._try_convert_wmf_to_raster(wmf_path) == png_path
+
+
+def test_placeable_wmf_size_uses_the_documented_header_offsets(tmp_path):
+    wmf_path = tmp_path / "placeable.wmf"
+    wmf_path.write_bytes(struct.pack(
+        "<I H h h h h H I H",
+        0x9AC6CDD7,
+        0,
+        10,
+        20,
+        2010,
+        1020,
+        2000,
+        0,
+        0,
+    ))
+
+    assert view_grounding._read_wmf_size(str(wmf_path)) == (96, 48)
+
+
+def test_wmf_selection_export_mapping_uses_calibrated_frame_margin(
+    tmp_path, monkeypatch
+):
+    db = make_db(tmp_path)
+    db.upsert_entity(
+        "FRAME",
+        "Polyline",
+        "AcDbPolyline",
+        layer="OUTLINE",
+        geometry={"vertices": [[0, 0, 0], [200, 0, 0], [200, 100, 0], [0, 100, 0]], "closed": True},
+        bbox=(0, 0, 200, 100),
+        topology_detail="full",
+    )
+    wmf_path = tmp_path / "selection.wmf"
+    png_path = tmp_path / "selection.png"
+    wmf_path.write_bytes(b"wmf")
+    png_path.write_bytes(b"png")
+
+    monkeypatch.setattr(
+        view_grounding,
+        "_try_convert_wmf_to_raster",
+        lambda path: png_path,
+    )
+    monkeypatch.setattr(view_grounding, "_image_size", lambda path: (400, 200))
+
+    snapshot = export_view_image_with_mapping(
+        filepath=str(wmf_path),
+        include_overlay=False,
+        include_entity_bboxes=True,
+        database=db,
+    )["data"]["snapshot"]
+
+    assert snapshot["mapping_view_source"] == (
+        "scanned_entity_extent_for_wmf_export"
+    )
+    matrix = snapshot["world_to_pixel"]
+    assert round(matrix[0][0], 6) == 1.985112
+    assert round(matrix[0][2], 6) == 1.488834
+    assert round(matrix[1][1], 6) == -1.985112
+    assert round(matrix[1][2], 6) == 199.255583
+    assert [round(value, 6) for value in snapshot["entity_screen_bboxes"]["FRAME"]] == [
+        1.488834,
+        0.744417,
+        398.511166,
+        199.255583,
+    ]
 
 
 def test_export_includes_som_primitive_overlay_and_tile_index(tmp_path, monkeypatch):
@@ -143,10 +210,18 @@ def test_region_grounding_uses_stroke_support_for_long_thin_line(tmp_path, monke
     )
     snapshot = exported["data"]["snapshot"]
     endpoint = apply_matrix_2d(snapshot["world_to_pixel"], 0, 0)
+    image_width = float(snapshot["image"]["width"])
+    image_height = float(snapshot["image"]["height"])
+    query = [
+        max(0.0, endpoint[0] - 4.0),
+        max(0.0, endpoint[1] - 4.0),
+        min(image_width, endpoint[0] + 4.0),
+        min(image_height, endpoint[1] + 4.0),
+    ]
 
     grounded = ground_vlm_region(
         snapshot["snapshot_id"],
-        [endpoint[0] - 4, endpoint[1] - 4, endpoint[0] + 4, endpoint[1] + 4],
+        query,
         database=db,
     )
 

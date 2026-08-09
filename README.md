@@ -204,8 +204,16 @@ documentation graphics.
 | --- | --- |
 | ![Actual front-view tile supplied to visual review](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-cad-real_tiles/readme-cad-real_T002.png) | ![Actual mapped AutoCAD handles over the front-view tile](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-cad-real_tiles/readme-cad-real_T002_overlay.png) |
 
+The overlay is registered to the WMF selection-export frame, not to the active
+viewport. AutoCAD's measured proportional frame margin is preserved while the
+old generic viewport padding is excluded. In this capture the mapped front-view
+origin is `(734.870, 331.032)` px and the cyan centerline intersection observed
+in the real raster is `(735, 331)` px: a maximum error of `0.13 px`.
+
 The real `vlm_review_drawing/v3` result was schema-validated and submitted
-without pre-claiming handles. Grounding resolved the central bore to handle
+without pre-claiming handles. Its four regions are authored from the raster and
+locked to that raster's dimensions and SHA-256; the capture script rejects them
+if AutoCAD produces a different image. Grounding resolved the central bore to handle
 `8A`, the rounded mounting-slot profile to `115`, and the title-block semantic
 group to `236`. The section hatch correctly remained ambiguous because two
 real hatch candidates had a narrow score margin.
@@ -219,8 +227,10 @@ real hatch candidates had a narrow score margin.
 }
 ```
 
-Inspect the [raw VLM return](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-raw.json),
+Inspect the [hash-locked visual observation](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-observed.json),
+[submitted VLM return](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-raw.json),
 [grounded result](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-grounded.json),
+[pixel/world alignment check](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/view-alignment-check.json),
 [CADPlan dry-run](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/cadplan-dry-run.json),
 and [zero-issue geometry validation](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/geometry-validation.json).
 

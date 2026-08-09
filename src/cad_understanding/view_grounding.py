@@ -35,6 +35,7 @@ from .common import (
 from .result import ToolResult, error_result, ok_result
 
 DEFAULT_IMAGE_SIZE = (1600, 1000)
+AUTOCAD_WMF_SELECTION_FRAME_PADDING_RATIO = 0.00375
 SNAPSHOT_SCHEMA_VERSION = "cad-view-snapshot/v3"
 OVERLAY_SIDECAR_SCHEMA_VERSION = "cad-overlay-items/v2"
 TILE_INDEX_SCHEMA_VERSION = "cad-view-tiles/v2"
@@ -282,11 +283,13 @@ def _read_wmf_size(filepath: str) -> Optional[Tuple[int, int]]:
         magic = int.from_bytes(header[:4], "little")
         if magic != 0x9AC6CDD7:
             return None
-        left = int.from_bytes(header[2:4], "little", signed=True)
-        top = int.from_bytes(header[4:6], "little", signed=True)
-        right = int.from_bytes(header[6:8], "little", signed=True)
-        bottom = int.from_bytes(header[8:10], "little", signed=True)
-        units_per_inch = int.from_bytes(header[10:12], "little") or 96
+        # Aldus Placeable Metafile header layout:
+        # key[0:4], hmf[4:6], bbox left/top/right/bottom[6:14], inch[14:16].
+        left = int.from_bytes(header[6:8], "little", signed=True)
+        top = int.from_bytes(header[8:10], "little", signed=True)
+        right = int.from_bytes(header[10:12], "little", signed=True)
+        bottom = int.from_bytes(header[12:14], "little", signed=True)
+        units_per_inch = int.from_bytes(header[14:16], "little") or 96
         width = int(abs(right - left) * 96 / units_per_inch)
         height = int(abs(bottom - top) * 96 / units_per_inch)
         if width > 0 and height > 0:
@@ -1528,6 +1531,16 @@ def _view_from_extent(extent: BBox,
     }
 
 
+def _expand_extent_proportionally(extent: BBox,
+                                  padding_ratio: float) -> BBox:
+    """Expand each axis by its own size, preserving the source aspect ratio."""
+    min_x, min_y, max_x, max_y = [float(value) for value in extent]
+    ratio = max(float(padding_ratio), 0.0)
+    pad_x = max(max_x - min_x, 1.0) * ratio
+    pad_y = max(max_y - min_y, 1.0) * ratio
+    return min_x - pad_x, min_y - pad_y, max_x + pad_x, max_y + pad_y
+
+
 def get_current_view_context(filepath: Optional[str] = None,
                              image_size: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
     """Read the current AutoCAD view through tool/controller layers when available."""
@@ -1666,10 +1679,23 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     scanned_extent = _scanned_entity_extent(db)
     mapping_view_source = "current_autocad_view"
     if path.suffix.lower() == ".wmf" and scanned_extent:
-        context["view"] = _view_from_extent(scanned_extent, image_width, image_height)
+        # Document.Export(..., "WMF", selection_set) fits the selected entity
+        # extents into a frame with a small proportional margin.  The previous
+        # generic 8% viewport padding caused the large radial VLM offset; zero
+        # padding still leaves a 3-4 px residual at README resolution.
+        wmf_extent = _expand_extent_proportionally(
+            scanned_extent,
+            AUTOCAD_WMF_SELECTION_FRAME_PADDING_RATIO,
+        )
+        context["view"] = _view_from_extent(
+            wmf_extent,
+            image_width,
+            image_height,
+            padding_ratio=0.0,
+        )
         mapping_view_source = "scanned_entity_extent_for_wmf_export"
         warnings.append(
-            "WMF export uses AutoCAD selection-set extents; mapping was derived from scanned entity extents."
+            "WMF selection-set export mapping was derived from scanned entity extents with only AutoCAD's calibrated proportional frame margin."
         )
     transform = compute_view_transform(
         context["view"],
@@ -1686,7 +1712,20 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
             db, transform["world_extent"], transform["world_to_pixel"]
         )
         if not visible_handles and scanned_extent:
-            context["view"] = _view_from_extent(scanned_extent, image_width, image_height)
+            fallback_extent = (
+                _expand_extent_proportionally(
+                    scanned_extent,
+                    AUTOCAD_WMF_SELECTION_FRAME_PADDING_RATIO,
+                )
+                if path.suffix.lower() == ".wmf"
+                else scanned_extent
+            )
+            context["view"] = _view_from_extent(
+                fallback_extent,
+                image_width,
+                image_height,
+                padding_ratio=0.0 if path.suffix.lower() == ".wmf" else 0.08,
+            )
             transform = compute_view_transform(
                 context["view"],
                 image_width,
