@@ -17,6 +17,13 @@
 - Include `component_hypotheses` for open-vocabulary part recognition when the
   view provides enough evidence. Use `*_like_component` labels when the exact
   part name is ambiguous.
+- Optimize for engineering fidelity, not superficial pixel similarity. Preserve
+  feature identity, curve type, view relationships, dimension association,
+  repeated-feature structure, and annotation semantics even when a simpler
+  outline would look approximately similar at thumbnail scale.
+- Treat readable dimensions and explicit scale indicators as the preferred
+  calibration evidence. Do not infer true engineering scale from object
+  familiarity, paper size, or visual proportions alone.
 - Use pixel coordinates with origin at top-left, x right, y down. When pixels
   are measured from `get_trace_source_image`, copy that returned image's entire
   `source_ref_template` unchanged into the observation. It records the exact
@@ -48,6 +55,10 @@
    feature twice merely because it appears in two overlapping crops.
 7. Encode dimensions as `dimension` annotations with measurement points and
    text point when visible. Do not convert dimensions to plain text.
+8. Before returning JSON, cross-check global and reviewed tile evidence:
+   preserve one canonical item per feature, keep conflicting candidates in
+   `uncertainties`, and confirm that IDs referenced by patterns, dimensions,
+   hatches, tables, and relations actually exist.
 
 ## JSON Shape
 
@@ -55,7 +66,7 @@
 {
   "schema_version": "ImageDrawingSpec/v1",
   "domain": "mechanical",
-  "units": "mm",
+  "units": "unknown",
   "inspected_tiles": [],
   "calibration_candidates": [],
   "features": [],
@@ -131,10 +142,13 @@ geometry to normalized-image/global pixels.
 }
 ```
 
-The validator accepts a partial spec: items that fail validation are reported
-in `rejected_items` and dropped, while valid items still compile. Prefer
-emitting a slightly-uncertain item with `evidence` and `confidence` over
-omitting it, but never invent geometry.
+The validator can report `rejected_items` while retaining valid items, but a
+partial validation result is not permission to execute. If a required outline,
+critical feature, calibration, dimension, relation, table, or title-block item
+is rejected or missing, keep the result non-executable until the spec is fixed
+or the user confirms the omission. Any failed image fidelity contract must stop
+execution. Include an uncertain item only when visible evidence supports it;
+otherwise omit it and record the gap in `uncertainties`.
 
 ## Feature Rules
 

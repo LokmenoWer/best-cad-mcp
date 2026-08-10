@@ -11,25 +11,48 @@
   postconditions prove fidelity.
 - Ambiguous repairs must present alternatives or require confirmation; never
   choose a lower-fidelity simplification just because it is easier to execute.
+- A repair is complete only when structured before/after evidence and visual
+  evidence agree. A successful edit tool response is not proof that the defect
+  is fixed.
 
-## Workflow
+## Workflow: Observe -> Diagnose -> Plan -> Validate -> Execute -> Verify
 
-1. Call `validate_geometry`.
-2. Call `extract_drawing_constraints`, `bind_all_dimensions`, and
+0. Call `check_runtime_environment(check_autocad=true)` and stop on required
+   blockers.
+1. Establish a baseline before modification: inspect document/space/units,
+   call `scan_all_entities`, `build_drawing_ir`, and `validate_geometry`, and
+   use `render_drawing_view` or `export_view_image_with_mapping` when the issue
+   is visual, spatial, or layout-related.
+2. Call `bind_all_dimensions`, `extract_drawing_constraints`, and
    `check_drawing_constraints` when dimension or geometric intent matters.
-3. Call `propose_repair_plan` for validation issue IDs or
-   `propose_constraint_repair_plan` for violated constraints.
-4. Call `validate_cad_plan`.
-5. Call `dry_run_cad_plan`.
-6. Execute only after explicit modification permission by calling
-   `execute_cad_plan` with `allow_modify=true` and `transactional=true`.
-7. Call `scan_all_entities`.
-8. Call `validate_geometry`.
-9. Call `export_view_image_with_mapping`.
-10. For dense engineering drawings, call `build_drawing_ir` and compare the
-    relevant semantic objects, dimensions, constraints, and validation issues
-    before and after the repair.
+3. Ground the exact target. Use issue IDs, semantic objects, constraints,
+   handles, and `explain_entity`; keep ambiguous candidate handles separate.
+4. For one simple edit with one known handle, call `explain_entity` and prepare
+   the purpose-built handle edit tool and exact arguments, but do not modify yet.
+   For multi-entity, multi-step, destructive, or ambiguous work,
+   call `propose_repair_plan` for selected validation/VLM issue IDs or
+   `propose_constraint_repair_plan` for violated constraints. Prefer the
+   smallest repair that preserves surrounding semantics; keep broad acceptance
+   criteria outside the plan and use executable postconditions for captured
+   handles.
+5. For a CADPlan repair, call `validate_cad_plan`, then `dry_run_cad_plan`.
+6. If modification permission is not already granted by the request, obtain it.
+   Execute a CADPlan with `allow_modify=true` and `transactional=true`; execute
+   a direct edit only against the explained handle with the prepared tool and
+   arguments. Ask again when ambiguity, destructive scope, or material scope
+   expansion requires a new decision.
+7. Rescan before trusting handles or cached metadata. Rebuild the relevant
+   CAD-IR/semantic context, rebind dimensions, recheck constraints, and call
+   `validate_geometry`.
+8. Re-render the affected view and compare it with the baseline when visual
+   evidence matters. Reconcile the visual result with exact handles,
+   dimensions, constraints, and validation results.
+9. If a confirmed residual issue is safely repairable, create a new validated
+   and dry-run repair plan. Limit automatic verify/repair cycles to two unless
+   the user explicitly asks to continue. Report unresolved issues, ambiguity,
+   rollback state, and evidence instead of looping indefinitely.
 
-Never modify the DWG during analysis, validation, grounding, or dry-run.
-Never execute a repair automatically; ambiguous issues should return
-alternatives or require user confirmation.
+Never modify the DWG during analysis, validation, grounding, or dry-run. Never
+execute an ambiguous repair automatically. Read-only review renders and mapped
+snapshots are allowed for verification. Do not save, purge, close, or produce a
+deliverable export unless the user's request requires it.

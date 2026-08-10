@@ -191,6 +191,29 @@ def edit_table_cell(table_handle: str, row: int, col: int,
         return f"编辑表格失败: {e}"
 
 
+def format_table(table_handle: str,
+                 column_widths: Optional[List[float]] = None,
+                 row_heights: Optional[List[float]] = None,
+                 title_text_height: Optional[float] = None,
+                 header_text_height: Optional[float] = None,
+                 data_text_height: Optional[float] = None) -> str:
+    """Format an existing table by handle without recreating its contents."""
+    result = ctrl.format_table(
+        table_handle,
+        column_widths=column_widths,
+        row_heights=row_heights,
+        title_text_height=title_text_height,
+        header_text_height=header_text_height,
+        data_text_height=data_text_height,
+    )
+    if not result.get("success"):
+        return result.get("message", "Failed to format table.")
+    return format_success(
+        f"Formatted table {table_handle}",
+        handle=table_handle,
+    )
+
+
 def find_text(pattern: str, highlight_color: int = 1) -> str:
     """在图纸中搜索包含指定文本模式的所有文字实体。
 

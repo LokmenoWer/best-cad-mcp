@@ -18,6 +18,15 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 MODERN_PROTOCOL = "2026-07-28"
 LEGACY_PROTOCOL = "2025-11-25"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+FILE_BACKED_PROMPT_NAMES = (
+    "copy_drawing_from_image",
+    "precise_draw_from_spec",
+    "recognize_components_from_image",
+    "repair_drawing",
+    "understand_existing_drawing",
+    "vlm_review_drawing",
+)
 
 
 async def _verify_mode(
@@ -35,6 +44,10 @@ async def _verify_mode(
         prompts = await client.list_prompts()
         resource = await client.read_resource("cad://tool-selection")
         prompt = await client.get_prompt("cad_workflow_guide")
+        specialized_prompts = {
+            name: await client.get_prompt(name)
+            for name in FILE_BACKED_PROMPT_NAMES
+        }
         result = await client.call_tool(
             "recommend_cad_tools",
             {"intent": "draw a rectangle", "max_results": 3},
@@ -59,6 +72,32 @@ async def _verify_mode(
             raise RuntimeError(f"{mode} resource read returned unexpected content")
         if not prompt.messages:
             raise RuntimeError(f"{mode} prompt read returned no messages")
+        instructions = (client.instructions or "").strip()
+        resource_text = resource.contents[0].text.strip()
+        if "Closed-loop operating contract" not in resource_text:
+            raise RuntimeError(f"{mode} tool-selection resource lacks the closed-loop contract")
+        if instructions and instructions != resource_text:
+            raise RuntimeError(f"{mode} server instructions differ from the tool-selection resource")
+        workflow_text = prompt.messages[0].content.text
+        if not workflow_text.startswith(resource_text):
+            raise RuntimeError(f"{mode} workflow prompt does not include the tool-selection rules")
+        registered_prompt_names = {item.name for item in prompts.prompts}
+        missing_prompts = set(FILE_BACKED_PROMPT_NAMES) - registered_prompt_names
+        if missing_prompts:
+            raise RuntimeError(f"{mode} did not register prompts: {sorted(missing_prompts)}")
+        for name, result_prompt in specialized_prompts.items():
+            if len(result_prompt.messages) != 1:
+                raise RuntimeError(f"{mode} prompt {name} returned unexpected messages")
+            content = result_prompt.messages[0].content
+            if content.type != "text":
+                raise RuntimeError(f"{mode} prompt {name} did not return text")
+            expected = (REPOSITORY_ROOT / "prompts" / f"{name}.md").read_text(
+                encoding="utf-8"
+            ).strip()
+            if content.text != expected:
+                raise RuntimeError(
+                    f"{mode} prompt {name} did not load its packaged markdown asset"
+                )
         if structured.is_error or not structured.structured_content:
             raise RuntimeError(f"{mode} structured tool call failed: {structured}")
         if structured.structured_content.get("result", {}).get("ok") is not True:
@@ -72,6 +111,9 @@ async def _verify_mode(
             "tools": len(tools.tools),
             "resources": len(resources.resources),
             "prompts": len(prompts.prompts),
+            "file_backed_prompts": len(specialized_prompts),
+            "server_instructions_available": bool(instructions),
+            "tool_selection_contract_ok": True,
             "tool_call_ok": True,
             "resource_read_ok": True,
             "prompt_read_ok": True,
@@ -137,10 +179,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     options = _build_parser().parse_args(argv)
-    repository_root = Path(__file__).resolve().parents[1]
     command = options.server_command or sys.executable
     args = [] if options.server_command else ["-m", "src.server"]
-    cwd = (options.server_cwd or repository_root).resolve()
+    cwd = (options.server_cwd or REPOSITORY_ROOT).resolve()
 
     if options.workspace_root:
         result = asyncio.run(

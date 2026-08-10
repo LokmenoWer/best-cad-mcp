@@ -12,7 +12,7 @@
 读取 DWG、理解结构化几何、预演受控修改、验证结果并导出视觉证据；
 模型的工作状态保存在图纸之外，不往 DWG 里塞隐藏标记。
 
-[English](https://github.com/LokmenoWer/best-cad-mcp/blob/master/README.md) · [快速开始](#快速开始) · [安全工作流](#受控工作流) · [工具档位](#工具档位) · [安全模型](#安全模型)
+[English](https://github.com/LokmenoWer/best-cad-mcp/blob/master/README.md) · [真实演示](#真实-autocad-演示) · [快速开始](#快速开始) · [安全工作流](#受控工作流) · [工具档位](#工具档位) · [安全模型](#安全模型)
 
 ![法兰轴承座复杂部件的三视图机械图](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/complex-part-three-view.svg)
 
@@ -37,6 +37,36 @@
 协商能力。AutoCAD 始终是真实数据源；SQLite 只保存模型私有上下文、扫描结果
 和审阅产物。所有 AutoCAD 工具调用会刻意在单一事件循环线程串行执行，以保持
 COM apartment 安全。
+
+## 真实 AutoCAD 演示
+
+> **提示词：** 在模型空间按 1:1 真实尺寸创建一张 A3 横向螺栓法兰联轴器
+> 装配图，包含纵向半剖主视图、对齐端视图、爆炸示意、真实尺寸、差异化剖面线、
+> 8 项 BOM、匹配的零件引线、技术要求和受控标题栏。
+
+![在真实 AutoCAD 会话中生成的螺栓法兰联轴器装配图](docs/images/live-flange-coupling-demo.png)
+
+这是一次真实 AutoCAD 会话的实际结果，不是手工绘制的 SVG。MCP 客户端先加载
+仓库提供的 `precise_draw_from_spec` 提示词，再执行 18 个有界生成阶段（162 步）。
+自动视觉修复闭环使用 2 个布局修复计划（4 步）；随后为发布展示另行记录并授权
+了 3 个仅涉及呈现的 QA 计划（10 步）。每个计划都先完成校验和 dry-run，再以事务
+方式执行。最终复扫索引了 91 个实体；结构化验证识别 129 个语义对象、处理
+7 个真实尺寸标注，并检查 134 条约束（127 条满足、7 条未知、0 条违反）。修复后的几何
+验证未报告问题；最终发布图也已独立确认为单页横向 A3 PDF。
+
+为了能够稳定复现，仓库中的 MCP 客户端会构建本次记录所用的确定性 CADPlan。
+这个演示展示的是优化提示词所定义的受控工作流在真实 AutoCAD 中的执行过程，
+而不是一次无脚本的“一句话直出”式 LLM 生成。
+
+[DXF](examples/live-flange-coupling-demo/flange-coupling-assembly-final.DXF)
+· [A3 PDF](examples/live-flange-coupling-demo/flange-coupling-assembly-readme-demo.pdf)
+· [完整提示词](examples/live-flange-coupling-demo/prompt.md)
+· [CADPlan 包](examples/live-flange-coupling-demo/cadplans.json)
+· [验证报告](examples/live-flange-coupling-demo/verification-report.json)
+· [MCP 客户端](examples/live-flange-coupling-demo/generate_demo.py)
+
+该图遵循仓库的通用机械装配实践，并明确标注 `DEMO - NOT FOR MANUFACTURE`；
+它不声明正式符合 ISO、GB、ASME 或其他制图标准。
 
 ## 快速开始
 
@@ -167,9 +197,9 @@ python -m pip install -e ".[visual]"
 
 | 档位 | 工具数 | 适用场景 |
 | --- | ---: | --- |
-| `lean` | 113 | 常见制图与检查任务的最小可靠工具面 |
-| `core` | 210 | 推荐默认值，覆盖完整受控 CAD 工作流 |
-| `full` | 321 | 全部已注册工具，包括专用和兼容性操作 |
+| `lean` | 114 | 常见制图与检查任务的最小可靠工具面 |
+| `core` | 215 | 推荐默认值，覆盖完整受控 CAD 工作流 |
+| `full` | 322 | 全部已注册工具，包括专用和兼容性操作 |
 
 通过 `CAD_MCP_TOOL_PROFILE=lean|core|full` 选择档位；还可以用
 `CAD_MCP_TOOLS_INCLUDE` 和 `CAD_MCP_TOOLS_EXCLUDE` 做细粒度控制。

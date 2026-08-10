@@ -207,6 +207,7 @@ def test_modern_protocol_runs_over_real_stdio(tmp_path):
             prompts = await client.list_prompts()
             resource = await client.read_resource("cad://tool-selection")
             prompt = await client.get_prompt("cad_workflow_guide")
+            precise_prompt = await client.get_prompt("precise_draw_from_spec")
             result = await client.call_tool(
                 "recommend_cad_tools",
                 {"intent": "draw a rectangle", "max_results": 3},
@@ -215,11 +216,13 @@ def test_modern_protocol_runs_over_real_stdio(tmp_path):
             image = await client.call_tool("view_image", {"path": str(image_path)})
             return (
                 client.protocol_version,
+                client.instructions,
                 tools,
                 resources,
                 prompts,
                 resource,
                 prompt,
+                precise_prompt,
                 result,
                 structured,
                 image,
@@ -227,23 +230,32 @@ def test_modern_protocol_runs_over_real_stdio(tmp_path):
 
     (
         protocol,
+        instructions,
         tools,
         resources,
         prompts,
         resource,
         prompt,
+        precise_prompt,
         result,
         structured,
         image,
     ) = asyncio.run(exercise_stdio())
 
     assert protocol == "2026-07-28"
-    assert len(tools.tools) == 113
+    assert len(tools.tools) == 114
     assert resources.resources
     assert prompts.prompts
     assert resource.contents[0].mime_type == "text/markdown"
-    assert "Tool-choice rules" in resource.contents[0].text
+    if instructions is not None:
+        assert instructions.strip() == server.TOOL_SELECTION_INSTRUCTIONS.strip()
+    assert resource.contents[0].text == server.TOOL_SELECTION_INSTRUCTIONS.strip()
+    assert "Closed-loop operating contract" in resource.contents[0].text
     assert prompt.messages
+    assert prompt.messages[0].content.text == server.cad_workflow_guide()
+    assert precise_prompt.messages[0].content.text == (
+        ROOT / "prompts" / "precise_draw_from_spec.md"
+    ).read_text(encoding="utf-8").strip()
     assert result.is_error is False
     assert structured.is_error is False
     assert structured.structured_content["result"]["ok"] is True

@@ -37,6 +37,7 @@ SAFE_PLAN_OPS = {
     "add_mleader",
     "add_table",
     "edit_table_cell",
+    "format_table",
     "add_linear_dimension",
     "add_radial_dimension",
     "add_diametric_dimension",
@@ -47,6 +48,7 @@ SAFE_PLAN_OPS = {
     "create_block",
     "insert_block",
     "set_dimension_text_override",
+    "set_dimension_text_position",
 }
 
 DANGEROUS_OPS = {"send_command", "execute_sql_query", "execute_query", "purge_drawing", "audit_drawing"}

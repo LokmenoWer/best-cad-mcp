@@ -100,15 +100,9 @@ def test_server_understanding_tool_functions_importable():
     )
 
     prompt_root = Path(__file__).resolve().parents[1] / "prompts"
-    assert server.understand_existing_drawing() == (
-        prompt_root / "understand_existing_drawing.md"
-    ).read_text(encoding="utf-8").strip()
-    assert server.precise_draw_from_spec() == (
-        prompt_root / "precise_draw_from_spec.md"
-    ).read_text(encoding="utf-8").strip()
-    assert server.vlm_review_drawing() == (
-        prompt_root / "vlm_review_drawing.md"
-    ).read_text(encoding="utf-8").strip()
-    assert server.repair_drawing() == (
-        prompt_root / "repair_drawing.md"
-    ).read_text(encoding="utf-8").strip()
+    prompt_files = sorted(prompt_root.glob("*.md"))
+    assert prompt_files
+    for prompt_path in prompt_files:
+        prompt_fn = getattr(server, prompt_path.stem)
+        assert callable(prompt_fn)
+        assert prompt_fn() == prompt_path.read_text(encoding="utf-8").strip()

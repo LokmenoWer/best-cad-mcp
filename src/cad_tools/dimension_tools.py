@@ -1,6 +1,6 @@
 """CAD MCP Tools — Dimensioning: linear, aligned, angular, radial, diametric, ordinate."""
 from typing import Any, Optional, List, Tuple
-from src.cad_controller import get_controller
+from src.cad_controller import get_controller, to_variant_point
 from src.cad_database import get_database
 from src.cad_utils import format_success, format_error
 
@@ -399,6 +399,31 @@ def set_dimension_text_override(handle: str, text: str) -> str:
             handle=handle)
     except Exception as e:
         return f"设置标注文字失败: {e}"
+
+
+def set_dimension_text_position(
+    handle: str,
+    text_x: float,
+    text_y: float,
+    text_z: float = 0.0,
+) -> str:
+    """Move only a dimension's text, preserving its measured geometry."""
+    ent = ctrl._get_entity(handle)
+    if ent is None:
+        return f"错误: 未找到标注实体 {handle}"
+    try:
+        # acMoveTextNoLeader=2 prevents AutoCAD from snapping the text back to
+        # the dimension-line midpoint when TextPosition is updated.
+        ent.TextMovement = 2
+        ent.TextPosition = to_variant_point(text_x, text_y, text_z)
+        ent.Update()
+        return format_success(
+            "已移动标注文字",
+            handle=handle,
+            text_position=[float(text_x), float(text_y), float(text_z)],
+        )
+    except Exception as e:
+        return f"移动标注文字失败: {e}"
 
 
 def get_dimension_measurement(handle: str) -> str:

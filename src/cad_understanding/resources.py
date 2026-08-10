@@ -68,17 +68,37 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
         return analyze_engineering_drawing_stages(database=db)["data"]
     if uri == "cad://drawing/current/tool-guide":
         return {
+            "closed_loop": {
+                "phases": [
+                    "observe document/space/units plus structured and visual baseline",
+                    "define plan-external acceptance criteria",
+                    "validate_cad_plan -> dry_run_cad_plan without modifying DWG",
+                    "execute an authorized transactional modification batch",
+                    "rescan -> rebuild/rebind/recheck -> validate -> fresh visual review",
+                ],
+                "evidence": {
+                    "structured": "handles, topology, CAD-IR, semantics, units, dimensions, constraints",
+                    "visual": "composition, overlap, clipping, spacing, legibility, hatch and sheet layout",
+                },
+                "acceptance": (
+                    "Never accept a modification from its success response alone; "
+                    "compare fresh structured and visual evidence with the external acceptance criteria."
+                ),
+                "automatic_repair_limit": 2,
+            },
             "intent_routes": {
                 "understand_existing_or_complex": [
-                    "scan_all_entities(topology_detail='full' when primitive grounding matters)",
+                    "inspect document, active space, units, and visual baseline when useful",
+                    "scan_all_entities(topology_detail='summary')",
                     "build_drawing_ir",
                     "summarize_drawing",
+                    "analyze_drawing_intent",
                     "detect_semantic_objects",
-                    "extract_drawing_constraints",
                     "bind_all_dimensions",
+                    "extract_drawing_constraints",
                     "check_drawing_constraints",
                     "validate_geometry",
-                    "export_view_image_with_mapping(include_overlay=True)",
+                    "render_drawing_view when the model must see; mapped export when grounding is needed",
                 ],
                 "engineering_drawing_or_assembly": [
                     "export_view_image_with_mapping(include_overlay=True, overlay_granularity='both')",
@@ -97,19 +117,22 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
                 ],
                 "new_complex_drawing": [
                     "recommend_cad_tools(intent)",
+                    "define units and plan-external acceptance criteria",
                     "validate_cad_plan",
                     "dry_run_cad_plan",
-                    "execute_cad_plan only with allow_modify=True and transactional=True",
+                    "execute_cad_plan with allow_modify=True and transactional=True when permission is present",
                     "scan_all_entities",
-                    "validate_geometry",
+                    "rebuild/rebind/recheck -> validate_geometry -> fresh visual review",
                 ],
                 "repair": [
+                    "capture structured and visual before-state evidence",
                     "validate_geometry",
+                    "explain_entity for exact target handles",
                     "propose_repair_plan or propose_constraint_repair_plan",
                     "validate_cad_plan",
                     "dry_run_cad_plan",
-                    "execute_cad_plan only with explicit permission",
-                    "validate_geometry",
+                    "execute when modification permission is present",
+                    "rescan -> rebind/recheck -> validate_geometry -> fresh visual review",
                 ],
             },
             "workflow": [
@@ -140,6 +163,8 @@ def _payload(uri: str, database: Optional[CADDatabase] = None) -> Dict[str, Any]
                 "Understanding tools read scanned metadata and do not modify the DWG.",
                 "Semantic, constraint, validation, and view grounding metadata is stored in SQLite.",
                 "Plan execution refuses to modify AutoCAD unless allow_modify=True.",
+                "Review renders and mapped snapshots are read-only artifacts, not deliverable exports.",
+                "After a failed phase, rescan and rebuild the plan instead of replaying stale handles.",
             ],
             "fidelity": [
                 "Do not flatten assemblies, section views, exploded views, BOMs, title blocks, or dimensions into generic lines and text.",

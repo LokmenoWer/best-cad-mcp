@@ -17,7 +17,7 @@ import os
 import json
 import inspect
 import unittest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch, PropertyMock, call
 from typing import get_type_hints, Optional, List, Dict, Any, Tuple
 
 # Add project to path
@@ -157,7 +157,7 @@ class TestModuleImports(unittest.TestCase):
     def test_text_tools_functions(self):
         expected = [
             'create_text_style', 'set_current_text_style', 'get_text_styles',
-            'add_leader', 'add_mleader', 'add_table', 'edit_table_cell',
+            'add_leader', 'add_mleader', 'add_table', 'edit_table_cell', 'format_table',
             'find_text', 'replace_text',
         ]
         for name in expected:
@@ -175,6 +175,7 @@ class TestModuleImports(unittest.TestCase):
             'add_baseline_dimension', 'add_continue_dimension',
             'draw_wipeout', 'add_arc_dimension',
             'add_3point_angular_dimension', 'set_dimension_text_override',
+            'set_dimension_text_position',
             'get_dimension_measurement', 'set_text_alignment',
             'set_text_properties',
         ]
@@ -736,6 +737,23 @@ class TestMCPToolSchemas(unittest.TestCase):
         mock_ctrl.get_dim_styles.assert_called_once_with()
         self.assertEqual(result, "ERROR: Get dimension styles failed: No open document")
 
+    def test_set_dimension_text_position_preserves_dimension_geometry(self):
+        entity = MagicMock()
+        with patch.object(dimension_tools, "ctrl") as mock_ctrl, \
+             patch.object(
+                 dimension_tools,
+                 "to_variant_point",
+                 return_value=(38.0, 80.0, 0.0),
+             ) as point:
+            mock_ctrl._get_entity.return_value = entity
+            result = dimension_tools.set_dimension_text_position("420", 38, 80)
+
+        point.assert_called_once_with(38, 80, 0.0)
+        self.assertEqual(entity.TextMovement, 2)
+        self.assertEqual(entity.TextPosition, (38.0, 80.0, 0.0))
+        entity.Update.assert_called_once_with()
+        self.assertIn("420", result)
+
     def test_export_view_image_uses_non_dwg_review_artifact(self):
         with patch.object(file_tools, "ctrl") as mock_ctrl:
             mock_ctrl.export_drawing.return_value = {
@@ -807,14 +825,34 @@ class TestMCPToolSchemas(unittest.TestCase):
 
         layer_prompt = server.cad_layer_planning()
         workflow_prompt = server.cad_workflow_guide()
-        cjk = re.compile(r"[\u4e00-\u9fff]")
+        non_english_scripts = re.compile(
+            r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]"
+        )
 
         self.assertIn("CAD Layer Planning Guide", layer_prompt)
         self.assertIn("Recommended workflow", workflow_prompt)
         self.assertIn("Classify the request", workflow_prompt)
         self.assertIn("Engineering drawing or assembly", workflow_prompt)
-        self.assertIsNone(cjk.search(layer_prompt))
-        self.assertIsNone(cjk.search(workflow_prompt))
+        self.assertIn("Closed-loop operating contract", workflow_prompt)
+        self.assertIn("Never accept a modification", workflow_prompt)
+
+        prompt_root = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "prompts",
+        )
+        model_facing_texts = {
+            "server instructions": server.TOOL_SELECTION_INSTRUCTIONS,
+            "tool-selection resource": server.cad_tool_selection_resource(),
+            "workflow": workflow_prompt,
+            "layer planning": layer_prompt,
+        }
+        for filename in os.listdir(prompt_root):
+            if filename.endswith(".md"):
+                name = filename[:-3]
+                model_facing_texts[name] = getattr(server, name)()
+        for name, text in model_facing_texts.items():
+            self.assertIsNone(non_english_scripts.search(text), name)
+            self.assertNotIn("\ufffd", text, name)
 
         async def list_tool_descriptions():
             return {
@@ -827,7 +865,7 @@ class TestMCPToolSchemas(unittest.TestCase):
                       descriptions["create_new_drawing"])
         cjk_descriptions = [
             name for name, description in descriptions.items()
-            if cjk.search(description)
+            if non_english_scripts.search(description)
         ]
         self.assertEqual(cjk_descriptions, [])
 
@@ -844,14 +882,24 @@ class TestMCPToolSchemas(unittest.TestCase):
         understand_prompt = server.understand_existing_drawing()
         repair_prompt = server.repair_drawing()
         vlm_prompt = server.vlm_review_drawing()
+        copy_prompt = server.copy_drawing_from_image()
+        recognize_prompt = server.recognize_components_from_image()
 
         self.assertIn("Fidelity Contract", precise_prompt)
         self.assertIn("Do not simplify", precise_prompt)
         self.assertIn("CADPlan", precise_prompt)
+        self.assertIn("Acceptance Criteria Before Planning", precise_prompt)
+        self.assertIn("Never accept a committed modification batch", precise_prompt)
         self.assertIn("not just a count of", understand_prompt)
         self.assertIn("analyze_engineering_drawing_stages", understand_prompt)
+        self.assertIn("Reconcile structured and visual evidence", understand_prompt)
         self.assertIn("Do not delete and redraw complex geometry", repair_prompt)
+        self.assertIn("structured before/after evidence", repair_prompt)
         self.assertIn("hypothesis until validated", vlm_prompt)
+        self.assertIn("Dual-Evidence Rule", vlm_prompt)
+        self.assertIn("partial validation result is not permission to execute", copy_prompt)
+        self.assertIn('"units": "unknown"', copy_prompt)
+        self.assertIn("never emit a placeholder", recognize_prompt)
 
     def test_add_mleader_rejects_mixed_point_shapes_without_throwing(self):
         result = text_tools.add_mleader("Note", [[0, 0, 0], 10, 10, 0])
@@ -1906,6 +1954,36 @@ class TestActiveXCallShapes(unittest.TestCase):
         ent.ArrayRectangular.assert_called_once_with(2, 3, 1, 10.0, 20.0, 0.0)
         self.assertEqual(result["new_handles"], ["A2", "A3"])
 
+    def test_format_table_applies_explicit_dimensions_and_text_heights(self):
+        doc = MagicMock()
+        table = MagicMock()
+        doc.HandleToObject.return_value = table
+        controller = self._controller_with_doc(doc)
+
+        result = controller.format_table(
+            "44B",
+            column_widths=[12, 20, 32, 12, 20, 24],
+            row_heights=[10, 12, 9],
+            title_text_height=4,
+            header_text_height=3,
+            data_text_height=2.5,
+        )
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(
+            table.SetColumnWidth.call_args_list,
+            [call(index, float(value)) for index, value in enumerate([12, 20, 32, 12, 20, 24])],
+        )
+        self.assertEqual(
+            table.SetRowHeight.call_args_list,
+            [call(index, float(value)) for index, value in enumerate([10, 12, 9])],
+        )
+        self.assertEqual(
+            table.SetTextHeight.call_args_list,
+            [call(1, 4.0), call(2, 3.0), call(4, 2.5)],
+        )
+        table.Update.assert_called_once_with()
+
     def test_export_pdf_uses_plot_to_file_not_document_export(self):
         doc = MagicMock()
         doc.ActiveLayout = MagicMock()
@@ -1935,6 +2013,77 @@ class TestActiveXCallShapes(unittest.TestCase):
         self.assertEqual(doc.Plot.PlotToFile.call_args_list[0].args, (r"C:\tmp\out.pdf", "DWG To PDF.pc3"))
         self.assertEqual(doc.Plot.PlotToFile.call_args_list[1].args, (r"C:\tmp\out.pdf",))
         doc.Export.assert_not_called()
+
+    def test_export_pdf_can_fit_a3_window_and_restore_layout(self):
+        doc = MagicMock()
+        layout = MagicMock()
+        layout.ConfigName = "Original.pc3"
+        layout.CanonicalMediaName = "ANSI_A_(8.50_x_11.00_Inches)"
+        layout.PlotType = 0
+        layout.CenterPlot = False
+        layout.UseStandardScale = False
+        layout.StandardScale = 16
+        layout.CustomScale = 0.5
+        layout.PlotRotation = 0
+        layout.GetCanonicalMediaNames.return_value = [
+            "ISO_A3_(297.00_x_420.00_MM)",
+            "ISO_full_bleed_A3_(420.00_x_297.00_MM)",
+        ]
+        doc.ActiveLayout = layout
+        plotted = []
+
+        def capture_plot(*_args):
+            plotted.append({
+                "config": layout.ConfigName,
+                "media": layout.CanonicalMediaName,
+                "plot_type": layout.PlotType,
+                "center": layout.CenterPlot,
+                "use_standard_scale": layout.UseStandardScale,
+                "standard_scale": layout.StandardScale,
+                "custom_scale": layout.CustomScale,
+                "rotation": layout.PlotRotation,
+            })
+            return True
+
+        doc.Plot.PlotToFile.side_effect = capture_plot
+        controller = self._controller_with_doc(doc)
+
+        with patch("src.cad_controller.os.path.exists", return_value=True), \
+             patch("src.cad_controller.os.path.getsize", return_value=1):
+            result = controller.export_drawing(
+                r"C:\tmp\out.pdf",
+                "PDF",
+                paper_size="A3",
+                fit_to_extents=True,
+                center_plot=False,
+                landscape=True,
+                plot_window=[0.0, 0.0, 420.0, 297.0],
+                custom_scale=1.0,
+            )
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(len(plotted), 1)
+        self.assertEqual(
+            plotted[0]["media"],
+            "ISO_full_bleed_A3_(420.00_x_297.00_MM)",
+        )
+        self.assertEqual(plotted[0]["plot_type"], 4)
+        self.assertFalse(plotted[0]["center"])
+        self.assertFalse(plotted[0]["use_standard_scale"])
+        self.assertEqual(plotted[0]["custom_scale"], 1.0)
+        self.assertEqual(plotted[0]["rotation"], 0)
+        layout.SetWindowToPlot.assert_called_once_with(
+            [0.0, 0.0],
+            [420.0, 297.0],
+        )
+        self.assertEqual(layout.ConfigName, "Original.pc3")
+        self.assertEqual(layout.CanonicalMediaName, "ANSI_A_(8.50_x_11.00_Inches)")
+        self.assertEqual(layout.PlotType, 0)
+        self.assertFalse(layout.CenterPlot)
+        self.assertFalse(layout.UseStandardScale)
+        self.assertEqual(layout.StandardScale, 16)
+        self.assertEqual(layout.CustomScale, 0.5)
+        self.assertEqual(layout.PlotRotation, 0)
 
     def test_export_dwf_uses_active_layout_plot_config_with_single_arg_plot(self):
         doc = MagicMock()

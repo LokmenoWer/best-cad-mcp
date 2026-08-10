@@ -132,20 +132,72 @@ This AutoCAD MCP exposes hundreds of specialized CAD tools. Always choose the mo
 specific workflow and tool for the CAD intent before composing low-level
 primitives. Treat the tool surface as indexed by intent, not as a flat list.
 
-Tool-choice rules:
-- Before live CAD work, call check_runtime_environment(check_autocad=True) so
-  missing Python modules, workspace issues, AutoCAD COM availability, and visual
-  review helpers are reported explicitly.
-- For existing or complex drawings, route through the understanding stack before
-  acting: scan_all_entities -> build_drawing_ir -> summarize_drawing ->
-  detect_semantic_objects -> extract_drawing_constraints -> bind_all_dimensions
-  -> check_drawing_constraints -> validate_geometry. Use topology_detail="full"
-  when primitive grounding, dimension binding, or section/detail reasoning
-  matters.
+Closed-loop operating contract: Observe -> Plan -> Validate -> Execute -> Verify.
+- Observe before acting. Before live CAD work, call
+  check_runtime_environment(check_autocad=True). Inspect document, active space,
+  units, and relevant styles. For an existing drawing, scan and build CAD-IR;
+  capture a model-visible baseline with render_drawing_view when appearance,
+  layout, or spatial context matters.
+- Plan from explicit acceptance criteria: units, semantic objects/components,
+  exact handles or relationships, layers/styles, dimensions, constraints,
+  annotations/tables, and visual layout. Split large or high-risk work into
+  independently verifiable semantic phases. Use one transaction per phase unless
+  the user requires all-or-nothing execution; after any failed phase, rescan and
+  rebuild the next plan instead of reusing stale handles or state.
+- Validate without modifying the DWG. Validate image fidelity when applicable,
+  validate_cad_plan, then dry_run_cad_plan. Resolve unsafe operations, missing
+  variable bindings, schema errors, and unsupported/dangerous operations before
+  execution. Runtime postconditions are evaluated during execution; broader
+  acceptance criteria are checked after rescan.
+- Execute with allow_modify=True and transactional=True when modification
+  permission is already present in the request; otherwise obtain it first. Ask
+  again when ambiguity, destructive scope, or a material scope expansion needs
+  a new decision. Fail closed on partial results.
+- Verify after each committed modification batch or semantic phase, and after a
+  single direct edit. Never accept a modification as complete from the tool's
+  success response alone. Rescan, rebuild relevant CAD-IR/semantics, rebind
+  dimensions, recheck constraints, validate_geometry, and re-render when visual
+  evidence matters. Compare the result against the acceptance criteria. Limit
+  automatic verify/repair cycles to two unless the user explicitly asks to
+  continue.
+
+Evidence rules:
+- Structured evidence is authoritative for identity and precision: handles,
+  topology, CAD-IR, semantic groups, units, dimensions, constraints, and exact
+  geometry. Visual evidence is authoritative for what is visible: composition,
+  overlap, clipping, spacing, legibility, hatch appearance, and sheet layout.
+- Use both channels for complex or appearance-sensitive work. If they conflict,
+  inspect the relevant handles with explain_entity or selected full topology and
+  keep the result uncertain until reconciled. Never draw helper geometry into
+  the DWG as model memory.
+- Rescan after execution before trusting cached handles, snapshots, semantic
+  objects, dimensions, constraints, or validation results. Pixel mappings from a
+  pre-edit snapshot are stale after geometry changes.
+
+Tool and source priority:
+1. Preserve explicit user/project/company/national standards, existing drawing
+   handles, approved blocks, layers, styles, dimensions, and constraints.
+2. Use purpose-built semantic CAD tools and domain workflows.
+3. Use blocks/arrays for repetition, CAD tables for BOMs, true dimensions for
+   measurements, hatches for sections, and regions/solids/booleans for 3D intent.
+4. Use draw_line/draw_circle/draw_polyline only for genuinely simple one-off
+   geometry or when no higher-level tool fits.
+5. Use send_command only as an explicitly approved final escape hatch; it is raw
+   AutoCAD command execution and is less validated.
+
+Workflow routing rules:
+- For existing or complex drawings, route through scan_all_entities with summary
+  topology by default -> build_drawing_ir -> summarize_drawing ->
+  analyze_drawing_intent -> detect_semantic_objects -> bind_all_dimensions ->
+  extract_drawing_constraints -> check_drawing_constraints ->
+  validate_geometry. Use explain_entity and local queries first; if primitive
+  relations are still required, explicitly rescan with topology_detail="full"
+  and keep the interpretation scoped to the relevant task/handles.
 - For engineering drawings, assemblies, title blocks, BOMs, GD&T, surface
   finish notes, section/detail views, or exploded views, call
-  analyze_engineering_drawing_stages and export_view_image_with_mapping with
-  overlays. Do not reduce these artifacts to generic lines and labels.
+  analyze_engineering_drawing_stages and mapped visual review. Do not reduce
+  these artifacts to generic lines and labels. Build a component register before
+  BOMs/balloons and verify their item-number/quantity agreement together.
 - For one-image mechanical drawing tracing, call prepare_image_trace, use the
   copy_drawing_from_image prompt with an Agent-side VLM, validate and submit
   ImageDrawingSpec/v1, compile it to a CADPlan, and run
@@ -154,22 +206,13 @@ Tool-choice rules:
   BOMs, or title blocks into plain rectangles, loose lines, or text.
 - For new complex drawings, start with recommend_cad_tools(intent), then create
   a CADPlan using semantic operations, variables, handle capture, dependencies,
-  expectations, and postconditions. Validate and dry-run before execution.
+  supported step-level `expect` metadata, and executable postconditions. Keep the broader
+  acceptance criteria outside the CADPlan and verify them after rescan. Validate
+  and dry-run before execution.
 - For rectangles, polygons, splines, donuts, mlines, arrays, blocks, hatches,
   dimensions, leaders, 3D solids, trims, fillets, chamfers, offsets, and
   transforms, use the named tool. Do not rebuild them from draw_line,
   draw_circle, draw_polyline, or repeated copy_entity calls.
-- Preserve drawing fidelity: repeated parts should become blocks or arrays,
-  measured geometry should use associative dimensions, tabular data should use
-  CAD tables, sections should use hatch/section tools, and 3D intent should use
-  solids/regions/booleans instead of 2D wireframe approximations.
-- Use draw_line/draw_circle/draw_polyline only for simple one-off geometry or
-  when no named tool fits.
-- Use send_command only as the final escape hatch after checking the exposed
-  tools. It is raw AutoCAD command execution and is less validated.
-- For existing drawings, scan first with scan_all_entities and query with
-  get_entity_statistics/execute_query before editing. Capture returned handles;
-  edits operate on handles.
 - Vision-capable models can SEE the drawing directly through the MCP. Call
   render_drawing_view to export the current view AND receive it as inline image
   content in one step, get_snapshot_image to look at the latest exported view,
@@ -178,7 +221,7 @@ Tool-choice rules:
   perceive→act-by-handle→re-render→verify loop instead of editing blind. These
   tools only read/export review artifacts and must not be replaced with visible
   helper geometry. (export_view_image / export_view_image_with_mapping still
-  exist for path-only export when the model does not need to look.)
+  exist when mapped path artifacts or VLM sidecars are needed.)
 - Use add_spatial_annotation/list_spatial_annotations for model-private labels,
   pointers, and part names. These annotations live only in the MCP SQLite
   database and must not create layers, XData, blocks, or visible marks in DWG.
@@ -2241,6 +2284,33 @@ def edit_table_cell(ctx: Context, table_handle: str, row: int,
 
 
 @mcp.tool()
+def format_table(ctx: Context, table_handle: str,
+                 column_widths: Optional[List[float]] = None,
+                 row_heights: Optional[List[float]] = None,
+                 title_text_height: Optional[float] = None,
+                 header_text_height: Optional[float] = None,
+                 data_text_height: Optional[float] = None) -> str:
+    """Set column widths, row heights, and row-type text heights for a table.
+
+    Args:
+        table_handle: Existing AcDbTable handle.
+        column_widths: Optional width for each column, in drawing units.
+        row_heights: Optional height for each row, in drawing units.
+        title_text_height: Optional title-row text height.
+        header_text_height: Optional header-row text height.
+        data_text_height: Optional data-row text height.
+    """
+    return text_tools.format_table(
+        table_handle,
+        column_widths=column_widths,
+        row_heights=row_heights,
+        title_text_height=title_text_height,
+        header_text_height=header_text_height,
+        data_text_height=data_text_height,
+    )
+
+
+@mcp.tool()
 def find_text(ctx: Context, pattern: str, highlight_color: int = 1) -> str:
     """在图纸中搜索包含指定文本的所有文字实体。
 
@@ -3031,7 +3101,12 @@ def get_entity_statistics(ctx: Context) -> str:
 # ══════════════════════════════════════════════════════════════════
 
 @mcp.tool()
-def export_pdf(ctx: Context, filepath: str) -> str:
+def export_pdf(ctx: Context, filepath: str, paper_size: str = "",
+               fit_to_extents: bool = False,
+               center_plot: bool = False,
+               landscape: Optional[bool] = None,
+               plot_window: Optional[List[float]] = None,
+               custom_scale: Optional[float] = None) -> str:
     """将当前图纸导出为 PDF 文件。
 
     生成的 PDF 可用于打印、分享和归档。
@@ -3039,7 +3114,15 @@ def export_pdf(ctx: Context, filepath: str) -> str:
     Args:
         filepath: PDF 保存路径，如 C:/output/drawing.pdf
     """
-    return file_tools.export_pdf(filepath)
+    return file_tools.export_pdf(
+        filepath,
+        paper_size=paper_size,
+        fit_to_extents=fit_to_extents,
+        center_plot=center_plot,
+        landscape=landscape,
+        plot_window=plot_window,
+        custom_scale=custom_scale,
+    )
 
 
 @mcp.tool()
@@ -5908,35 +5991,50 @@ def cad_workflow_guide() -> str:
 0. Preflight: call check_runtime_environment(check_autocad=True) before live
    CAD work; fix required blockers before drawing or editing.
 1. Classify the request: existing drawing understanding, new drawing from
-   specification, repair, VLM review, or export/plot.
-2. Existing or complex drawing: scan_all_entities, build_drawing_ir,
-   summarize_drawing, detect_semantic_objects, extract_drawing_constraints,
-   bind_all_dimensions, check_drawing_constraints, validate_geometry, and use
-   cad://drawing/current/ir/overview for fast orientation.
-3. Engineering drawing or assembly: preserve views, sections, BOMs, title
-   blocks, GD&T, hatches, dimensions, and repeated parts; use
-   analyze_engineering_drawing_stages and export_view_image_with_mapping.
-4. New complex drawing: use recommend_cad_tools(intent), then CADPlan with
-   variables, save_as handles, dependencies, expectations, and postconditions.
-5. One-image mechanical trace: prepare_image_trace, use the
+   specification, repair, VLM review, image trace, or export/plot. Load the
+   matching specialized prompt when the client supports explicit MCP prompts.
+2. Establish acceptance criteria and units before planning. For existing work,
+   record document/space/units, structured state, and a visual baseline when
+   appearance matters.
+3. Existing or complex drawing: scan_all_entities with summary topology by
+   default, build_drawing_ir, summarize_drawing, analyze_drawing_intent,
+   detect_semantic_objects, bind_all_dimensions, extract/check constraints,
+   and validate_geometry. Use cad://drawing/current/ir/overview for fast
+   orientation and selected full topology only when needed.
+4. Engineering drawing or assembly: preserve views, sections, BOMs, title
+   blocks, GD&T, hatches, dimensions, and repeated parts. Build the component
+   register before BOMs/balloons; verify quantities and item numbers together.
+5. New complex drawing: use recommend_cad_tools(intent), then a bounded CADPlan
+   with explicit units/layers, variables, save_as handles, dependencies,
+   supported step-level `expect` metadata, and executable postconditions. Keep broader
+   acceptance criteria outside the plan for post-execution verification.
+6. One-image mechanical trace: prepare_image_trace, use the
    copy_drawing_from_image prompt with an Agent-side VLM, validate/submit
    ImageDrawingSpec/v1, compile_image_spec_to_cad_plan, and run
    validate_image_fidelity_contract before CADPlan validation and dry-run.
-6. Plan layers before drawing: create_layer and draw with color="bylayer".
-7. Pick the named tool for the intent: rectangle, polygon, block, hatch,
+7. For new geometry, plan layers before drawing and prefer color="bylayer".
+   For existing drawings, reuse verified layer/style/block definitions instead
+   of creating duplicates.
+8. Pick the named tool for the intent: rectangle, polygon, block, hatch,
    dimension, leader, array, fillet, chamfer, trim, offset, 3D solid, etc.
-8. Edit by handle with editing tools; do not delete and redraw just to move,
+9. Edit by handle with editing tools; do not delete and redraw just to move,
    mirror, scale, offset, trim, or array.
-9. Dimension with add_*_dimension or add_qdim; never fake dimensions with text
+10. Dimension with add_*_dimension or add_qdim; never fake dimensions with text
    and lines.
-10. Vision-capable verification: call export_view_image_with_mapping whenever
-   seeing the current view would reduce ambiguity; use overlays and tiles for
-   dense drawings.
-11. Model-private context: use add_spatial_annotation/list_spatial_annotations
+11. Validate and dry-run every multi-step modification. Execute with
+    transactional protection when permission is already present; obtain a new
+    decision only for ambiguity, destructive scope, or material scope expansion.
+12. Verify structurally and visually after each committed modification batch or
+    semantic phase. Prefer
+    render_drawing_view when the model must see the result; use mapped exports,
+    overlays, and tiles when grounding is needed. Never trust success alone.
+13. Model-private context: use add_spatial_annotation/list_spatial_annotations
    for hidden part labels or pointer-style references; do not draw helper
    labels into the DWG for model memory.
-12. Verify with scan_all_entities, validate_geometry, visual mapping, and only
-    save/export when requested.
+14. If verification finds a confirmed mismatch, repair through another
+    validated and dry-run plan. Stop after two automatic verify/repair cycles
+    unless the user asks to continue. Create review snapshots as needed, but
+    save or produce deliverable exports only when requested.
 
 When unsure, call recommend_cad_tools(intent). For a full generated index, use
 get_tool_help() or resource cad://tools.
@@ -5948,8 +6046,12 @@ def cad_layer_planning() -> str:
     """CAD layer planning guidance for model-facing drafting workflows."""
     return """## CAD Layer Planning Guide
 
-Use explicit layers before drawing. Prefer short, stable names that encode the
-discipline and object purpose.
+For new geometry, define explicit layers before drawing and prefer short,
+stable names that encode the discipline and object purpose. In an existing
+drawing, inspect and reuse verified layer, linetype, color, plot, text-style,
+dimension-style, and block definitions; create only what is genuinely missing.
+Prefer entity properties set to ByLayer unless the project standard requires an
+override.
 
 ### Recommended layer naming
 
@@ -6002,16 +6104,15 @@ def understand_existing_drawing() -> str:
     """Workflow for safely understanding an existing DWG."""
     return _load_prompt_file("understand_existing_drawing.md", """## Understand Existing Drawing
 
-1. open_drawing if needed.
-2. scan_all_entities(topology_detail="full" when primitive grounding is needed).
-3. build_drawing_ir.
-4. summarize_drawing.
-5. detect_semantic_objects.
-6. extract_drawing_constraints.
-7. bind_all_dimensions.
-8. check_drawing_constraints.
-9. validate_geometry.
-10. export_view_image_with_mapping(include_overlay=True) when visual review helps.
+0. check_runtime_environment(check_autocad=True).
+1. Inspect document, active space, units, and a visual baseline when useful.
+2. scan_all_entities(topology_detail="summary"), then build_drawing_ir and
+   summarize_drawing. Escalate to full topology only when local evidence needs it.
+3. analyze_drawing_intent and detect_semantic_objects.
+4. bind_all_dimensions, extract_drawing_constraints, and
+   check_drawing_constraints.
+5. validate_geometry.
+6. Reconcile structured evidence with render_drawing_view or a mapped export.
 
 Do not modify the DWG during understanding. Use handles, evidence,
 confidence, warnings, and recommended next tools from each structured result.
@@ -6024,21 +6125,20 @@ def precise_draw_from_spec() -> str:
     """Workflow for precise CAD generation through a guarded plan."""
     return _load_prompt_file("precise_draw_from_spec.md", """## Precise Draw From Spec
 
-1. Analyze the spec.
+1. Define units, semantic objects, and plan-external acceptance criteria.
 2. Create a CADPlan using high-level tools, variables, save_as, dependencies,
-   expectations, and postconditions.
-3. validate_cad_plan.
-4. dry_run_cad_plan.
-5. execute_cad_plan only after explicit permission with allow_modify=True and
-   transactional=True.
-6. scan_all_entities.
-7. build_drawing_ir.
-8. validate_geometry.
-9. export_view_image_with_mapping(include_overlay=True).
+   supported step expect metadata, and executable postconditions.
+3. validate_cad_plan, then dry_run_cad_plan.
+4. If permission is not already granted, obtain it; execute with
+   allow_modify=True and transactional=True.
+5. Rescan, rebuild CAD-IR, rebind dimensions, check constraints, and validate.
+6. Re-render and compare structured plus visual evidence with the acceptance
+   criteria. Never trust a success response alone.
 
 Do not put send_command in a plan unless the user explicitly approves a
 dangerous operation.
 If execution fails, inspect failed_step, completed_steps, and rollback_status.
+Rescan and rebuild a newly validated/dry-run plan; do not replay stale steps.
 """)
 
 
@@ -6090,17 +6190,14 @@ def repair_drawing() -> str:
     """Workflow for validation-led drawing repair."""
     return _load_prompt_file("repair_drawing.md", """## Repair Drawing
 
-1. validate_geometry.
-2. extract_drawing_constraints, bind_all_dimensions, and check_drawing_constraints
-   when dimension or geometric intent matters.
-3. propose_repair_plan or propose_constraint_repair_plan.
-4. validate_cad_plan.
-5. dry_run_cad_plan.
-6. execute_cad_plan only after explicit permission with allow_modify=True and
-   transactional=True.
-7. scan_all_entities.
-8. validate_geometry again.
-9. export_view_image_with_mapping.
+1. Capture structured and visual before-state evidence; validate_geometry.
+2. Bind dimensions, extract constraints, and check constraints when intent matters.
+3. Explain the exact handle. Use a direct tool for one simple known-handle edit;
+   otherwise propose a repair CADPlan.
+4. validate_cad_plan, then dry_run_cad_plan for planned repairs.
+5. If permission is not already granted, obtain it; then execute safely.
+6. Rescan, rebind/recheck, validate_geometry, and create fresh visual evidence.
+7. Compare before/after evidence; never trust a success response alone.
 
 Analysis, validation, grounding, and dry-run must not modify the DWG.
 Never execute a repair automatically; ambiguous issues should return alternatives.

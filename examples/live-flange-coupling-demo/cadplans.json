@@ -1,0 +1,3355 @@
+{
+  "schema_version": "CADPlanDemoBundle/v1",
+  "source_prompt": "examples/live-flange-coupling-demo/prompt.md",
+  "plans": [
+    {
+      "plan_id": "readme-demo-sheet-v1-batch-01",
+      "description": "Create A3 border, drafting layers, view labels, and controlled title block. (batch 1)",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "layer_01",
+          "op": "create_layer",
+          "args": {
+            "name": "DEMO-BORDER",
+            "color": 7,
+            "linetype": "Continuous"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "layer_02",
+          "op": "create_layer",
+          "args": {
+            "name": "DEMO-OBJECT",
+            "color": 7,
+            "linetype": "Continuous"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "layer_03",
+          "op": "create_layer",
+          "args": {
+            "name": "DEMO-CENTER",
+            "color": 4,
+            "linetype": "CENTER"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "layer_04",
+          "op": "create_layer",
+          "args": {
+            "name": "DEMO-HIDDEN",
+            "color": 8,
+            "linetype": "HIDDEN"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "layer_05",
+          "op": "create_layer",
+          "args": {
+            "name": "DEMO-HATCH-A",
+            "color": 8,
+            "linetype": "Continuous"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "layer_06",
+          "op": "create_layer",
+          "args": {
+            "name": "DEMO-HATCH-B",
+            "color": 9,
+            "linetype": "Continuous"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "layer_07",
+          "op": "create_layer",
+          "args": {
+            "name": "DEMO-DIM",
+            "color": 2,
+            "linetype": "Continuous"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "layer_08",
+          "op": "create_layer",
+          "args": {
+            "name": "DEMO-TEXT",
+            "color": 7,
+            "linetype": "Continuous"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "layer_09",
+          "op": "create_layer",
+          "args": {
+            "name": "DEMO-BOM",
+            "color": 3,
+            "linetype": "Continuous"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "layer_10",
+          "op": "create_layer",
+          "args": {
+            "name": "DEMO-CALLOUT",
+            "color": 1,
+            "linetype": "Continuous"
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-sheet-v1-batch-02",
+      "description": "Create A3 border, drafting layers, view labels, and controlled title block. (batch 2)",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "sheet_outer",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 10.0,
+            "y1": 10.0,
+            "x2": 410.0,
+            "y2": 287.0,
+            "layer": "DEMO-BORDER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$sheet_outer",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$sheet_outer"
+            }
+          ]
+        },
+        {
+          "step_id": "sheet_inner",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 15.0,
+            "y1": 15.0,
+            "x2": 405.0,
+            "y2": 282.0,
+            "layer": "DEMO-BORDER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$sheet_inner",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$sheet_inner"
+            }
+          ]
+        },
+        {
+          "step_id": "sheet_heading",
+          "op": "draw_text",
+          "args": {
+            "text": "BEST-CAD-MCP LIVE AUTOCAD DEMO",
+            "insert_x": 20.0,
+            "insert_y": 276.0,
+            "height": 4.0,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$sheet_heading",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$sheet_heading"
+            }
+          ]
+        },
+        {
+          "step_id": "main_view_label",
+          "op": "draw_text",
+          "args": {
+            "text": "LONGITUDINAL HALF-SECTION A-A",
+            "insert_x": 82.0,
+            "insert_y": 142.0,
+            "height": 3.0,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$main_view_label",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$main_view_label"
+            }
+          ]
+        },
+        {
+          "step_id": "end_view_label",
+          "op": "draw_text",
+          "args": {
+            "text": "END VIEW",
+            "insert_x": 66.0,
+            "insert_y": 17.0,
+            "height": 3.0,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$end_view_label",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$end_view_label"
+            }
+          ]
+        },
+        {
+          "step_id": "exploded_view_label",
+          "op": "draw_text",
+          "args": {
+            "text": "EXPLODED ASSEMBLY SCHEMATIC",
+            "insert_x": 158.0,
+            "insert_y": 17.0,
+            "height": 3.0,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_view_label",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_view_label"
+            }
+          ]
+        },
+        {
+          "step_id": "title_block",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 260.0,
+            "y1": 10.0,
+            "x2": 410.0,
+            "y2": 65.0,
+            "layer": "DEMO-BORDER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_block",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_block"
+            }
+          ]
+        },
+        {
+          "step_id": "title_h1",
+          "op": "draw_line",
+          "args": {
+            "start_x": 260.0,
+            "start_y": 35.0,
+            "end_x": 410.0,
+            "end_y": 35.0,
+            "layer": "DEMO-BORDER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_h1",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_h1"
+            }
+          ]
+        },
+        {
+          "step_id": "title_h2",
+          "op": "draw_line",
+          "args": {
+            "start_x": 260.0,
+            "start_y": 50.0,
+            "end_x": 410.0,
+            "end_y": 50.0,
+            "layer": "DEMO-BORDER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_h2",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_h2"
+            }
+          ]
+        },
+        {
+          "step_id": "title_v1",
+          "op": "draw_line",
+          "args": {
+            "start_x": 305.0,
+            "start_y": 10.0,
+            "end_x": 305.0,
+            "end_y": 35.0,
+            "layer": "DEMO-BORDER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_v1",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_v1"
+            }
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-sheet-v1-batch-03",
+      "description": "Create A3 border, drafting layers, view labels, and controlled title block. (batch 3)",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "title_v2",
+          "op": "draw_line",
+          "args": {
+            "start_x": 350.0,
+            "start_y": 10.0,
+            "end_x": 350.0,
+            "end_y": 35.0,
+            "layer": "DEMO-BORDER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_v2",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_v2"
+            }
+          ]
+        },
+        {
+          "step_id": "title_v3",
+          "op": "draw_line",
+          "args": {
+            "start_x": 382.0,
+            "start_y": 10.0,
+            "end_x": 382.0,
+            "end_y": 35.0,
+            "layer": "DEMO-BORDER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_v3",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_v3"
+            }
+          ]
+        },
+        {
+          "step_id": "title_name",
+          "op": "draw_text",
+          "args": {
+            "text": "BOLTED FLANGE COUPLING ASSEMBLY",
+            "insert_x": 264.0,
+            "insert_y": 55.0,
+            "height": 4.0,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_name",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_name"
+            }
+          ]
+        },
+        {
+          "step_id": "title_drawing_no",
+          "op": "draw_text",
+          "args": {
+            "text": "DWG NO: BCM-DEMO-001",
+            "insert_x": 264.0,
+            "insert_y": 41.0,
+            "height": 3.0,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_drawing_no",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_drawing_no"
+            }
+          ]
+        },
+        {
+          "step_id": "title_author",
+          "op": "draw_text",
+          "args": {
+            "text": "DRAWN: CODEX",
+            "insert_x": 263.0,
+            "insert_y": 25.0,
+            "height": 2.5,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_author",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_author"
+            }
+          ]
+        },
+        {
+          "step_id": "title_checker",
+          "op": "draw_text",
+          "args": {
+            "text": "CHECK: HUMAN",
+            "insert_x": 308.0,
+            "insert_y": 25.0,
+            "height": 2.5,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_checker",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_checker"
+            }
+          ]
+        },
+        {
+          "step_id": "title_scale",
+          "op": "draw_text",
+          "args": {
+            "text": "SCALE 1:1",
+            "insert_x": 353.0,
+            "insert_y": 25.0,
+            "height": 2.5,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_scale",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_scale"
+            }
+          ]
+        },
+        {
+          "step_id": "title_rev",
+          "op": "draw_text",
+          "args": {
+            "text": "REV A",
+            "insert_x": 385.0,
+            "insert_y": 25.0,
+            "height": 2.5,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_rev",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_rev"
+            }
+          ]
+        },
+        {
+          "step_id": "title_units",
+          "op": "draw_text",
+          "args": {
+            "text": "UNITS: mm  |  THIRD ANGLE  |  2026-08-10",
+            "insert_x": 264.0,
+            "insert_y": 15.0,
+            "height": 2.5,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_units",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_units"
+            }
+          ]
+        },
+        {
+          "step_id": "title_warning",
+          "op": "draw_text",
+          "args": {
+            "text": "DEMO - NOT FOR MANUFACTURE",
+            "insert_x": 264.0,
+            "insert_y": 30.0,
+            "height": 2.8,
+            "layer": "DEMO-CALLOUT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$title_warning",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$title_warning"
+            }
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-geometry-v1-batch-01",
+      "description": "Create the true-size coupling section, end view, exploded schematic, and repeated fastener patterns. (batch 1)",
+      "units": "mm",
+      "risk_level": "medium",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "left_shaft",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 20.0,
+            "y1": 190.0,
+            "x2": 130.0,
+            "y2": 230.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$left_shaft",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$left_shaft"
+            }
+          ]
+        },
+        {
+          "step_id": "right_shaft",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 132.0,
+            "y1": 190.0,
+            "x2": 250.0,
+            "y2": 230.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$right_shaft",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$right_shaft"
+            }
+          ]
+        },
+        {
+          "step_id": "left_hub_upper",
+          "op": "draw_polyline",
+          "args": {
+            "points": [
+              64.0,
+              230.0,
+              64.0,
+              242.5,
+              114.0,
+              242.5,
+              114.0,
+              270.0,
+              130.0,
+              270.0,
+              130.0,
+              230.0
+            ],
+            "closed": true,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$left_hub_upper",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$left_hub_upper"
+            }
+          ]
+        },
+        {
+          "step_id": "left_hub_lower",
+          "op": "draw_polyline",
+          "args": {
+            "points": [
+              64.0,
+              190.0,
+              64.0,
+              177.5,
+              114.0,
+              177.5,
+              114.0,
+              150.0,
+              130.0,
+              150.0,
+              130.0,
+              190.0
+            ],
+            "closed": true,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$left_hub_lower",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$left_hub_lower"
+            }
+          ]
+        },
+        {
+          "step_id": "right_hub_upper",
+          "op": "draw_polyline",
+          "args": {
+            "points": [
+              132.0,
+              230.0,
+              132.0,
+              270.0,
+              148.0,
+              270.0,
+              148.0,
+              242.5,
+              198.0,
+              242.5,
+              198.0,
+              230.0
+            ],
+            "closed": true,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$right_hub_upper",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$right_hub_upper"
+            }
+          ]
+        },
+        {
+          "step_id": "right_hub_lower",
+          "op": "draw_polyline",
+          "args": {
+            "points": [
+              132.0,
+              190.0,
+              132.0,
+              150.0,
+              148.0,
+              150.0,
+              148.0,
+              177.5,
+              198.0,
+              177.5,
+              198.0,
+              190.0
+            ],
+            "closed": true,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$right_hub_lower",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$right_hub_lower"
+            }
+          ]
+        },
+        {
+          "step_id": "gasket_upper",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 130.0,
+            "y1": 230.0,
+            "x2": 132.0,
+            "y2": 265.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$gasket_upper",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$gasket_upper"
+            }
+          ]
+        },
+        {
+          "step_id": "gasket_lower",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 130.0,
+            "y1": 155.0,
+            "x2": 132.0,
+            "y2": 190.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$gasket_lower",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$gasket_lower"
+            }
+          ]
+        },
+        {
+          "step_id": "left_key",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 55.0,
+            "y1": 230.0,
+            "x2": 125.0,
+            "y2": 238.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$left_key",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$left_key"
+            }
+          ]
+        },
+        {
+          "step_id": "right_key",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 137.0,
+            "y1": 230.0,
+            "x2": 207.0,
+            "y2": 238.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$right_key",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$right_key"
+            }
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-geometry-v1-batch-02",
+      "description": "Create the true-size coupling section, end view, exploded schematic, and repeated fastener patterns. (batch 2)",
+      "units": "mm",
+      "risk_level": "medium",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "main_axis",
+          "op": "draw_line",
+          "args": {
+            "start_x": 15.0,
+            "start_y": 210.0,
+            "end_x": 255.0,
+            "end_y": 210.0,
+            "layer": "DEMO-CENTER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$main_axis",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$main_axis"
+            }
+          ]
+        },
+        {
+          "step_id": "flange_axis",
+          "op": "draw_line",
+          "args": {
+            "start_x": 131.0,
+            "start_y": 140.0,
+            "end_x": 131.0,
+            "end_y": 278.0,
+            "layer": "DEMO-CENTER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$flange_axis",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$flange_axis"
+            }
+          ]
+        },
+        {
+          "step_id": "bolt_shank_seed",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 104.0,
+            "y1": 162.0,
+            "x2": 158.0,
+            "y2": 168.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$bolt_shank_seed",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$bolt_shank_seed"
+            }
+          ]
+        },
+        {
+          "step_id": "bolt_shank_array",
+          "op": "array_rectangular",
+          "args": {
+            "handle": "$bolt_shank_seed",
+            "rows": 2,
+            "columns": 1,
+            "row_spacing": 90.0,
+            "column_spacing": 0.0
+          },
+          "writes": true,
+          "depends_on": [
+            "bolt_shank_seed"
+          ]
+        },
+        {
+          "step_id": "bolt_head_seed",
+          "op": "draw_polygon",
+          "args": {
+            "center_x": 104.0,
+            "center_y": 165.0,
+            "radius": 8.0,
+            "sides": 6,
+            "start_angle": 30.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$bolt_head_seed",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$bolt_head_seed"
+            }
+          ]
+        },
+        {
+          "step_id": "bolt_head_array",
+          "op": "array_rectangular",
+          "args": {
+            "handle": "$bolt_head_seed",
+            "rows": 2,
+            "columns": 1,
+            "row_spacing": 90.0,
+            "column_spacing": 0.0
+          },
+          "writes": true,
+          "depends_on": [
+            "bolt_head_seed"
+          ]
+        },
+        {
+          "step_id": "nut_seed",
+          "op": "draw_polygon",
+          "args": {
+            "center_x": 158.0,
+            "center_y": 165.0,
+            "radius": 8.0,
+            "sides": 6,
+            "start_angle": 30.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$nut_seed",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$nut_seed"
+            }
+          ]
+        },
+        {
+          "step_id": "nut_array",
+          "op": "array_rectangular",
+          "args": {
+            "handle": "$nut_seed",
+            "rows": 2,
+            "columns": 1,
+            "row_spacing": 90.0,
+            "column_spacing": 0.0
+          },
+          "writes": true,
+          "depends_on": [
+            "nut_seed"
+          ]
+        },
+        {
+          "step_id": "washer_left_seed",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 111.0,
+            "y1": 157.0,
+            "x2": 114.0,
+            "y2": 173.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$washer_left_seed",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$washer_left_seed"
+            }
+          ]
+        },
+        {
+          "step_id": "washer_left_array",
+          "op": "array_rectangular",
+          "args": {
+            "handle": "$washer_left_seed",
+            "rows": 2,
+            "columns": 1,
+            "row_spacing": 90.0,
+            "column_spacing": 0.0
+          },
+          "writes": true,
+          "depends_on": [
+            "washer_left_seed"
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-geometry-v1-batch-03",
+      "description": "Create the true-size coupling section, end view, exploded schematic, and repeated fastener patterns. (batch 3)",
+      "units": "mm",
+      "risk_level": "medium",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "washer_right_seed",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 148.0,
+            "y1": 157.0,
+            "x2": 151.0,
+            "y2": 173.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$washer_right_seed",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$washer_right_seed"
+            }
+          ]
+        },
+        {
+          "step_id": "washer_right_array",
+          "op": "array_rectangular",
+          "args": {
+            "handle": "$washer_right_seed",
+            "rows": 2,
+            "columns": 1,
+            "row_spacing": 90.0,
+            "column_spacing": 0.0
+          },
+          "writes": true,
+          "depends_on": [
+            "washer_right_seed"
+          ]
+        },
+        {
+          "step_id": "lock_washer_seed",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 145.0,
+            "y1": 158.0,
+            "x2": 147.0,
+            "y2": 172.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$lock_washer_seed",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$lock_washer_seed"
+            }
+          ]
+        },
+        {
+          "step_id": "lock_washer_array",
+          "op": "array_rectangular",
+          "args": {
+            "handle": "$lock_washer_seed",
+            "rows": 2,
+            "columns": 1,
+            "row_spacing": 90.0,
+            "column_spacing": 0.0
+          },
+          "writes": true,
+          "depends_on": [
+            "lock_washer_seed"
+          ]
+        },
+        {
+          "step_id": "end_flange",
+          "op": "draw_circle",
+          "args": {
+            "center_x": 85.0,
+            "center_y": 80.0,
+            "radius": 60.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$end_flange",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$end_flange"
+            }
+          ]
+        },
+        {
+          "step_id": "end_hub",
+          "op": "draw_circle",
+          "args": {
+            "center_x": 85.0,
+            "center_y": 80.0,
+            "radius": 32.5,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$end_hub",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$end_hub"
+            }
+          ]
+        },
+        {
+          "step_id": "end_shaft",
+          "op": "draw_circle",
+          "args": {
+            "center_x": 85.0,
+            "center_y": 80.0,
+            "radius": 20.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$end_shaft",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$end_shaft"
+            }
+          ]
+        },
+        {
+          "step_id": "end_gasket",
+          "op": "draw_circle",
+          "args": {
+            "center_x": 85.0,
+            "center_y": 80.0,
+            "radius": 55.0,
+            "layer": "DEMO-HIDDEN"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$end_gasket",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$end_gasket"
+            }
+          ]
+        },
+        {
+          "step_id": "end_pcd",
+          "op": "draw_circle",
+          "args": {
+            "center_x": 85.0,
+            "center_y": 80.0,
+            "radius": 45.0,
+            "layer": "DEMO-CENTER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$end_pcd",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$end_pcd"
+            }
+          ]
+        },
+        {
+          "step_id": "end_axis_h",
+          "op": "draw_line",
+          "args": {
+            "start_x": 15.0,
+            "start_y": 80.0,
+            "end_x": 150.0,
+            "end_y": 80.0,
+            "layer": "DEMO-CENTER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$end_axis_h",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$end_axis_h"
+            }
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-geometry-v1-batch-04",
+      "description": "Create the true-size coupling section, end view, exploded schematic, and repeated fastener patterns. (batch 4)",
+      "units": "mm",
+      "risk_level": "medium",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "end_axis_v",
+          "op": "draw_line",
+          "args": {
+            "start_x": 85.0,
+            "start_y": 15.0,
+            "end_x": 85.0,
+            "end_y": 145.0,
+            "layer": "DEMO-CENTER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$end_axis_v",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$end_axis_v"
+            }
+          ]
+        },
+        {
+          "step_id": "end_bolt_hole_seed",
+          "op": "draw_circle",
+          "args": {
+            "center_x": 85.0,
+            "center_y": 125.0,
+            "radius": 6.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$end_bolt_hole_seed",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$end_bolt_hole_seed"
+            }
+          ]
+        },
+        {
+          "step_id": "end_bolt_hole_array",
+          "op": "array_polar",
+          "args": {
+            "handle": "$end_bolt_hole_seed",
+            "count": 4,
+            "fill_angle": 360.0,
+            "center_x": 85.0,
+            "center_y": 80.0,
+            "center_z": 0.0
+          },
+          "writes": true,
+          "depends_on": [
+            "end_bolt_hole_seed"
+          ]
+        },
+        {
+          "step_id": "end_keyway",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 79.0,
+            "y1": 97.0,
+            "x2": 91.0,
+            "y2": 105.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$end_keyway",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$end_keyway"
+            }
+          ]
+        },
+        {
+          "step_id": "exploded_axis",
+          "op": "draw_line",
+          "args": {
+            "start_x": 152.0,
+            "start_y": 80.0,
+            "end_x": 258.0,
+            "end_y": 80.0,
+            "layer": "DEMO-CENTER"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_axis",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_axis"
+            }
+          ]
+        },
+        {
+          "step_id": "exploded_left_shaft",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 155.0,
+            "y1": 70.0,
+            "x2": 178.0,
+            "y2": 90.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_left_shaft",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_left_shaft"
+            }
+          ]
+        },
+        {
+          "step_id": "exploded_left_hub",
+          "op": "draw_polyline",
+          "args": {
+            "points": [
+              178.0,
+              68.0,
+              188.0,
+              68.0,
+              188.0,
+              52.0,
+              196.0,
+              52.0,
+              196.0,
+              108.0,
+              188.0,
+              108.0,
+              188.0,
+              92.0,
+              178.0,
+              92.0
+            ],
+            "closed": true,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_left_hub",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_left_hub"
+            }
+          ]
+        },
+        {
+          "step_id": "exploded_gasket",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 204.0,
+            "y1": 54.0,
+            "x2": 206.0,
+            "y2": 106.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_gasket",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_gasket"
+            }
+          ]
+        },
+        {
+          "step_id": "exploded_right_hub",
+          "op": "draw_polyline",
+          "args": {
+            "points": [
+              214.0,
+              52.0,
+              222.0,
+              52.0,
+              222.0,
+              68.0,
+              232.0,
+              68.0,
+              232.0,
+              92.0,
+              222.0,
+              92.0,
+              222.0,
+              108.0,
+              214.0,
+              108.0
+            ],
+            "closed": true,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_right_hub",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_right_hub"
+            }
+          ]
+        },
+        {
+          "step_id": "exploded_right_shaft",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 232.0,
+            "y1": 70.0,
+            "x2": 255.0,
+            "y2": 90.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_right_shaft",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_right_shaft"
+            }
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-geometry-v1-batch-05",
+      "description": "Create the true-size coupling section, end view, exploded schematic, and repeated fastener patterns. (batch 5)",
+      "units": "mm",
+      "risk_level": "medium",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "exploded_left_key",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 164.0,
+            "y1": 90.0,
+            "x2": 188.0,
+            "y2": 94.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_left_key",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_left_key"
+            }
+          ]
+        },
+        {
+          "step_id": "exploded_right_key",
+          "op": "draw_rectangle",
+          "args": {
+            "x1": 222.0,
+            "y1": 90.0,
+            "x2": 244.0,
+            "y2": 94.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_right_key",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_right_key"
+            }
+          ]
+        },
+        {
+          "step_id": "exploded_washer_a",
+          "op": "draw_donut",
+          "args": {
+            "center_x": 200.0,
+            "center_y": 80.0,
+            "inner_radius": 3.0,
+            "outer_radius": 5.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_washer_a",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_washer_a"
+            }
+          ]
+        },
+        {
+          "step_id": "exploded_washer_b",
+          "op": "draw_donut",
+          "args": {
+            "center_x": 210.0,
+            "center_y": 80.0,
+            "inner_radius": 3.0,
+            "outer_radius": 5.0,
+            "layer": "DEMO-OBJECT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$exploded_washer_b",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$exploded_washer_b"
+            }
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-hatching-v1-batch-01",
+      "description": "Add differentiated associative section hatches to closed component regions. (batch 1)",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {
+        "boundary_01": "2C5",
+        "boundary_02": "2C6",
+        "boundary_03": "2C7",
+        "boundary_04": "2C8",
+        "boundary_05": "2C9",
+        "boundary_06": "2CA"
+      },
+      "steps": [
+        {
+          "step_id": "create_hatch_01",
+          "op": "add_hatch",
+          "args": {
+            "pattern_name": "ANSI31",
+            "associativity": true,
+            "layer": "DEMO-HATCH-A"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$hatch_01",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$hatch_01"
+            }
+          ]
+        },
+        {
+          "step_id": "bind_hatch_01",
+          "op": "hatch_add_boundary",
+          "args": {
+            "handle": "$hatch_01",
+            "boundary_handles": [
+              "$boundary_01"
+            ]
+          },
+          "writes": true,
+          "depends_on": [
+            "create_hatch_01"
+          ]
+        },
+        {
+          "step_id": "create_hatch_02",
+          "op": "add_hatch",
+          "args": {
+            "pattern_name": "ANSI31",
+            "associativity": true,
+            "layer": "DEMO-HATCH-A"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$hatch_02",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$hatch_02"
+            }
+          ]
+        },
+        {
+          "step_id": "bind_hatch_02",
+          "op": "hatch_add_boundary",
+          "args": {
+            "handle": "$hatch_02",
+            "boundary_handles": [
+              "$boundary_02"
+            ]
+          },
+          "writes": true,
+          "depends_on": [
+            "create_hatch_02"
+          ]
+        },
+        {
+          "step_id": "create_hatch_03",
+          "op": "add_hatch",
+          "args": {
+            "pattern_name": "ANSI32",
+            "associativity": true,
+            "layer": "DEMO-HATCH-B"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$hatch_03",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$hatch_03"
+            }
+          ]
+        },
+        {
+          "step_id": "bind_hatch_03",
+          "op": "hatch_add_boundary",
+          "args": {
+            "handle": "$hatch_03",
+            "boundary_handles": [
+              "$boundary_03"
+            ]
+          },
+          "writes": true,
+          "depends_on": [
+            "create_hatch_03"
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-hatching-v1-batch-02",
+      "description": "Add differentiated associative section hatches to closed component regions. (batch 2)",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {
+        "boundary_01": "2C5",
+        "boundary_02": "2C6",
+        "boundary_03": "2C7",
+        "boundary_04": "2C8",
+        "boundary_05": "2C9",
+        "boundary_06": "2CA"
+      },
+      "steps": [
+        {
+          "step_id": "create_hatch_04",
+          "op": "add_hatch",
+          "args": {
+            "pattern_name": "ANSI32",
+            "associativity": true,
+            "layer": "DEMO-HATCH-B"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$hatch_04",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$hatch_04"
+            }
+          ]
+        },
+        {
+          "step_id": "bind_hatch_04",
+          "op": "hatch_add_boundary",
+          "args": {
+            "handle": "$hatch_04",
+            "boundary_handles": [
+              "$boundary_04"
+            ]
+          },
+          "writes": true,
+          "depends_on": [
+            "create_hatch_04"
+          ]
+        },
+        {
+          "step_id": "create_hatch_05",
+          "op": "add_hatch",
+          "args": {
+            "pattern_name": "ANSI32",
+            "associativity": true,
+            "layer": "DEMO-HATCH-B"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$hatch_05",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$hatch_05"
+            }
+          ]
+        },
+        {
+          "step_id": "bind_hatch_05",
+          "op": "hatch_add_boundary",
+          "args": {
+            "handle": "$hatch_05",
+            "boundary_handles": [
+              "$boundary_05"
+            ]
+          },
+          "writes": true,
+          "depends_on": [
+            "create_hatch_05"
+          ]
+        },
+        {
+          "step_id": "create_hatch_06",
+          "op": "add_hatch",
+          "args": {
+            "pattern_name": "ANSI32",
+            "associativity": true,
+            "layer": "DEMO-HATCH-B"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$hatch_06",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$hatch_06"
+            }
+          ]
+        },
+        {
+          "step_id": "bind_hatch_06",
+          "op": "hatch_add_boundary",
+          "args": {
+            "handle": "$hatch_06",
+            "boundary_handles": [
+              "$boundary_06"
+            ]
+          },
+          "writes": true,
+          "depends_on": [
+            "create_hatch_06"
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-annotations-v1-batch-01",
+      "description": "Add true dimensions, item leaders, and assembly technical requirements. (batch 1)",
+      "units": "mm",
+      "risk_level": "medium",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "dim_overall",
+          "op": "add_linear_dimension",
+          "args": {
+            "x1": 20.0,
+            "y1": 190.0,
+            "x2": 250.0,
+            "y2": 190.0,
+            "text_x": 135.0,
+            "text_y": 280.0,
+            "layer": "DEMO-DIM"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$dim_overall",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$dim_overall"
+            }
+          ]
+        },
+        {
+          "step_id": "dim_flange_od",
+          "op": "add_linear_dimension",
+          "args": {
+            "x1": 130.0,
+            "y1": 150.0,
+            "x2": 130.0,
+            "y2": 270.0,
+            "text_x": 12.0,
+            "text_y": 210.0,
+            "layer": "DEMO-DIM"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$dim_flange_od",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$dim_flange_od"
+            }
+          ]
+        },
+        {
+          "step_id": "dim_flange_od_text",
+          "op": "set_dimension_text_override",
+          "args": {
+            "handle": "$dim_flange_od",
+            "text": "%%c120"
+          },
+          "writes": true,
+          "depends_on": [
+            "dim_flange_od"
+          ]
+        },
+        {
+          "step_id": "dim_hub_od",
+          "op": "add_linear_dimension",
+          "args": {
+            "x1": 64.0,
+            "y1": 177.5,
+            "x2": 64.0,
+            "y2": 242.5,
+            "text_x": 48.0,
+            "text_y": 210.0,
+            "layer": "DEMO-DIM"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$dim_hub_od",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$dim_hub_od"
+            }
+          ]
+        },
+        {
+          "step_id": "dim_hub_od_text",
+          "op": "set_dimension_text_override",
+          "args": {
+            "handle": "$dim_hub_od",
+            "text": "%%c65"
+          },
+          "writes": true,
+          "depends_on": [
+            "dim_hub_od"
+          ]
+        },
+        {
+          "step_id": "dim_hub_length",
+          "op": "add_linear_dimension",
+          "args": {
+            "x1": 64.0,
+            "y1": 242.5,
+            "x2": 114.0,
+            "y2": 242.5,
+            "text_x": 89.0,
+            "text_y": 263.0,
+            "layer": "DEMO-DIM"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$dim_hub_length",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$dim_hub_length"
+            }
+          ]
+        },
+        {
+          "step_id": "dim_flange_thickness",
+          "op": "add_linear_dimension",
+          "args": {
+            "x1": 114.0,
+            "y1": 270.0,
+            "x2": 130.0,
+            "y2": 270.0,
+            "text_x": 122.0,
+            "text_y": 278.0,
+            "layer": "DEMO-DIM"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$dim_flange_thickness",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$dim_flange_thickness"
+            }
+          ]
+        },
+        {
+          "step_id": "dim_shaft",
+          "op": "add_diametric_dimension",
+          "args": {
+            "chord1_x": 65.0,
+            "chord1_y": 80.0,
+            "chord2_x": 105.0,
+            "chord2_y": 80.0,
+            "leader_length": 16.0,
+            "layer": "DEMO-DIM"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$dim_shaft",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$dim_shaft"
+            }
+          ]
+        },
+        {
+          "step_id": "dim_pcd",
+          "op": "add_diametric_dimension",
+          "args": {
+            "chord1_x": 40.0,
+            "chord1_y": 80.0,
+            "chord2_x": 130.0,
+            "chord2_y": 80.0,
+            "leader_length": 20.0,
+            "layer": "DEMO-DIM"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$dim_pcd",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$dim_pcd"
+            }
+          ]
+        },
+        {
+          "step_id": "dim_pcd_text",
+          "op": "set_dimension_text_override",
+          "args": {
+            "handle": "$dim_pcd",
+            "text": "4x %%c12 ON %%c90 PCD"
+          },
+          "writes": true,
+          "depends_on": [
+            "dim_pcd"
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-annotations-v1-batch-02",
+      "description": "Add true dimensions, item leaders, and assembly technical requirements. (batch 2)",
+      "units": "mm",
+      "risk_level": "medium",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "item_leader_01",
+          "op": "add_mleader",
+          "args": {
+            "text": "1",
+            "points": [
+              [
+                118.0,
+                260.0,
+                0.0
+              ],
+              [
+                88.0,
+                275.0,
+                0.0
+              ]
+            ],
+            "layer": "DEMO-CALLOUT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$item_leader_01",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$item_leader_01"
+            }
+          ]
+        },
+        {
+          "step_id": "item_leader_02",
+          "op": "add_mleader",
+          "args": {
+            "text": "2",
+            "points": [
+              [
+                35.0,
+                230.0,
+                0.0
+              ],
+              [
+                24.0,
+                250.0,
+                0.0
+              ]
+            ],
+            "layer": "DEMO-CALLOUT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$item_leader_02",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$item_leader_02"
+            }
+          ]
+        },
+        {
+          "step_id": "item_leader_03",
+          "op": "add_mleader",
+          "args": {
+            "text": "3",
+            "points": [
+              [
+                85.0,
+                236.0,
+                0.0
+              ],
+              [
+                58.0,
+                258.0,
+                0.0
+              ]
+            ],
+            "layer": "DEMO-CALLOUT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$item_leader_03",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$item_leader_03"
+            }
+          ]
+        },
+        {
+          "step_id": "item_leader_04",
+          "op": "add_mleader",
+          "args": {
+            "text": "4",
+            "points": [
+              [
+                130.0,
+                255.0,
+                0.0
+              ],
+              [
+                166.0,
+                275.0,
+                0.0
+              ]
+            ],
+            "layer": "DEMO-CALLOUT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$item_leader_04",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$item_leader_04"
+            }
+          ]
+        },
+        {
+          "step_id": "item_leader_05",
+          "op": "add_mleader",
+          "args": {
+            "text": "5",
+            "points": [
+              [
+                158.0,
+                255.0,
+                0.0
+              ],
+              [
+                192.0,
+                275.0,
+                0.0
+              ]
+            ],
+            "layer": "DEMO-CALLOUT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$item_leader_05",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$item_leader_05"
+            }
+          ]
+        },
+        {
+          "step_id": "item_leader_06",
+          "op": "add_mleader",
+          "args": {
+            "text": "6",
+            "points": [
+              [
+                148.0,
+                258.0,
+                0.0
+              ],
+              [
+                218.0,
+                266.0,
+                0.0
+              ]
+            ],
+            "layer": "DEMO-CALLOUT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$item_leader_06",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$item_leader_06"
+            }
+          ]
+        },
+        {
+          "step_id": "item_leader_07",
+          "op": "add_mleader",
+          "args": {
+            "text": "7",
+            "points": [
+              [
+                131.0,
+                262.0,
+                0.0
+              ],
+              [
+                238.0,
+                278.0,
+                0.0
+              ]
+            ],
+            "layer": "DEMO-CALLOUT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$item_leader_07",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$item_leader_07"
+            }
+          ]
+        },
+        {
+          "step_id": "item_leader_08",
+          "op": "add_mleader",
+          "args": {
+            "text": "8",
+            "points": [
+              [
+                145.0,
+                255.0,
+                0.0
+              ],
+              [
+                238.0,
+                250.0,
+                0.0
+              ]
+            ],
+            "layer": "DEMO-CALLOUT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$item_leader_08",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$item_leader_08"
+            }
+          ]
+        },
+        {
+          "step_id": "notes_heading",
+          "op": "draw_text",
+          "args": {
+            "text": "TECHNICAL REQUIREMENTS",
+            "insert_x": 278.0,
+            "insert_y": 183.0,
+            "height": 3.0,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$notes_heading",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$notes_heading"
+            }
+          ]
+        },
+        {
+          "step_id": "notes_body",
+          "op": "draw_mtext",
+          "args": {
+            "text": "1. DEMO - NOT FOR MANUFACTURE.\\P2. ASSEMBLE FLANGES WITH MATCH MARKS ALIGNED.\\P3. TIGHTEN M12 FASTENERS TO 70 N.m.\\P4. VERIFY SHAFT ALIGNMENT BEFORE OPERATION.",
+            "insert_x": 278.0,
+            "insert_y": 177.0,
+            "width": 120.0,
+            "height": 2.6,
+            "layer": "DEMO-TEXT"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$notes_body",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$notes_body"
+            }
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-bom-v1-header",
+      "description": "Create the BOM table and populate its title/header rows.",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "bom_table",
+          "op": "add_table",
+          "args": {
+            "insert_x": 278.0,
+            "insert_y": 282.0,
+            "rows": 10,
+            "columns": 6,
+            "row_height": 9.0,
+            "column_width": 20.0,
+            "layer": "DEMO-BOM"
+          },
+          "writes": true,
+          "depends_on": [],
+          "save_as": "$bom_table",
+          "postconditions": [
+            {
+              "type": "exists",
+              "target": "$bom_table"
+            }
+          ]
+        },
+        {
+          "step_id": "bom_r00_c00",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 0,
+            "col": 0,
+            "text": "BILL OF MATERIALS"
+          },
+          "writes": true,
+          "depends_on": [
+            "bom_table"
+          ]
+        },
+        {
+          "step_id": "bom_r01_c00",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 1,
+            "col": 0,
+            "text": "ITEM"
+          },
+          "writes": true,
+          "depends_on": [
+            "bom_table"
+          ]
+        },
+        {
+          "step_id": "bom_r01_c01",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 1,
+            "col": 1,
+            "text": "PART NO."
+          },
+          "writes": true,
+          "depends_on": [
+            "bom_table"
+          ]
+        },
+        {
+          "step_id": "bom_r01_c02",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 1,
+            "col": 2,
+            "text": "DESCRIPTION"
+          },
+          "writes": true,
+          "depends_on": [
+            "bom_table"
+          ]
+        },
+        {
+          "step_id": "bom_r01_c03",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 1,
+            "col": 3,
+            "text": "QTY"
+          },
+          "writes": true,
+          "depends_on": [
+            "bom_table"
+          ]
+        },
+        {
+          "step_id": "bom_r01_c04",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 1,
+            "col": 4,
+            "text": "MATERIAL"
+          },
+          "writes": true,
+          "depends_on": [
+            "bom_table"
+          ]
+        },
+        {
+          "step_id": "bom_r01_c05",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 1,
+            "col": 5,
+            "text": "REMARKS"
+          },
+          "writes": true,
+          "depends_on": [
+            "bom_table"
+          ]
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-bom-v1-rows-batch-01",
+      "description": "Populate the eight BOM item rows in bounded batches. (batch 1)",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {
+        "bom_table": "44B"
+      },
+      "steps": [
+        {
+          "step_id": "bom_r02_c00",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 2,
+            "col": 0,
+            "text": "1"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r02_c01",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 2,
+            "col": 1,
+            "text": "FC-001"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r02_c02",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 2,
+            "col": 2,
+            "text": "FLANGED HUB"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r02_c03",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 2,
+            "col": 3,
+            "text": "2"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r02_c04",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 2,
+            "col": 4,
+            "text": "C45"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r02_c05",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 2,
+            "col": 5,
+            "text": "MACHINED"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r03_c00",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 3,
+            "col": 0,
+            "text": "2"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r03_c01",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 3,
+            "col": 1,
+            "text": "REF-040"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r03_c02",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 3,
+            "col": 2,
+            "text": "SHAFT D40"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r03_c03",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 3,
+            "col": 3,
+            "text": "2"
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-bom-v1-rows-batch-02",
+      "description": "Populate the eight BOM item rows in bounded batches. (batch 2)",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {
+        "bom_table": "44B"
+      },
+      "steps": [
+        {
+          "step_id": "bom_r03_c04",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 3,
+            "col": 4,
+            "text": "C45"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r03_c05",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 3,
+            "col": 5,
+            "text": "REFERENCE"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r04_c00",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 4,
+            "col": 0,
+            "text": "3"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r04_c01",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 4,
+            "col": 1,
+            "text": "DIN-6885"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r04_c02",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 4,
+            "col": 2,
+            "text": "KEY 12x8x70"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r04_c03",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 4,
+            "col": 3,
+            "text": "2"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r04_c04",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 4,
+            "col": 4,
+            "text": "C45"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r04_c05",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 4,
+            "col": 5,
+            "text": "STANDARD"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r05_c00",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 5,
+            "col": 0,
+            "text": "4"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r05_c01",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 5,
+            "col": 1,
+            "text": "ISO-4017"
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-bom-v1-rows-batch-03",
+      "description": "Populate the eight BOM item rows in bounded batches. (batch 3)",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {
+        "bom_table": "44B"
+      },
+      "steps": [
+        {
+          "step_id": "bom_r05_c02",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 5,
+            "col": 2,
+            "text": "HEX BOLT M12"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r05_c03",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 5,
+            "col": 3,
+            "text": "4"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r05_c04",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 5,
+            "col": 4,
+            "text": "8.8"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r05_c05",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 5,
+            "col": 5,
+            "text": "STANDARD"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r06_c00",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 6,
+            "col": 0,
+            "text": "5"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r06_c01",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 6,
+            "col": 1,
+            "text": "ISO-4032"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r06_c02",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 6,
+            "col": 2,
+            "text": "HEX NUT M12"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r06_c03",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 6,
+            "col": 3,
+            "text": "4"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r06_c04",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 6,
+            "col": 4,
+            "text": "CLASS 8"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r06_c05",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 6,
+            "col": 5,
+            "text": "STANDARD"
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-bom-v1-rows-batch-04",
+      "description": "Populate the eight BOM item rows in bounded batches. (batch 4)",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {
+        "bom_table": "44B"
+      },
+      "steps": [
+        {
+          "step_id": "bom_r07_c00",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 7,
+            "col": 0,
+            "text": "6"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r07_c01",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 7,
+            "col": 1,
+            "text": "ISO-7089"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r07_c02",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 7,
+            "col": 2,
+            "text": "WASHER 12"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r07_c03",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 7,
+            "col": 3,
+            "text": "8"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r07_c04",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 7,
+            "col": 4,
+            "text": "STEEL"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r07_c05",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 7,
+            "col": 5,
+            "text": "STANDARD"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r08_c00",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 8,
+            "col": 0,
+            "text": "7"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r08_c01",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 8,
+            "col": 1,
+            "text": "FC-007"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r08_c02",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 8,
+            "col": 2,
+            "text": "GASKET D110"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r08_c03",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 8,
+            "col": 3,
+            "text": "1"
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-bom-v1-rows-batch-05",
+      "description": "Populate the eight BOM item rows in bounded batches. (batch 5)",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {
+        "bom_table": "44B"
+      },
+      "steps": [
+        {
+          "step_id": "bom_r08_c04",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 8,
+            "col": 4,
+            "text": "NBR"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r08_c05",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 8,
+            "col": 5,
+            "text": "CUT"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r09_c00",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 9,
+            "col": 0,
+            "text": "8"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r09_c01",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 9,
+            "col": 1,
+            "text": "DIN-127"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r09_c02",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 9,
+            "col": 2,
+            "text": "LOCK WASHER"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r09_c03",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 9,
+            "col": 3,
+            "text": "4"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r09_c04",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 9,
+            "col": 4,
+            "text": "SPRING"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "bom_r09_c05",
+          "op": "edit_table_cell",
+          "args": {
+            "table_handle": "$bom_table",
+            "row": 9,
+            "col": 5,
+            "text": "STANDARD"
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-layout-repair-v1",
+      "description": "Normalize the existing BOM table dimensions and text heights to reduce wrapping and remove note overlap.",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "format_existing_bom",
+          "op": "format_table",
+          "args": {
+            "table_handle": "44B",
+            "column_widths": [
+              12.0,
+              20.0,
+              32.0,
+              12.0,
+              20.0,
+              24.0
+            ],
+            "row_heights": [
+              10.0,
+              12.0,
+              9.0,
+              9.0,
+              9.0,
+              9.0,
+              9.0,
+              9.0,
+              9.0,
+              9.0
+            ],
+            "title_text_height": 4.0,
+            "header_text_height": 3.0,
+            "data_text_height": 2.5
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-layout-repair-v2",
+      "description": "Normalize the existing BOM and move technical requirements below the table.",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "format_existing_bom",
+          "op": "format_table",
+          "args": {
+            "table_handle": "44B",
+            "column_widths": [
+              12.0,
+              20.0,
+              32.0,
+              12.0,
+              20.0,
+              24.0
+            ],
+            "row_heights": [
+              10.0,
+              12.0,
+              9.0,
+              9.0,
+              9.0,
+              9.0,
+              9.0,
+              9.0,
+              9.0,
+              9.0
+            ],
+            "title_text_height": 4.0,
+            "header_text_height": 3.0,
+            "data_text_height": 2.5
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "move_notes_heading",
+          "op": "move_entity",
+          "args": {
+            "handle": "449",
+            "from_point": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "to_point": [
+              0.0,
+              -65.0,
+              0.0
+            ]
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "move_notes_body",
+          "op": "move_entity",
+          "args": {
+            "handle": "44A",
+            "from_point": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "to_point": [
+              0.0,
+              -65.0,
+              0.0
+            ]
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-presentation-repair-v3",
+      "description": "Clear dimension/title collisions, move the PCD callout inside the frame, and eliminate BOM word wrapping.",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "move_sheet_heading",
+          "op": "move_entity",
+          "args": {
+            "handle": "2B1",
+            "from_point": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "to_point": [
+              0.0,
+              -8.0,
+              0.0
+            ]
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "position_pcd_dimension_text",
+          "op": "set_dimension_text_position",
+          "args": {
+            "handle": "420",
+            "text_x": 38.0,
+            "text_y": 80.0
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "move_end_view_label",
+          "op": "move_entity",
+          "args": {
+            "handle": "2B3",
+            "from_point": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "to_point": [
+              24.0,
+              0.0,
+              0.0
+            ]
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "format_existing_bom",
+          "op": "format_table",
+          "args": {
+            "table_handle": "44B",
+            "column_widths": [
+              12.0,
+              22.0,
+              34.0,
+              10.0,
+              20.0,
+              22.0
+            ],
+            "row_heights": [
+              10.0,
+              10.0,
+              8.0,
+              8.0,
+              8.0,
+              8.0,
+              8.0,
+              8.0,
+              8.0,
+              8.0
+            ],
+            "title_text_height": 4.0,
+            "header_text_height": 2.2,
+            "data_text_height": 1.8
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-presentation-repair-v4",
+      "description": "Clear the remaining title collision, force the PCD text inside the frame, and eliminate BOM word wrapping.",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "move_sheet_heading",
+          "op": "move_entity",
+          "args": {
+            "handle": "2B1",
+            "from_point": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "to_point": [
+              0.0,
+              -6.0,
+              0.0
+            ]
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "position_pcd_dimension_text",
+          "op": "set_dimension_text_position",
+          "args": {
+            "handle": "420",
+            "text_x": 38.0,
+            "text_y": 80.0
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "format_existing_bom",
+          "op": "format_table",
+          "args": {
+            "table_handle": "44B",
+            "column_widths": [
+              12.0,
+              22.0,
+              34.0,
+              10.0,
+              20.0,
+              22.0
+            ],
+            "row_heights": [
+              8.0,
+              8.0,
+              6.0,
+              6.0,
+              6.0,
+              6.0,
+              6.0,
+              6.0,
+              6.0,
+              6.0
+            ],
+            "title_text_height": 3.0,
+            "header_text_height": 1.6,
+            "data_text_height": 1.2
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "plan_id": "readme-demo-presentation-repair-v5",
+      "description": "Remove the redundant sheet heading, place the PCD note in clear space, and eliminate remaining BOM wrapping.",
+      "units": "mm",
+      "risk_level": "low",
+      "requires_confirmation": true,
+      "variables": {},
+      "steps": [
+        {
+          "step_id": "remove_redundant_sheet_heading",
+          "op": "delete_entity",
+          "args": {
+            "handle": "2B1"
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "position_pcd_dimension_text",
+          "op": "set_dimension_text_position",
+          "args": {
+            "handle": "420",
+            "text_x": 46.0,
+            "text_y": 92.0
+          },
+          "writes": true,
+          "depends_on": []
+        },
+        {
+          "step_id": "format_existing_bom",
+          "op": "format_table",
+          "args": {
+            "table_handle": "44B",
+            "column_widths": [
+              10.0,
+              22.0,
+              32.0,
+              8.0,
+              18.0,
+              30.0
+            ],
+            "row_heights": [
+              8.0,
+              8.0,
+              6.0,
+              6.0,
+              6.0,
+              6.0,
+              6.0,
+              6.0,
+              6.0,
+              6.0
+            ],
+            "title_text_height": 3.0,
+            "header_text_height": 1.6,
+            "data_text_height": 1.2
+          },
+          "writes": true,
+          "depends_on": []
+        }
+      ],
+      "constraints": []
+    }
+  ]
+}

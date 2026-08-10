@@ -14,6 +14,19 @@ Default persisted prompt contract: `vlm_review_drawing/v3`.
 - Do not draw helper geometry, labels, arrows, or temporary marks into the DWG
   for VLM grounding.
 
+## Dual-Evidence Rule
+
+- Visual evidence answers what is visible, obscured, crowded, misaligned, or
+  illegible. Structured CAD evidence answers which exact handles, primitives,
+  semantic objects, dimensions, and constraints are involved.
+- Require agreement between these channels before promoting a finding. An
+  attractive visual explanation must not override contradictory handle or
+  topology evidence, and a structurally valid entity is not automatically
+  visually correct on the sheet.
+- Keep the baseline snapshot ID and source references immutable. After any
+  later repair, create a fresh snapshot and compare it with the baseline; never
+  reuse stale pixel mappings for a modified drawing.
+
 ## Workflow
 
 1. Call `export_view_image_with_mapping` with `include_overlay=true`.
@@ -93,6 +106,11 @@ Default persisted prompt contract: `vlm_review_drawing/v3`.
 13. Call `propose_repair_plan` or `propose_constraint_repair_plan` for selected
     validation, constraint, or VLM issues.
 14. Validate and dry-run any CADPlan before execution.
+15. If the selected finding is repaired and modification permission is not
+    already granted by the request, obtain it first. Then execute, rescan,
+    revalidate, create a new mapped snapshot, and compare structured and visual
+    before/after evidence. Limit automatic verify/repair cycles to two unless
+    the user explicitly asks to continue.
 
 Do not draw helper geometry or labels into the DWG for VLM grounding.
 Do not claim exact grounding when the snapshot returns limitations or low

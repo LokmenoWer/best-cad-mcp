@@ -14,6 +14,13 @@ cropped, or ambiguous. Prefer open-vocabulary labels such as
 `cover_like_component`, `bracket_like_component`, `shaft_like_component`, or a
 clearer domain label when the evidence supports it.
 
+Component naming must be supported by both visible shape cues and drawing
+context such as view type, neighboring features, centerlines, hole patterns,
+section hatching, dimensions, leaders, or BOM references. Familiar appearance
+alone is insufficient. Keep geometry extraction separate from naming, and do
+not infer true size, material, fit, tolerance, or manufacturing process unless
+the supplied structured context explicitly supports it.
+
 ## Required Output
 
 ```json
@@ -23,7 +30,6 @@ clearer domain label when the evidence supports it.
       "id": "hyp_1",
       "label": "flange_like_component",
       "confidence": 0.0,
-      "pixel_bbox": [0, 0, 1, 1],
       "view_type": "section_view",
       "evidence": [
         "visible evidence from the drawing"
@@ -41,9 +47,17 @@ clearer domain label when the evidence supports it.
 ## Evidence Rules
 
 - Every hypothesis must cite visible drawing evidence.
+- `pixel_bbox` is optional. Include it only when measured from the supplied
+  image; never emit a placeholder or full-image bbox merely to fill the field.
+- For coordinates measured from a tile, crop, or downscaled embedded image,
+  copy that image's returned `source_ref_template` unchanged into the
+  hypothesis so validation can rebase the coordinates correctly.
 - Use `missing_evidence` for absent signals such as hidden bolt patterns,
   incomplete views, cropped geometry, unclear text, or section-only context.
 - Use top-k hypotheses when several components fit the same evidence.
+- Distinguish one component seen in multiple views from several repeated
+  components. Use related feature IDs and missing evidence instead of silently
+  merging or duplicating hypotheses.
 - Keep geometry extraction separate from semantic naming. Do not invent CAD
   primitives, dimensions, materials, or manufacturing details.
 - If no component-level label is defensible, return an empty

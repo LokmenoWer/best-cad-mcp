@@ -62,6 +62,10 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["."]
+exclude = ["build*"]
+
+[tool.setuptools.package-data]
+prompts = ["*.md"]
 
 [build-system]
 requires = ["setuptools>=75.0", "wheel"]

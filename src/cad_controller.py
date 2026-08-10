@@ -480,7 +480,12 @@ class CADController:
         return self._save_drawing_with_retries(filepath)
 
     @require_document
-    def export_drawing(self, filepath: str, format_type: str = "PDF") -> Dict[str, Any]:
+    def export_drawing(self, filepath: str, format_type: str = "PDF",
+                       *, paper_size: str = "", fit_to_extents: bool = False,
+                       center_plot: bool = False,
+                       landscape: Optional[bool] = None,
+                       plot_window: Optional[List[float]] = None,
+                       custom_scale: Optional[float] = None) -> Dict[str, Any]:
         format_type = format_type.upper()
         valid = {"DWG", "DXF", "PDF", "DWF", "DGN", "FBX", "IGS", "SAT", "STL", "WMF", "BMP"}
         if format_type not in valid:
@@ -493,7 +498,15 @@ class CADController:
             elif format_type == "DXF":
                 self._export_with_selection_set(filepath, "DXF")
             elif format_type == "PDF":
-                self._export_pdf(filepath)
+                self._export_pdf(
+                    filepath,
+                    paper_size=paper_size,
+                    fit_to_extents=fit_to_extents,
+                    center_plot=center_plot,
+                    landscape=landscape,
+                    plot_window=plot_window,
+                    custom_scale=custom_scale,
+                )
             elif format_type == "DWF":
                 self._export_dwf(filepath)
             else:
@@ -502,7 +515,140 @@ class CADController:
         except Exception as e:
             return {"success": False, "message": f"导出失败: {e}"}
 
-    def _export_pdf(self, filepath: str) -> None:
+    @staticmethod
+    def _pdf_media_score(media_name: str, paper_size: str,
+                         landscape: Optional[bool]) -> int:
+        """Rank an AutoCAD canonical media name for a requested ISO size."""
+        requested = str(paper_size or "").strip().upper()
+        if not requested:
+            return -1
+        candidate = str(media_name or "")
+        upper = candidate.upper()
+        dimensions = {
+            "A0": (841, 1189),
+            "A1": (594, 841),
+            "A2": (420, 594),
+            "A3": (297, 420),
+            "A4": (210, 297),
+        }
+        score = 0
+        if requested in upper:
+            score += 100
+        dims = dimensions.get(requested)
+        if dims and all(str(value) in upper for value in dims):
+            score += 50
+        if score == 0:
+            return -1
+        if "ISO" in upper:
+            score += 5
+        if "FULL_BLEED" in upper or "FULL BLEED" in upper:
+            score += 2
+        if dims and landscape is not None:
+            portrait_pos = upper.find(str(dims[0]))
+            landscape_pos = upper.find(str(dims[1]))
+            if portrait_pos >= 0 and landscape_pos >= 0:
+                media_is_landscape = landscape_pos < portrait_pos
+                if media_is_landscape == bool(landscape):
+                    score += 10
+        return score
+
+    @staticmethod
+    def _capture_pdf_layout(layout) -> Dict[str, Any]:
+        previous: Dict[str, Any] = {}
+        for name in (
+            "CanonicalMediaName",
+            "PlotType",
+            "CenterPlot",
+            "UseStandardScale",
+            "StandardScale",
+            "CustomScale",
+            "PlotRotation",
+        ):
+            try:
+                previous[name] = getattr(layout, name)
+            except Exception:
+                pass
+        return previous
+
+    def _configure_pdf_layout(self, layout, *, paper_size: str,
+                              fit_to_extents: bool, center_plot: bool,
+                              landscape: Optional[bool],
+                              plot_window: Optional[List[float]],
+                              custom_scale: Optional[float]) -> None:
+        """Apply bounded PDF plot settings to the active AutoCAD layout."""
+        selected_media = ""
+        if paper_size:
+            try:
+                names = [str(item) for item in layout.GetCanonicalMediaNames()]
+            except Exception:
+                names = []
+            ranked = sorted(
+                (
+                    (self._pdf_media_score(name, paper_size, landscape), name)
+                    for name in names
+                ),
+                reverse=True,
+            )
+            if ranked and ranked[0][0] >= 0:
+                selected_media = ranked[0][1]
+                layout.CanonicalMediaName = selected_media
+
+        if plot_window:
+            if len(plot_window) != 4:
+                raise ValueError("plot_window must be [x1, y1, x2, y2].")
+            x1, y1, x2, y2 = (float(value) for value in plot_window)
+            if x2 <= x1 or y2 <= y1:
+                raise ValueError("plot_window must have positive width and height.")
+            # AcPlotType.acWindow = 4.
+            layout.PlotType = 4
+            layout.SetWindowToPlot(
+                to_variant_array([x1, y1]),
+                to_variant_array([x2, y2]),
+            )
+        elif fit_to_extents:
+            # AcPlotType.acExtents = 1; AcPlotScale.acScaleToFit = 0.
+            layout.PlotType = 1
+        if custom_scale is not None:
+            if float(custom_scale) <= 0:
+                raise ValueError("custom_scale must be positive.")
+            layout.UseStandardScale = False
+            layout.CustomScale = float(custom_scale)
+        elif plot_window or fit_to_extents:
+            layout.UseStandardScale = True
+            layout.StandardScale = 0
+        if center_plot:
+            layout.CenterPlot = True
+        if landscape is not None:
+            dims = {
+                "A0": (841, 1189),
+                "A1": (594, 841),
+                "A2": (420, 594),
+                "A3": (297, 420),
+                "A4": (210, 297),
+            }.get(str(paper_size or "").strip().upper())
+            media_upper = selected_media.upper()
+            media_is_landscape = False
+            if dims:
+                portrait_pos = media_upper.find(str(dims[0]))
+                landscape_pos = media_upper.find(str(dims[1]))
+                if portrait_pos >= 0 and landscape_pos >= 0:
+                    media_is_landscape = landscape_pos < portrait_pos
+            layout.PlotRotation = 0 if media_is_landscape == bool(landscape) else 1
+
+    @staticmethod
+    def _restore_pdf_layout(layout, previous: Dict[str, Any]) -> None:
+        for name, value in previous.items():
+            try:
+                setattr(layout, name, value)
+            except Exception:
+                pass
+
+    def _export_pdf(self, filepath: str, *, paper_size: str = "",
+                    fit_to_extents: bool = False,
+                    center_plot: bool = False,
+                    landscape: Optional[bool] = None,
+                    plot_window: Optional[List[float]] = None,
+                    custom_scale: Optional[float] = None) -> None:
         self._ensure_export_parent(filepath)
         plotters = [
             "DWG To PDF.pc3",
@@ -512,12 +658,14 @@ class CADController:
         layout = getattr(self.doc, "ActiveLayout", None)
         previous_config = None
         has_previous_config = False
+        previous_layout: Dict[str, Any] = {}
         if layout is not None:
             try:
                 previous_config = layout.ConfigName
                 has_previous_config = True
             except Exception:
                 pass
+            previous_layout = self._capture_pdf_layout(layout)
 
         old_vars = {}
         for name, value in {"BACKGROUNDPLOT": 0, "FILEDIA": 0, "CMDDIA": 0}.items():
@@ -536,6 +684,15 @@ class CADController:
                             try:
                                 layout.ConfigName = plotter
                                 layout.RefreshPlotDeviceInfo()
+                                self._configure_pdf_layout(
+                                    layout,
+                                    paper_size=paper_size,
+                                    fit_to_extents=fit_to_extents,
+                                    center_plot=center_plot,
+                                    landscape=landscape,
+                                    plot_window=plot_window,
+                                    custom_scale=custom_scale,
+                                )
                             except Exception:
                                 pass
                         try:
@@ -564,8 +721,11 @@ class CADController:
             if layout is not None and has_previous_config:
                 try:
                     layout.ConfigName = previous_config
+                    layout.RefreshPlotDeviceInfo()
                 except Exception:
                     pass
+            if layout is not None and previous_layout:
+                self._restore_pdf_layout(layout, previous_layout)
 
     def _export_dwf(self, filepath: str) -> None:
         plotters = [
@@ -1123,6 +1283,51 @@ class CADController:
         pt = to_variant_point(*insert_point)
         table = self.doc.ModelSpace.AddTable(pt, rows, cols, row_height, col_width)
         return table
+
+    @require_document
+    def format_table(self, handle: str,
+                     column_widths: Optional[List[float]] = None,
+                     row_heights: Optional[List[float]] = None,
+                     title_text_height: Optional[float] = None,
+                     header_text_height: Optional[float] = None,
+                     data_text_height: Optional[float] = None) -> Dict[str, Any]:
+        """Apply explicit dimensions and text heights to an existing table."""
+        try:
+            table = self.doc.HandleToObject(handle)
+            widths = list(column_widths or [])
+            heights = list(row_heights or [])
+            if any(float(value) <= 0 for value in widths + heights):
+                raise ValueError("Table column widths and row heights must be positive.")
+            for index, value in enumerate(widths):
+                table.SetColumnWidth(index, float(value))
+            for index, value in enumerate(heights):
+                table.SetRowHeight(index, float(value))
+            # AutoCAD AcRowType: title=1, header=2, data=4.
+            for row_type, value in (
+                (1, title_text_height),
+                (2, header_text_height),
+                (4, data_text_height),
+            ):
+                if value is not None:
+                    if float(value) <= 0:
+                        raise ValueError("Table text heights must be positive.")
+                    table.SetTextHeight(row_type, float(value))
+            try:
+                table.Update()
+            except Exception:
+                pass
+            return {
+                "success": True,
+                "message": f"Formatted table {handle}",
+                "handle": str(handle),
+                "column_widths": widths,
+                "row_heights": heights,
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": f"Failed to format table {handle}: {exc}",
+            }
 
     # ── Dimensioning ────────────────────────────────────────
 
@@ -4644,21 +4849,21 @@ class CADController:
 
     @require_document
     def get_active_space(self) -> Dict[str, Any]:
-        """Get active space (0=Model, 1=Paper)."""
+        """Get active space (0=Paper, 1=Model)."""
         try:
             space = self.doc.ActiveSpace
             return {"active_space": space,
-                    "name": "模型空间" if space == 0 else "图纸空间"}
+                    "name": "模型空间" if space == 1 else "图纸空间"}
         except Exception as e:
             return {"error": str(e)}
 
     @require_document
     def set_active_space(self, space: int) -> Dict[str, Any]:
-        """Set active space. 0=Model, 1=Paper."""
+        """Set active space. 0=Paper, 1=Model."""
         try:
             self.doc.ActiveSpace = space
             return {"success": True,
-                    "message": f"已切换到{'模型空间' if space==0 else '图纸空间'}"}
+                    "message": f"已切换到{'模型空间' if space==1 else '图纸空间'}"}
         except Exception as e:
             return {"success": False, "message": f"切换空间失败: {e}"}
 

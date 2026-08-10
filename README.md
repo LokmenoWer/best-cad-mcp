@@ -12,7 +12,7 @@
 Inspect a DWG, reason over structured geometry, plan guarded edits, validate the
 result, and export visual evidence without hiding agent state inside the drawing.
 
-[简体中文](https://github.com/LokmenoWer/best-cad-mcp/blob/master/README.zh-CN.md) · [Install](#quick-start) · [Workflow](#the-guarded-workflow) · [Tool profiles](#tool-profiles) · [Safety](#safety-model)
+[简体中文](https://github.com/LokmenoWer/best-cad-mcp/blob/master/README.zh-CN.md) · [Live demo](#live-autocad-demo) · [Install](#quick-start) · [Workflow](#the-guarded-workflow) · [Tool profiles](#tool-profiles) · [Safety](#safety-model)
 
 ![Three-view mechanical drawing of a flanged bearing housing](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/complex-part-three-view.svg)
 
@@ -41,6 +41,44 @@ MCP stdio. It runs natively on the official MCP Python SDK 2.x, negotiates the
 source of truth; SQLite stores model-private context, scan results, and review
 artifacts alongside the workspace. AutoCAD-facing tool calls are intentionally
 serialized on one event-loop thread to preserve COM apartment safety.
+
+## Live AutoCAD demo
+
+> **Prompt:** Create a production-style A3 landscape bolted flange-coupling
+> assembly drawing at true 1:1 size, with a longitudinal half-section, aligned
+> end view, exploded schematic, true dimensions, differentiated hatching, an
+> eight-item BOM, matching item leaders, technical requirements, and a
+> controlled title block.
+
+![Bolted flange-coupling assembly generated in a live AutoCAD session](docs/images/live-flange-coupling-demo.png)
+
+This is the result of a live AutoCAD session, not a hand-authored SVG. The MCP
+client loaded the shipped `precise_draw_from_spec` prompt, then ran 18 bounded
+generation phases (162 steps). Its autonomous visual-repair loop used two
+layout-repair plans (4 steps); three separately recorded, operator-authorized
+presentation-only release-QA plans added 10 steps. Every plan was validated and
+dry-run before transactional execution. The final
+rescan indexed 91 entities; structured verification detected 129 semantic
+objects, processed 7 true dimension annotations, and checked 134 constraints
+(127 satisfied, 7 unknown, and none violated). Post-repair geometry validation reported zero
+issues. The release plot was independently checked as a one-page landscape A3
+PDF.
+
+For reproducibility, the checked-in MCP client builds the deterministic
+CADPlans used for this recorded run. The demo shows live execution of the
+optimized prompt's guarded workflow, not an unscripted one-shot LLM
+generation.
+
+[DXF](examples/live-flange-coupling-demo/flange-coupling-assembly-final.DXF)
+· [A3 PDF](examples/live-flange-coupling-demo/flange-coupling-assembly-readme-demo.pdf)
+· [Exact prompt](examples/live-flange-coupling-demo/prompt.md)
+· [CADPlan bundle](examples/live-flange-coupling-demo/cadplans.json)
+· [Verification report](examples/live-flange-coupling-demo/verification-report.json)
+· [MCP client](examples/live-flange-coupling-demo/generate_demo.py)
+
+The drawing follows the repository's generic mechanical assembly practice and
+is marked `DEMO - NOT FOR MANUFACTURE`; it does not claim formal ISO, GB, ASME,
+or other standards compliance.
 
 ## Quick start
 
@@ -177,9 +215,9 @@ backward compatibility.
 
 | Profile | Tools | Intended use |
 | --- | ---: | --- |
-| `lean` | 113 | Smallest dependable surface for common drawing and inspection tasks |
-| `core` | 210 | Recommended default for full guarded CAD workflows |
-| `full` | 321 | Every registered tool, including specialized and legacy operations |
+| `lean` | 114 | Smallest dependable surface for common drawing and inspection tasks |
+| `core` | 215 | Recommended default for full guarded CAD workflows |
+| `full` | 322 | Every registered tool, including specialized and legacy operations |
 
 Select a profile with `CAD_MCP_TOOL_PROFILE=lean|core|full`. Fine-grained
 allow/deny controls are also available through

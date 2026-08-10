@@ -30,13 +30,27 @@ def get_document_info() -> str:
     return json.dumps(info, indent=2, ensure_ascii=False, default=str)
 
 
-def export_pdf(filepath: str) -> str:
+def export_pdf(filepath: str, paper_size: str = "",
+               fit_to_extents: bool = False,
+               center_plot: bool = False,
+               landscape: Optional[bool] = None,
+               plot_window: Optional[List[float]] = None,
+               custom_scale: Optional[float] = None) -> str:
     """将当前图纸导出为 PDF 文件。
 
     Args:
         filepath: PDF 文件保存路径（如 C:/output/drawing.pdf）
     """
-    r = ctrl.export_drawing(filepath, "PDF")
+    r = ctrl.export_drawing(
+        filepath,
+        "PDF",
+        paper_size=paper_size,
+        fit_to_extents=fit_to_extents,
+        center_plot=center_plot,
+        landscape=landscape,
+        plot_window=plot_window,
+        custom_scale=custom_scale,
+    )
     return r["message"]
 
 
