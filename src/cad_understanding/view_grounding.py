@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import math
 import re
@@ -34,6 +35,7 @@ from .common import (
 from .result import ToolResult, error_result, ok_result
 
 DEFAULT_IMAGE_SIZE = (1600, 1000)
+AUTOCAD_WMF_SELECTION_FRAME_PADDING_RATIO = 0.00375
 SNAPSHOT_SCHEMA_VERSION = "cad-view-snapshot/v3"
 OVERLAY_SIDECAR_SCHEMA_VERSION = "cad-overlay-items/v2"
 TILE_INDEX_SCHEMA_VERSION = "cad-view-tiles/v2"
@@ -281,11 +283,13 @@ def _read_wmf_size(filepath: str) -> Optional[Tuple[int, int]]:
         magic = int.from_bytes(header[:4], "little")
         if magic != 0x9AC6CDD7:
             return None
-        left = int.from_bytes(header[2:4], "little", signed=True)
-        top = int.from_bytes(header[4:6], "little", signed=True)
-        right = int.from_bytes(header[6:8], "little", signed=True)
-        bottom = int.from_bytes(header[8:10], "little", signed=True)
-        units_per_inch = int.from_bytes(header[10:12], "little") or 96
+        # Aldus Placeable Metafile header layout:
+        # key[0:4], hmf[4:6], bbox left/top/right/bottom[6:14], inch[14:16].
+        left = int.from_bytes(header[6:8], "little", signed=True)
+        top = int.from_bytes(header[8:10], "little", signed=True)
+        right = int.from_bytes(header[10:12], "little", signed=True)
+        bottom = int.from_bytes(header[12:14], "little", signed=True)
+        units_per_inch = int.from_bytes(header[14:16], "little") or 96
         width = int(abs(right - left) * 96 / units_per_inch)
         height = int(abs(bottom - top) * 96 / units_per_inch)
         if width > 0 and height > 0:
@@ -299,12 +303,18 @@ def _try_convert_wmf_to_raster(wmf_path: Path) -> Optional[Path]:
     """Convert a WMF file to PNG using available system tools.
 
     Tries ImageMagick (magick/convert), then wand, then Inkscape, then
-    LibreOffice (soffice). Returns the PNG path on success, None if all
-    attempts fail.
+    LibreOffice (soffice), and finally Windows GDI+ through PowerShell.
+    Returns the PNG path on success, None if all attempts fail.
     """
     png_path = wmf_path.with_suffix(".png")
 
-    magick = shutil.which("magick") or shutil.which("convert")
+    magick = shutil.which("magick")
+    if not magick:
+        convert_candidate = shutil.which("convert")
+        # Windows ships system32\convert.exe for filesystem conversion; it is
+        # unrelated to ImageMagick and must never receive image paths.
+        if convert_candidate and "system32" not in convert_candidate.lower():
+            magick = convert_candidate
     if magick:
         try:
             result = subprocess.run(
@@ -348,6 +358,73 @@ def _try_convert_wmf_to_raster(wmf_path: Path) -> Optional[Path]:
             result = subprocess.run(
                 [soffice, "--headless", "--convert-to", "png", "--outdir",
                  str(png_path.parent), str(wmf_path)],
+                capture_output=True,
+                timeout=45,
+            )
+            if result.returncode == 0 and png_path.exists() and png_path.stat().st_size > 0:
+                return png_path
+        except Exception:
+            pass
+
+    # AutoCAD's COM export is most reliable as WMF on Windows.  GDI+ can
+    # rasterize that native vector artifact without requiring a separate
+    # graphics package, so keep it as the final Windows-only fallback.
+    powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+    if powershell:
+        script = r"""
+& {
+param([string]$SourcePath, [string]$TargetPath)
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+$metafile = [System.Drawing.Imaging.Metafile]::FromFile($SourcePath)
+try {
+    $sourceWidth = [Math]::Max(1, [int]$metafile.Width)
+    $sourceHeight = [Math]::Max(1, [int]$metafile.Height)
+    # Placeable WMFs report logical-unit dimensions that can be tens of
+    # thousands of units wide.  Scale both up and down to a bounded raster.
+    $scale = [Math]::Max(0.01, [Math]::Min(4.0, 2400.0 / [Math]::Max($sourceWidth, $sourceHeight)))
+    $width = [Math]::Max(1, [int][Math]::Round($sourceWidth * $scale))
+    $height = [Math]::Max(1, [int][Math]::Round($sourceHeight * $scale))
+    $bitmap = New-Object System.Drawing.Bitmap($width, $height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    try {
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        try {
+            $graphics.Clear([System.Drawing.Color]::White)
+            $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+            $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $destination = [System.Drawing.Rectangle]::FromLTRB(0, 0, $width, $height)
+            $graphics.DrawImage($metafile, $destination)
+        }
+        finally {
+            $graphics.Dispose()
+        }
+        $bitmap.Save($TargetPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    finally {
+        $bitmap.Dispose()
+    }
+}
+finally {
+    $metafile.Dispose()
+}
+}
+"""
+        try:
+            source_literal = str(wmf_path.resolve()).replace("'", "''")
+            target_literal = str(png_path.resolve()).replace("'", "''")
+            invocation = script.rstrip() + f" '{source_literal}' '{target_literal}'"
+            encoded_command = base64.b64encode(
+                invocation.encode("utf-16-le")
+            ).decode("ascii")
+            result = subprocess.run(
+                [
+                    powershell,
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-EncodedCommand",
+                    encoded_command,
+                ],
                 capture_output=True,
                 timeout=45,
             )
@@ -1454,6 +1531,16 @@ def _view_from_extent(extent: BBox,
     }
 
 
+def _expand_extent_proportionally(extent: BBox,
+                                  padding_ratio: float) -> BBox:
+    """Expand each axis by its own size, preserving the source aspect ratio."""
+    min_x, min_y, max_x, max_y = [float(value) for value in extent]
+    ratio = max(float(padding_ratio), 0.0)
+    pad_x = max(max_x - min_x, 1.0) * ratio
+    pad_y = max(max_y - min_y, 1.0) * ratio
+    return min_x - pad_x, min_y - pad_y, max_x + pad_x, max_y + pad_y
+
+
 def get_current_view_context(filepath: Optional[str] = None,
                              image_size: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
     """Read the current AutoCAD view through tool/controller layers when available."""
@@ -1551,8 +1638,9 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
             vlm_ready = True
         else:
             vlm_blocked_reason = (
-                "AutoCAD exported WMF and no WMF→PNG converter is installed "
-                "(ImageMagick, wand, Inkscape, or LibreOffice). VLM APIs cannot read WMF."
+                "AutoCAD exported WMF and no WMF-to-PNG conversion path succeeded "
+                "(Windows GDI+, ImageMagick, wand, Inkscape, or LibreOffice). "
+                "VLM APIs cannot read WMF."
             )
             warnings.append(
                 vlm_blocked_reason
@@ -1591,10 +1679,23 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     scanned_extent = _scanned_entity_extent(db)
     mapping_view_source = "current_autocad_view"
     if path.suffix.lower() == ".wmf" and scanned_extent:
-        context["view"] = _view_from_extent(scanned_extent, image_width, image_height)
+        # Document.Export(..., "WMF", selection_set) fits the selected entity
+        # extents into a frame with a small proportional margin.  The previous
+        # generic 8% viewport padding caused the large radial VLM offset; zero
+        # padding still leaves a 3-4 px residual at README resolution.
+        wmf_extent = _expand_extent_proportionally(
+            scanned_extent,
+            AUTOCAD_WMF_SELECTION_FRAME_PADDING_RATIO,
+        )
+        context["view"] = _view_from_extent(
+            wmf_extent,
+            image_width,
+            image_height,
+            padding_ratio=0.0,
+        )
         mapping_view_source = "scanned_entity_extent_for_wmf_export"
         warnings.append(
-            "WMF export uses AutoCAD selection-set extents; mapping was derived from scanned entity extents."
+            "WMF selection-set export mapping was derived from scanned entity extents with only AutoCAD's calibrated proportional frame margin."
         )
     transform = compute_view_transform(
         context["view"],
@@ -1611,7 +1712,20 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
             db, transform["world_extent"], transform["world_to_pixel"]
         )
         if not visible_handles and scanned_extent:
-            context["view"] = _view_from_extent(scanned_extent, image_width, image_height)
+            fallback_extent = (
+                _expand_extent_proportionally(
+                    scanned_extent,
+                    AUTOCAD_WMF_SELECTION_FRAME_PADDING_RATIO,
+                )
+                if path.suffix.lower() == ".wmf"
+                else scanned_extent
+            )
+            context["view"] = _view_from_extent(
+                fallback_extent,
+                image_width,
+                image_height,
+                padding_ratio=0.0 if path.suffix.lower() == ".wmf" else 0.08,
+            )
             transform = compute_view_transform(
                 context["view"],
                 image_width,

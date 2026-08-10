@@ -754,16 +754,28 @@ def resolve_trace_image(image_id: Optional[str] = None,
 
 def vision_capabilities() -> Dict[str, Any]:
     """Report whether the server can show images to the model, and how."""
+    import sys
+
     pil = _pillow()
+    imagemagick = _which_any(["magick"]) or (
+        sys.platform != "win32" and _which_any(["convert"])
+    )
     converters = {
-        "imagemagick": _which_any(["magick", "convert"]),
+        "imagemagick": imagemagick,
         "inkscape": _which_any(["inkscape"]),
         "libreoffice": _which_any(["soffice", "libreoffice"]),
         "wand": _module_available("wand"),
+        "windows_gdi": (
+            sys.platform == "win32"
+            and _which_any(["powershell.exe", "powershell"])
+        ),
         "pillow": pil is not None,
     }
     wmf_ready = any(
-        converters[name] for name in ("imagemagick", "inkscape", "libreoffice", "wand")
+        converters[name]
+        for name in (
+            "imagemagick", "inkscape", "libreoffice", "wand", "windows_gdi"
+        )
     )
     return {
         "direct_vision": True,

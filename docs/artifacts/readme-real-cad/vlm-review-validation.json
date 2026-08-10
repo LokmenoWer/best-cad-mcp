@@ -1,0 +1,333 @@
+{
+  "is_error": false,
+  "structured_content": {
+    "result": {
+      "ok": true,
+      "message": "Validated 4 VLM finding(s).",
+      "data": {
+        "findings": [
+          {
+            "finding_id": "readme-vlm-central-bore",
+            "snapshot_id": "snapshot_a43d200c4527a4f7",
+            "issue_type": "recognized_central_bore",
+            "severity": "info",
+            "confidence": 0.99,
+            "overlay_id": "",
+            "bbox": [
+              640.0,
+              236.0,
+              830.0,
+              426.0
+            ],
+            "claimed_handles": [],
+            "semantic_type": "circular_bore",
+            "source_ref": {
+              "schema_version": "VisualSourceRef/v1",
+              "snapshot_id": "snapshot_a43d200c4527a4f7",
+              "coordinate_space": "snapshot_global"
+            },
+            "coordinate_normalization": {},
+            "evidence": {
+              "observation": "The front view has a clear central circular bore inside two concentric flange steps.",
+              "visible_features": [
+                "continuous circular outline",
+                "shared cyan centerlines",
+                "concentric stepped rings"
+              ]
+            },
+            "raw_finding": {
+              "finding_id": "readme-vlm-central-bore",
+              "issue_type": "recognized_central_bore",
+              "severity": "info",
+              "confidence": 0.99,
+              "semantic_type": "circular_bore",
+              "bbox": [
+                640.0,
+                236.0,
+                830.0,
+                426.0
+              ],
+              "evidence": {
+                "observation": "The front view has a clear central circular bore inside two concentric flange steps.",
+                "visible_features": [
+                  "continuous circular outline",
+                  "shared cyan centerlines",
+                  "concentric stepped rings"
+                ]
+              },
+              "source_ref": {
+                "schema_version": "VisualSourceRef/v1",
+                "snapshot_id": "snapshot_a43d200c4527a4f7",
+                "coordinate_space": "snapshot_global"
+              }
+            }
+          },
+          {
+            "finding_id": "readme-vlm-mounting-slot",
+            "snapshot_id": "snapshot_a43d200c4527a4f7",
+            "issue_type": "recognized_mounting_slot",
+            "severity": "info",
+            "confidence": 0.96,
+            "overlay_id": "",
+            "bbox": [
+              440.0,
+              1033.0,
+              487.0,
+              1080.0
+            ],
+            "claimed_handles": [],
+            "semantic_type": "closed_profile",
+            "source_ref": {
+              "schema_version": "VisualSourceRef/v1",
+              "snapshot_id": "snapshot_a43d200c4527a4f7",
+              "coordinate_space": "snapshot_global"
+            },
+            "coordinate_normalization": {},
+            "evidence": {
+              "observation": "The top view shows a rounded mounting slot composed of two straight sides and two semicircular ends.",
+              "visible_features": [
+                "closed obround contour",
+                "one of four symmetric base slots"
+              ]
+            },
+            "raw_finding": {
+              "finding_id": "readme-vlm-mounting-slot",
+              "issue_type": "recognized_mounting_slot",
+              "severity": "info",
+              "confidence": 0.96,
+              "semantic_type": "closed_profile",
+              "bbox": [
+                440.0,
+                1033.0,
+                487.0,
+                1080.0
+              ],
+              "evidence": {
+                "observation": "The top view shows a rounded mounting slot composed of two straight sides and two semicircular ends.",
+                "visible_features": [
+                  "closed obround contour",
+                  "one of four symmetric base slots"
+                ]
+              },
+              "source_ref": {
+                "schema_version": "VisualSourceRef/v1",
+                "snapshot_id": "snapshot_a43d200c4527a4f7",
+                "coordinate_space": "snapshot_global"
+              }
+            }
+          },
+          {
+            "finding_id": "readme-vlm-section-hatch",
+            "snapshot_id": "snapshot_a43d200c4527a4f7",
+            "issue_type": "recognized_section_hatch",
+            "severity": "info",
+            "confidence": 0.98,
+            "overlay_id": "",
+            "bbox": [
+              1478.0,
+              145.0,
+              1858.0,
+              290.0
+            ],
+            "claimed_handles": [],
+            "semantic_type": "hatch",
+            "source_ref": {
+              "schema_version": "VisualSourceRef/v1",
+              "snapshot_id": "snapshot_a43d200c4527a4f7",
+              "coordinate_space": "snapshot_global"
+            },
+            "coordinate_normalization": {},
+            "evidence": {
+              "observation": "The right-side A-A view contains an ANSI31-style hatched upper material region around the stepped bearing seat.",
+              "visible_features": [
+                "parallel diagonal hatch strokes",
+                "sectioned solid boundary",
+                "central unhatched bore"
+              ]
+            },
+            "raw_finding": {
+              "finding_id": "readme-vlm-section-hatch",
+              "issue_type": "recognized_section_hatch",
+              "severity": "info",
+              "confidence": 0.98,
+              "semantic_type": "hatch",
+              "bbox": [
+                1478.0,
+                145.0,
+                1858.0,
+                290.0
+              ],
+              "evidence": {
+                "observation": "The right-side A-A view contains an ANSI31-style hatched upper material region around the stepped bearing seat.",
+                "visible_features": [
+                  "parallel diagonal hatch strokes",
+                  "sectioned solid boundary",
+                  "central unhatched bore"
+                ]
+              },
+              "source_ref": {
+                "schema_version": "VisualSourceRef/v1",
+                "snapshot_id": "snapshot_a43d200c4527a4f7",
+                "coordinate_space": "snapshot_global"
+              }
+            }
+          },
+          {
+            "finding_id": "readme-vlm-title-block",
+            "snapshot_id": "snapshot_a43d200c4527a4f7",
+            "issue_type": "recognized_title_block",
+            "severity": "info",
+            "confidence": 0.99,
+            "overlay_id": "",
+            "bbox": [
+              1312.0,
+              908.0,
+              2087.0,
+              1243.0
+            ],
+            "claimed_handles": [],
+            "semantic_type": "title_block",
+            "source_ref": {
+              "schema_version": "VisualSourceRef/v1",
+              "snapshot_id": "snapshot_a43d200c4527a4f7",
+              "coordinate_space": "snapshot_global"
+            },
+            "coordinate_normalization": {},
+            "evidence": {
+              "observation": "The lower-right title block identifies a flanged bearing housing, drawing MCP-REAL-001, revision A, material QT500-7, scale 1:1, and millimetre units.",
+              "visible_features": [
+                "bordered title block",
+                "drawing and revision cells",
+                "material, scale, and units fields"
+              ]
+            },
+            "raw_finding": {
+              "finding_id": "readme-vlm-title-block",
+              "issue_type": "recognized_title_block",
+              "severity": "info",
+              "confidence": 0.99,
+              "semantic_type": "title_block",
+              "bbox": [
+                1312.0,
+                908.0,
+                2087.0,
+                1243.0
+              ],
+              "evidence": {
+                "observation": "The lower-right title block identifies a flanged bearing housing, drawing MCP-REAL-001, revision A, material QT500-7, scale 1:1, and millimetre units.",
+                "visible_features": [
+                  "bordered title block",
+                  "drawing and revision cells",
+                  "material, scale, and units fields"
+                ]
+              },
+              "source_ref": {
+                "schema_version": "VisualSourceRef/v1",
+                "snapshot_id": "snapshot_a43d200c4527a4f7",
+                "coordinate_space": "snapshot_global"
+              }
+            }
+          }
+        ],
+        "rejected_findings": [],
+        "snapshot_id": "snapshot_a43d200c4527a4f7",
+        "available_overlay_ids": [
+          "E001",
+          "E002",
+          "E003",
+          "E004",
+          "E005",
+          "E006",
+          "E007",
+          "E008",
+          "E009",
+          "E010",
+          "E011",
+          "E012",
+          "E013",
+          "E014",
+          "E015",
+          "E016",
+          "E017",
+          "E018",
+          "E019",
+          "E020",
+          "E021",
+          "E022",
+          "E023",
+          "E024",
+          "E025",
+          "E026",
+          "E027",
+          "E028",
+          "E029",
+          "E030",
+          "E031",
+          "E032",
+          "E033",
+          "E034",
+          "E035",
+          "E036",
+          "E037",
+          "E038",
+          "E039",
+          "E040",
+          "E041",
+          "E042",
+          "E043",
+          "E044",
+          "E045",
+          "E046",
+          "E047",
+          "E048",
+          "E049",
+          "E050",
+          "E051",
+          "E052",
+          "E053",
+          "E054",
+          "E055",
+          "E056",
+          "E057",
+          "E058",
+          "E059",
+          "E060",
+          "E061",
+          "E062",
+          "E063",
+          "E064",
+          "E065",
+          "E066",
+          "E067",
+          "E068",
+          "E069",
+          "E070",
+          "E071",
+          "E072",
+          "E073",
+          "E074",
+          "E075",
+          "E076",
+          "E077",
+          "E078",
+          "E079",
+          "E080",
+          "E081"
+        ]
+      },
+      "handles": [],
+      "warnings": [],
+      "next_tools": [
+        "submit_vlm_review",
+        "ground_vlm_region",
+        "ground_vlm_overlay_id"
+      ]
+    }
+  },
+  "content": [
+    {
+      "type": "text",
+      "text": "{\n  \"ok\": true,\n  \"message\": \"Validated 4 VLM finding(s).\",\n  \"data\": {\n    \"findings\": [\n      {\n        \"finding_id\": \"readme-vlm-central-bore\",\n        \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n        \"issue_type\": \"recognized_central_bore\",\n        \"severity\": \"info\",\n        \"confidence\": 0.99,\n        \"overlay_id\": \"\",\n        \"bbox\": [\n          640.0,\n          236.0,\n          830.0,\n          426.0\n        ],\n        \"claimed_handles\": [],\n        \"semantic_type\": \"circular_bore\",\n        \"source_ref\": {\n          \"schema_version\": \"VisualSourceRef/v1\",\n          \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n          \"coordinate_space\": \"snapshot_global\"\n        },\n        \"coordinate_normalization\": {},\n        \"evidence\": {\n          \"observation\": \"The front view has a clear central circular bore inside two concentric flange steps.\",\n          \"visible_features\": [\n            \"continuous circular outline\",\n            \"shared cyan centerlines\",\n            \"concentric stepped rings\"\n          ]\n        },\n        \"raw_finding\": {\n          \"finding_id\": \"readme-vlm-central-bore\",\n          \"issue_type\": \"recognized_central_bore\",\n          \"severity\": \"info\",\n          \"confidence\": 0.99,\n          \"semantic_type\": \"circular_bore\",\n          \"bbox\": [\n            640.0,\n            236.0,\n            830.0,\n            426.0\n          ],\n          \"evidence\": {\n            \"observation\": \"The front view has a clear central circular bore inside two concentric flange steps.\",\n            \"visible_features\": [\n              \"continuous circular outline\",\n              \"shared cyan centerlines\",\n              \"concentric stepped rings\"\n            ]\n          },\n          \"source_ref\": {\n            \"schema_version\": \"VisualSourceRef/v1\",\n            \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n            \"coordinate_space\": \"snapshot_global\"\n          }\n        }\n      },\n      {\n        \"finding_id\": \"readme-vlm-mounting-slot\",\n        \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n        \"issue_type\": \"recognized_mounting_slot\",\n        \"severity\": \"info\",\n        \"confidence\": 0.96,\n        \"overlay_id\": \"\",\n        \"bbox\": [\n          440.0,\n          1033.0,\n          487.0,\n          1080.0\n        ],\n        \"claimed_handles\": [],\n        \"semantic_type\": \"closed_profile\",\n        \"source_ref\": {\n          \"schema_version\": \"VisualSourceRef/v1\",\n          \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n          \"coordinate_space\": \"snapshot_global\"\n        },\n        \"coordinate_normalization\": {},\n        \"evidence\": {\n          \"observation\": \"The top view shows a rounded mounting slot composed of two straight sides and two semicircular ends.\",\n          \"visible_features\": [\n            \"closed obround contour\",\n            \"one of four symmetric base slots\"\n          ]\n        },\n        \"raw_finding\": {\n          \"finding_id\": \"readme-vlm-mounting-slot\",\n          \"issue_type\": \"recognized_mounting_slot\",\n          \"severity\": \"info\",\n          \"confidence\": 0.96,\n          \"semantic_type\": \"closed_profile\",\n          \"bbox\": [\n            440.0,\n            1033.0,\n            487.0,\n            1080.0\n          ],\n          \"evidence\": {\n            \"observation\": \"The top view shows a rounded mounting slot composed of two straight sides and two semicircular ends.\",\n            \"visible_features\": [\n              \"closed obround contour\",\n              \"one of four symmetric base slots\"\n            ]\n          },\n          \"source_ref\": {\n            \"schema_version\": \"VisualSourceRef/v1\",\n            \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n            \"coordinate_space\": \"snapshot_global\"\n          }\n        }\n      },\n      {\n        \"finding_id\": \"readme-vlm-section-hatch\",\n        \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n        \"issue_type\": \"recognized_section_hatch\",\n        \"severity\": \"info\",\n        \"confidence\": 0.98,\n        \"overlay_id\": \"\",\n        \"bbox\": [\n          1478.0,\n          145.0,\n          1858.0,\n          290.0\n        ],\n        \"claimed_handles\": [],\n        \"semantic_type\": \"hatch\",\n        \"source_ref\": {\n          \"schema_version\": \"VisualSourceRef/v1\",\n          \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n          \"coordinate_space\": \"snapshot_global\"\n        },\n        \"coordinate_normalization\": {},\n        \"evidence\": {\n          \"observation\": \"The right-side A-A view contains an ANSI31-style hatched upper material region around the stepped bearing seat.\",\n          \"visible_features\": [\n            \"parallel diagonal hatch strokes\",\n            \"sectioned solid boundary\",\n            \"central unhatched bore\"\n          ]\n        },\n        \"raw_finding\": {\n          \"finding_id\": \"readme-vlm-section-hatch\",\n          \"issue_type\": \"recognized_section_hatch\",\n          \"severity\": \"info\",\n          \"confidence\": 0.98,\n          \"semantic_type\": \"hatch\",\n          \"bbox\": [\n            1478.0,\n            145.0,\n            1858.0,\n            290.0\n          ],\n          \"evidence\": {\n            \"observation\": \"The right-side A-A view contains an ANSI31-style hatched upper material region around the stepped bearing seat.\",\n            \"visible_features\": [\n              \"parallel diagonal hatch strokes\",\n              \"sectioned solid boundary\",\n              \"central unhatched bore\"\n            ]\n          },\n          \"source_ref\": {\n            \"schema_version\": \"VisualSourceRef/v1\",\n            \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n            \"coordinate_space\": \"snapshot_global\"\n          }\n        }\n      },\n      {\n        \"finding_id\": \"readme-vlm-title-block\",\n        \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n        \"issue_type\": \"recognized_title_block\",\n        \"severity\": \"info\",\n        \"confidence\": 0.99,\n        \"overlay_id\": \"\",\n        \"bbox\": [\n          1312.0,\n          908.0,\n          2087.0,\n          1243.0\n        ],\n        \"claimed_handles\": [],\n        \"semantic_type\": \"title_block\",\n        \"source_ref\": {\n          \"schema_version\": \"VisualSourceRef/v1\",\n          \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n          \"coordinate_space\": \"snapshot_global\"\n        },\n        \"coordinate_normalization\": {},\n        \"evidence\": {\n          \"observation\": \"The lower-right title block identifies a flanged bearing housing, drawing MCP-REAL-001, revision A, material QT500-7, scale 1:1, and millimetre units.\",\n          \"visible_features\": [\n            \"bordered title block\",\n            \"drawing and revision cells\",\n            \"material, scale, and units fields\"\n          ]\n        },\n        \"raw_finding\": {\n          \"finding_id\": \"readme-vlm-title-block\",\n          \"issue_type\": \"recognized_title_block\",\n          \"severity\": \"info\",\n          \"confidence\": 0.99,\n          \"semantic_type\": \"title_block\",\n          \"bbox\": [\n            1312.0,\n            908.0,\n            2087.0,\n            1243.0\n          ],\n          \"evidence\": {\n            \"observation\": \"The lower-right title block identifies a flanged bearing housing, drawing MCP-REAL-001, revision A, material QT500-7, scale 1:1, and millimetre units.\",\n            \"visible_features\": [\n              \"bordered title block\",\n              \"drawing and revision cells\",\n              \"material, scale, and units fields\"\n            ]\n          },\n          \"source_ref\": {\n            \"schema_version\": \"VisualSourceRef/v1\",\n            \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n            \"coordinate_space\": \"snapshot_global\"\n          }\n        }\n      }\n    ],\n    \"rejected_findings\": [],\n    \"snapshot_id\": \"snapshot_a43d200c4527a4f7\",\n    \"available_overlay_ids\": [\n      \"E001\",\n      \"E002\",\n      \"E003\",\n      \"E004\",\n      \"E005\",\n      \"E006\",\n      \"E007\",\n      \"E008\",\n      \"E009\",\n      \"E010\",\n      \"E011\",\n      \"E012\",\n      \"E013\",\n      \"E014\",\n      \"E015\",\n      \"E016\",\n      \"E017\",\n      \"E018\",\n      \"E019\",\n      \"E020\",\n      \"E021\",\n      \"E022\",\n      \"E023\",\n      \"E024\",\n      \"E025\",\n      \"E026\",\n      \"E027\",\n      \"E028\",\n      \"E029\",\n      \"E030\",\n      \"E031\",\n      \"E032\",\n      \"E033\",\n      \"E034\",\n      \"E035\",\n      \"E036\",\n      \"E037\",\n      \"E038\",\n      \"E039\",\n      \"E040\",\n      \"E041\",\n      \"E042\",\n      \"E043\",\n      \"E044\",\n      \"E045\",\n      \"E046\",\n      \"E047\",\n      \"E048\",\n      \"E049\",\n      \"E050\",\n      \"E051\",\n      \"E052\",\n      \"E053\",\n      \"E054\",\n      \"E055\",\n      \"E056\",\n      \"E057\",\n      \"E058\",\n      \"E059\",\n      \"E060\",\n      \"E061\",\n      \"E062\",\n      \"E063\",\n      \"E064\",\n      \"E065\",\n      \"E066\",\n      \"E067\",\n      \"E068\",\n      \"E069\",\n      \"E070\",\n      \"E071\",\n      \"E072\",\n      \"E073\",\n      \"E074\",\n      \"E075\",\n      \"E076\",\n      \"E077\",\n      \"E078\",\n      \"E079\",\n      \"E080\",\n      \"E081\"\n    ]\n  },\n  \"handles\": [],\n  \"warnings\": [],\n  \"next_tools\": [\n    \"submit_vlm_review\",\n    \"ground_vlm_region\",\n    \"ground_vlm_overlay_id\"\n  ]\n}"
+    }
+  ]
+}

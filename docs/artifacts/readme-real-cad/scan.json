@@ -1,0 +1,12 @@
+{
+  "is_error": false,
+  "structured_content": {
+    "result": "OK: 已扫描 81 个实体并保存到数据库\n\n实体类型统计 (8 种):\nScanned 81/81 entities (detail_level=minimal, truncated=False).\nTopology summaries were derived; use topology_detail='full' when primitive/relation topology is needed.\nBoundary path geometry was captured for visual grounding, including minimal scans.\nModel-private spatial annotations were preserved.\nCached semantic objects, constraints, validation reports, and view snapshots for this thread were cleared.\n  AcDbLine: 22\n  AcDbText: 18\n  AcDbPolyline: 13\n  AcDbCircle: 10\n  AcDbArc: 8\n  AcDbAlignedDimension: 7\n  AcDbHatch: 2\n  AcDbDiametricDimension: 1"
+  },
+  "content": [
+    {
+      "type": "text",
+      "text": "OK: 已扫描 81 个实体并保存到数据库\n\n实体类型统计 (8 种):\nScanned 81/81 entities (detail_level=minimal, truncated=False).\nTopology summaries were derived; use topology_detail='full' when primitive/relation topology is needed.\nBoundary path geometry was captured for visual grounding, including minimal scans.\nModel-private spatial annotations were preserved.\nCached semantic objects, constraints, validation reports, and view snapshots for this thread were cleared.\n  AcDbLine: 22\n  AcDbText: 18\n  AcDbPolyline: 13\n  AcDbCircle: 10\n  AcDbArc: 8\n  AcDbAlignedDimension: 7\n  AcDbHatch: 2\n  AcDbDiametricDimension: 1"
+    }
+  ]
+}

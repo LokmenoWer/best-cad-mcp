@@ -22,6 +22,11 @@ from typing import Optional, List, Tuple, Dict, Any, Union
 from contextlib import contextmanager
 from src.cad_utils import DetailLevel, com_get, com_set
 
+try:
+    import winreg
+except ImportError:  # pragma: no cover - Windows-only runtime dependency
+    winreg = None
+
 logger = logging.getLogger(__name__)
 
 # ── Coordinate helpers ──────────────────────────────────────────
@@ -85,13 +90,58 @@ class CADController:
 
     # ── Connection ───────────────────────────────────────────
 
+    @staticmethod
+    def _autocad_prog_id_candidates() -> List[str]:
+        """Return version-neutral and registered versioned AutoCAD ProgIDs.
+
+        Some AutoCAD installations register only ``AutoCAD.Application.<ver>``
+        and omit the version-neutral alias.  Try an explicit operator override
+        first, then the neutral alias, then registered versions newest-first.
+        """
+        candidates: List[str] = []
+        override = str(os.environ.get("CAD_MCP_AUTOCAD_PROGID", "") or "").strip()
+        if override:
+            candidates.append(override)
+        candidates.append("AutoCAD.Application")
+
+        if winreg is not None:
+            for major in range(40, 14, -1):
+                for minor in range(9, 0, -1):
+                    prog_id = f"AutoCAD.Application.{major}.{minor}"
+                    try:
+                        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, prog_id):
+                            candidates.append(prog_id)
+                    except OSError:
+                        continue
+                prog_id = f"AutoCAD.Application.{major}"
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, prog_id):
+                        candidates.append(prog_id)
+                except OSError:
+                    pass
+        return list(dict.fromkeys(candidates))
+
+    def _get_active_autocad(self):
+        """Attach to the running AutoCAD instance through any registered ProgID."""
+        last_error: Optional[Exception] = None
+        for prog_id in self._autocad_prog_id_candidates():
+            try:
+                application = win32com.client.GetActiveObject(prog_id)
+                logger.info("已通过 ProgID %s 连接到 AutoCAD", prog_id)
+                return application
+            except Exception as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("No registered AutoCAD Application ProgID was found")
+
     def connect(self, visible: bool = True) -> bool:
         """Connect to AutoCAD. Returns True on success."""
         deadline = time.time() + 6.0
         last_error = None
         while True:
             try:
-                self.acad = win32com.client.GetActiveObject("AutoCAD.Application")
+                self.acad = self._get_active_autocad()
                 if visible:
                     self.acad.Visible = True
                 if self.acad.Documents.Count > 0:
@@ -121,7 +171,7 @@ class CADController:
 
     def _refresh_active_document(self) -> None:
         try:
-            self.acad = win32com.client.GetActiveObject("AutoCAD.Application")
+            self.acad = self._get_active_autocad()
             if self.acad.Documents.Count > 0:
                 self.doc = self.acad.ActiveDocument
         except Exception:
@@ -144,7 +194,15 @@ class CADController:
         try:
             return self.acad is not None and self.acad.Documents.Count > 0
         except Exception:
-            return False
+            # MCP tools may execute on different worker threads.  A COM proxy
+            # retained from the preflight thread can be unusable even though
+            # AutoCAD and its active document are still alive.  Reacquire the
+            # application from the current thread before reporting no document.
+            try:
+                self._refresh_active_document()
+                return self.acad is not None and self.acad.Documents.Count > 0
+            except Exception:
+                return False
 
     def _default_template_candidates(self) -> List[str]:
         """Find local AutoCAD templates for Documents.Add fallbacks."""

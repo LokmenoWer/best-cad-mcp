@@ -26,6 +26,8 @@ autocad_data.db
 cad_mcp.log
 cad_visual_exports/
 cad_image_traces/
+*.dwl
+*.dwl2
 # Local AutoCAD plot retries created while a PDF viewer holds earlier outputs.
 examples/live-flange-coupling-demo/flange-coupling-assembly.pdf
 examples/live-flange-coupling-demo/flange-coupling-assembly-a3.pdf
@@ -37,8 +39,6 @@ examples/live-flange-coupling-demo/flange-coupling-assembly-release.pdf
 examples/live-flange-coupling-demo/flange-coupling-assembly-showcase.pdf
 examples/live-flange-coupling-demo/flange-coupling-assembly-final-showcase.pdf
 examples/live-flange-coupling-demo/flange-coupling-assembly.bak
-examples/live-flange-coupling-demo/flange-coupling-assembly.dwl
-examples/live-flange-coupling-demo/flange-coupling-assembly.dwl2
 examples/live-flange-coupling-demo/flange-coupling-assembly.dwg
 docs/images/live-flange-coupling-demo-overlay.png
 AUTOCAD_COM_RESEARCH_REPORT.md

@@ -40,10 +40,10 @@ Default persisted prompt contract: `vlm_review_drawing/v3`.
    - If `vlm_ready=true`: use `snapshot.vlm_image_path` (PNG/JPEG) as the
      image to send to the VLM. Also send the `overlay_image_path` overlay
      and the `overlay_items_path` sidecar JSON.
-   - If `vlm_ready=false`: WMF→PNG conversion failed because ImageMagick,
-     wand, and Inkscape are all unavailable. You cannot perform VLM visual
-     review in this state. Report the issue to the user and suggest installing
-     one of those tools before retrying.
+   - If `vlm_ready=false`: WMF-to-PNG conversion failed. On Windows the server
+     first has a native GDI+ fallback; ImageMagick, wand, Inkscape, or
+     LibreOffice can provide additional conversion paths. You cannot perform
+     VLM visual review until a raster is produced.
    Do not pass `.wmf` or `.svg` files to the VLM — they are not raster images
    and will be rejected or silently misread by all major VLM APIs.
 3. Give the PNG clean image, PNG overlay image, tile index when present, and

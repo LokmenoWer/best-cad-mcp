@@ -14,10 +14,12 @@
 
 [English](https://github.com/LokmenoWer/best-cad-mcp/blob/master/README.md) · [真实演示](#真实-autocad-演示) · [快速开始](#快速开始) · [安全工作流](#受控工作流) · [工具档位](#工具档位) · [安全模型](#安全模型)
 
-![法兰轴承座复杂部件的三视图机械图](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/complex-part-three-view.svg)
+![AutoCAD 真实导出的法兰轴承座复杂部件三视图](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-cad-real.png)
 
-*信息更完整的正投影示例：主视图、俯视图、右侧剖视图，以及隐藏线、中心线、
-真实尺寸意图、特征标注和受控标题栏。*
+*由经过验证和 dry-run 的 CADPlan 在真实 AutoCAD 模型空间中绘制并导出：主视图、
+俯视图、右侧 A–A 剖视图、中心线、尺寸、特征标注、剖面线和标题栏。可下载
+[源 DWG](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/artifacts/readme-real-cad/bearing-housing-three-view.dwg)，
+或检查[实际执行的 CADPlan](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/cadplan.json)。*
 
 > [!IMPORTANT]
 > best-cad-mcp 仍处于 Beta。它面向“操作员能审阅计划和证据”的本地受控流程，
@@ -206,27 +208,52 @@ python -m pip install -e ".[visual]"
 
 ## 从视觉理解到可定位的 CAD 证据
 
-首页图是一个遵循通用机械制图习惯的 README 说明图，部件采用带法兰、轴承孔、
-加强筋和安装槽的轴承座。它把实用机械流程必须保留的信息放在同一张图里：投影
-关系、剖切、孔槽、隐藏几何、中心线、尺寸意图和图纸元数据。真实会话中仍以
-AutoCAD 为唯一真实数据源，并以实际导出的视图作为视觉证据。
+首页图不是说明性模型或合成示意图。它由 90 步 CADPlan 在新建 AutoCAD 图纸中
+绘制，扫描得到 81 个真实实体，几何验证为 0 个问题，再由 AutoCAD 导出 WMF 并
+栅格化成上方 PNG。源 DWG、计划、dry-run、验证结果、像素/世界坐标映射和 VLM
+审阅均作为可复核证据保留。
 
-VLM 审阅不应只返回一句自然语言描述。结构化结果可以同时携带观察到的特征、
-像素证据、尺寸与注释、几何关系、置信度和未解决的不确定项；随后再把这些主张
-定位到语义对象和精确的 AutoCAD 句柄候选，确认后才进入修改规划。
+VLM 审阅不应只返回一句自然语言描述。下面两张图来自同一个真实 snapshot：左侧
+是模型实际检查的 AutoCAD 栅格 tile，右侧是映射工具产生的真实句柄覆盖图，并非
+为 README 重画的示意图。
 
-![VLM 以 ImageDrawingSpec 特征、关系、不确定项和句柄候选返回理解结果](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/vlm-structured-understanding.svg)
+| 真实 AutoCAD 栅格 tile | 同一 snapshot 的句柄覆盖图 |
+| --- | --- |
+| ![用于真实视觉审阅的主视图 tile](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-cad-real_tiles/readme-cad-real_T002.png) | ![主视图 tile 上映射出的真实 AutoCAD 句柄](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/readme-cad-real_tiles/readme-cad-real_T002_overlay.png) |
 
-图中展示的是节选后的 `ImageDrawingSpec/v1`。完整结果还会保留 schema 要求的
-标定候选、几何、注释、表格和来源证据。低置信度观察会继续留在
-`uncertainties`，不会被悄悄转换成 CAD 几何。
+覆盖图按 WMF 选择集导出画框配准，而不是套用当前视口。实现保留 AutoCAD 实测的
+微小等比例画框边距，并排除旧的通用视口留白。本次真实截图中，映射后的主视图
+原点为 `(734.870, 331.032)` px，PNG 上实际观察到的青色中心线交点为
+`(735, 331)` px，最大误差仅 `0.13 px`。
+
+真实的 `vlm_review_drawing/v3` 返回先通过 schema 校验，再在不预填句柄的情况下
+提交定位。四个区域均直接从栅格图观察得到，并与该图的尺寸和 SHA-256 绑定；如果
+AutoCAD 重新导出了不同图片，采集脚本会拒绝复用这些框。中央孔落到句柄 `8A`，
+圆头安装槽语义轮廓落到 `115`，标题栏语义组落到
+`236`。剖面线对应两个得分接近的真实 hatch，因此正确保留为 `ambiguous`。
+
+```json
+{
+  "central_bore":  {"status": "grounded",  "handles": ["8A"]},
+  "mounting_slot": {"status": "grounded",  "handles": ["115"]},
+  "section_hatch": {"status": "ambiguous", "handles": []},
+  "title_block":   {"status": "grounded",  "handles": ["236"]}
+}
+```
+
+可继续检查[与原图哈希绑定的视觉观测](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-observed.json)、
+[提交的 VLM 返回](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-raw.json)、
+[定位后的结果](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/vlm-review-grounded.json)、
+[像素/世界坐标对齐检查](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/view-alignment-check.json)、
+[CADPlan dry-run](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/cadplan-dry-run.json)
+和[零问题几何验证](https://github.com/LokmenoWer/best-cad-mcp/blob/master/docs/artifacts/readme-real-cad/geometry-validation.json)。
 
 ### 从单张图片临摹机械图
 
 完整路径把“不修改图纸的理解与验证”和唯一一次需要明确授权的 DWG 修改阶段
-分开，执行后再通过重新扫描和视觉差异比较闭环。
-
-![从源图准备到视觉复核的受控图像转 CAD 流程](https://raw.githubusercontent.com/LokmenoWer/best-cad-mcp/master/docs/images/image-to-cad-process.svg)
+分开，执行后再通过重新扫描和视觉差异比较闭环。本 README 不把生成的流程图当成
+临摹证据；真实运行应保留源栅格图、`ImageDrawingSpec`、经过验证和 dry-run 的
+CADPlan、结果 DWG 与最终 AutoCAD 导出。
 
 典型循环如下：
 
@@ -307,7 +334,7 @@ cad_image_traces/
 | 升级后服务导入失败 | 使用客户端实际调用的同一个 Python 环境运行 `cad-mcp-doctor --json`。best-cad-mcp 1.7+ 要求 MCP Python SDK `>=2,<3`；若 `mcp_sdk_version` 被阻断，请升级包/环境并重启客户端。 |
 | AutoCAD 已打开但不可用 | 运行 `cad-mcp-doctor --check-autocad`；确认两个进程使用相同 Windows 账户和权限级别。 |
 | 服务暴露的工具太多 | 设置 `CAD_MCP_TOOL_PROFILE=core` 或 `lean`，再重启客户端。 |
-| 视觉导出不可用 | `[visual]` 提供 Pillow/CairoSVG，用于栅格图和 SVG；AutoCAD WMF 转 PNG 通常仍需 ImageMagick/Wand、Inkscape 或 LibreOffice。检查 `get_vision_capabilities()` 的 `wmf_to_png_available`；也可先导出 PDF 再外部栅格化。 |
+| 视觉导出不可用 | `[visual]` 提供 Pillow 栅格覆盖层。在 Windows 上，AutoCAD WMF 会使用原生 GDI+ 回退；ImageMagick/Wand、Inkscape 或 LibreOffice 可作为替代路径。检查 `get_vision_capabilities()` 的 `wmf_to_png_available`；也可先导出 PDF 再外部栅格化。 |
 | 查询返回旧实体 | 激活目标图纸并重新运行 `scan_all_entities`。 |
 | MCP 从错误目录启动 | 只有源码开发时才把 `cwd` 指向仓库；`CAD_MCP_WORKSPACE_ROOT` 始终指向 CAD 项目。 |
 | 计划被拒绝 | 运行 `validate_cad_plan`，检查具体失败步骤，修正后再次 dry-run。 |

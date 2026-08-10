@@ -1,0 +1,126 @@
+{
+  "schema_version": "cad-vlm-review/v1",
+  "review_summary": {
+    "drawing_type": "mechanical orthographic drawing",
+    "recognized_part": "flanged bearing housing",
+    "views": [
+      "front",
+      "top",
+      "right section A-A"
+    ],
+    "annotations": [
+      "linear and diametric dimensions",
+      "centerlines",
+      "section hatch",
+      "title block"
+    ],
+    "visible_defect_assessment": "No obvious broken or duplicate geometry is visible in the exported raster.",
+    "uncertainty": "Material and nominal dimensions are read from visible CAD text; manufacturing tolerances are not specified."
+  },
+  "findings": [
+    {
+      "finding_id": "readme-vlm-central-bore",
+      "issue_type": "recognized_central_bore",
+      "severity": "info",
+      "confidence": 0.99,
+      "semantic_type": "circular_bore",
+      "bbox": [
+        640.0,
+        236.0,
+        830.0,
+        426.0
+      ],
+      "evidence": {
+        "observation": "The front view has a clear central circular bore inside two concentric flange steps.",
+        "visible_features": [
+          "continuous circular outline",
+          "shared cyan centerlines",
+          "concentric stepped rings"
+        ]
+      },
+      "source_ref": {
+        "schema_version": "VisualSourceRef/v1",
+        "snapshot_id": "snapshot_a43d200c4527a4f7",
+        "coordinate_space": "snapshot_global"
+      }
+    },
+    {
+      "finding_id": "readme-vlm-mounting-slot",
+      "issue_type": "recognized_mounting_slot",
+      "severity": "info",
+      "confidence": 0.96,
+      "semantic_type": "closed_profile",
+      "bbox": [
+        440.0,
+        1033.0,
+        487.0,
+        1080.0
+      ],
+      "evidence": {
+        "observation": "The top view shows a rounded mounting slot composed of two straight sides and two semicircular ends.",
+        "visible_features": [
+          "closed obround contour",
+          "one of four symmetric base slots"
+        ]
+      },
+      "source_ref": {
+        "schema_version": "VisualSourceRef/v1",
+        "snapshot_id": "snapshot_a43d200c4527a4f7",
+        "coordinate_space": "snapshot_global"
+      }
+    },
+    {
+      "finding_id": "readme-vlm-section-hatch",
+      "issue_type": "recognized_section_hatch",
+      "severity": "info",
+      "confidence": 0.98,
+      "semantic_type": "hatch",
+      "bbox": [
+        1478.0,
+        145.0,
+        1858.0,
+        290.0
+      ],
+      "evidence": {
+        "observation": "The right-side A-A view contains an ANSI31-style hatched upper material region around the stepped bearing seat.",
+        "visible_features": [
+          "parallel diagonal hatch strokes",
+          "sectioned solid boundary",
+          "central unhatched bore"
+        ]
+      },
+      "source_ref": {
+        "schema_version": "VisualSourceRef/v1",
+        "snapshot_id": "snapshot_a43d200c4527a4f7",
+        "coordinate_space": "snapshot_global"
+      }
+    },
+    {
+      "finding_id": "readme-vlm-title-block",
+      "issue_type": "recognized_title_block",
+      "severity": "info",
+      "confidence": 0.99,
+      "semantic_type": "title_block",
+      "bbox": [
+        1312.0,
+        908.0,
+        2087.0,
+        1243.0
+      ],
+      "evidence": {
+        "observation": "The lower-right title block identifies a flanged bearing housing, drawing MCP-REAL-001, revision A, material QT500-7, scale 1:1, and millimetre units.",
+        "visible_features": [
+          "bordered title block",
+          "drawing and revision cells",
+          "material, scale, and units fields"
+        ]
+      },
+      "source_ref": {
+        "schema_version": "VisualSourceRef/v1",
+        "snapshot_id": "snapshot_a43d200c4527a4f7",
+        "coordinate_space": "snapshot_global"
+      }
+    }
+  ],
+  "snapshot_id": "snapshot_a43d200c4527a4f7"
+}
