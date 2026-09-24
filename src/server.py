@@ -135,7 +135,9 @@ primitives. Treat the tool surface as indexed by intent, not as a flat list.
 Closed-loop operating contract: Observe -> Plan -> Validate -> Execute -> Verify.
 - Observe before acting. Before live CAD work, call
   check_runtime_environment(check_autocad=True). Inspect document, active space,
-  units, and relevant styles. For an existing drawing, scan and build CAD-IR;
+  units, and relevant styles. When the user refers to objects already selected in
+  AutoCAD, call get_current_selection instead of reconstructing the PickFirst set
+  with send_command or temporary AutoLISP. For an existing drawing, scan and build CAD-IR;
   capture a model-visible baseline with render_drawing_view when appearance,
   layout, or spatial context matters.
 - Plan from explicit acceptance criteria: units, semantic objects/components,
@@ -350,6 +352,12 @@ TOOL_DESCRIPTIONS = {
         "MCP tool covers the task after checking recommend_cad_tools/get_tool_help. "
         "Prefer validated named tools for drawing, editing, dimensioning, blocks, "
         "hatches, views, exports, and queries."
+    ),
+    "get_current_selection": (
+        "Read-only PickFirst inspection: return the current AutoCAD implied "
+        "selection as stable handles and entity metadata without modifying the "
+        "DWG. Use when the operator says objects are already selected; do not "
+        "rebuild the selection with send_command, temporary AutoLISP, or files."
     ),
     "delete_selection_set": (
         "DESTRUCTIVE compatibility alias: erases the drawing entities contained "
@@ -3027,6 +3035,30 @@ def select_by_crossing(ctx: Context, x1: float, y1: float,
 def select_all(ctx: Context) -> str:
     """选择当前图纸中的所有实体。"""
     return query_tools.select_all()
+
+
+@mcp.tool(
+    description=TOOL_DESCRIPTIONS["get_current_selection"],
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+    ),
+)
+def get_current_selection(ctx: Context, max_entities: int = 20,
+                          detail_level: str = "standard") -> Dict[str, Any]:
+    """Read the current AutoCAD PickFirst (implied) selection without modifying it.
+
+    Use this whenever the operator says an object is already selected. It returns
+    stable handles and compact entity metadata directly through COM, avoiding raw
+    AutoLISP, command-line probes, and temporary files.
+
+    Args:
+        max_entities: Maximum selected entities returned; clamped to 1..200.
+        detail_level: minimal (identity), standard (compact geometry), or full
+            (detailed properties and vertices where supported).
+    """
+    return query_tools.get_current_selection(max_entities, detail_level)
 
 
 @mcp.tool()

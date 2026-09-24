@@ -208,6 +208,7 @@ class TestModuleImports(unittest.TestCase):
         expected = [
             'scan_all_entities', 'scan_entities_in_area',
             'select_by_window', 'select_by_crossing', 'select_all',
+            'get_current_selection',
             'highlight_entity', 'highlight_entities',
             'reset_entity_color', 'highlight_query_results',
             'get_entity_statistics',
@@ -602,6 +603,21 @@ class TestMCPToolSchemas(unittest.TestCase):
         self.assertIn("draw_rectangle", result)
         self.assertIn("add_linear_dimension", result)
         self.assertIn("Avoid", result)
+
+    def test_get_current_selection_registered_and_routed(self):
+        schema = self._get_input_schema("get_current_selection")
+        description = self._get_tool_description("get_current_selection")
+
+        self.assertIn("max_entities", schema["properties"])
+        self.assertIn("detail_level", schema["properties"])
+        self.assertIn("PickFirst", description)
+        self.assertIn("without modifying", description)
+
+        recommendation = utility_tools.recommend_cad_tools(
+            "inspect the polyline already selected in AutoCAD"
+        )
+        self.assertIn("get_current_selection", recommendation)
+        self.assertIn("temporary AutoLISP", recommendation)
 
     def test_recommend_cad_tools_routes_complex_drawings_to_advanced_workflows(self):
         result = utility_tools.recommend_cad_tools(
@@ -2789,6 +2805,98 @@ class TestSelectionToolBugs(unittest.TestCase):
         self.assertIn("H1", result)
         self.assertIn("5000", result)
         self.assertIn("truncated", result)
+
+    def test_get_current_selection_reads_pickfirst_without_new_selection_set(self):
+        class FakePolyline:
+            Handle = "5D10"
+            ObjectName = "AcDbPolyline"
+            Layer = "DUCT"
+            Color = 256
+            Linetype = "ByLayer"
+            Coordinates = [0.0, 0.0, 10.0, 0.0, 10.0, 5.0]
+            Closed = False
+            Length = 15.0
+            Area = 0.0
+
+            def GetBoundingBox(self):
+                return (0.0, 0.0, 0.0), (10.0, 5.0, 0.0)
+
+        class FakePickfirstSelectionSet:
+            Count = 1
+
+            def Item(self, index):
+                self.last_index = index
+                return FakePolyline()
+
+        doc = MagicMock()
+        doc.Name = "selected.dwg"
+        doc.PickfirstSelectionSet = FakePickfirstSelectionSet()
+        doc.SelectionSets.Add.side_effect = AssertionError(
+            "current selection must not create a named selection set"
+        )
+        controller = self._controller_with_doc(doc)
+
+        result = controller.get_current_selection()
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["source"], "PickfirstSelectionSet")
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["entities"][0]["handle"], "5D10")
+        self.assertEqual(result["entities"][0]["vertex_count"], 3)
+        self.assertEqual(result["entities"][0]["length"], 15.0)
+        self.assertFalse(result["entities"][0]["closed"])
+        doc.SelectionSets.Add.assert_not_called()
+
+    def test_get_current_selection_caps_results_and_reports_truncation(self):
+        class FakeEntity:
+            ObjectName = "AcDbLine"
+            Layer = "0"
+
+            def __init__(self, handle):
+                self.Handle = handle
+
+        class FakePickfirstSelectionSet:
+            Count = 3
+
+            def Item(self, index):
+                return FakeEntity(f"H{index}")
+
+        doc = MagicMock()
+        doc.Name = "selected.dwg"
+        doc.PickfirstSelectionSet = FakePickfirstSelectionSet()
+        controller = self._controller_with_doc(doc)
+
+        result = controller.get_current_selection(
+            max_entities=2,
+            detail_level="minimal",
+        )
+
+        self.assertEqual(result["returned"], 2)
+        self.assertTrue(result["truncated"])
+        self.assertEqual(
+            [item["handle"] for item in result["entities"]],
+            ["H0", "H1"],
+        )
+
+    def test_query_tool_get_current_selection_forwards_options(self):
+        expected = {
+            "success": True,
+            "count": 1,
+            "entities": [{"handle": "5D10"}],
+        }
+        with patch.object(query_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.get_current_selection.return_value = expected
+
+            result = query_tools.get_current_selection(
+                max_entities=7,
+                detail_level="full",
+            )
+
+        self.assertIs(result, expected)
+        mock_ctrl.get_current_selection.assert_called_once_with(
+            max_entities=7,
+            detail_level="full",
+        )
 
 
 class TestScanToolBugs(unittest.TestCase):

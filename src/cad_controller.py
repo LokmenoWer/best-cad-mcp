@@ -2899,6 +2899,126 @@ class CADController:
             "truncated": ss.Count > len(handles),
         }
 
+    @require_document
+    def get_current_selection(self, max_entities: int = 20,
+                              detail_level: str = DetailLevel.STANDARD) -> Dict[str, Any]:
+        """Read AutoCAD's current PickFirst (implied) selection without modifying it.
+
+        ``minimal`` returns identity fields only, ``standard`` adds compact common
+        geometry, and ``full`` also includes the existing detailed property
+        snapshot. The result is capped so a large selection cannot flood an MCP
+        response.
+        """
+        level = str(detail_level or DetailLevel.STANDARD).strip().lower()
+        allowed_levels = {
+            DetailLevel.MINIMAL,
+            DetailLevel.STANDARD,
+            DetailLevel.FULL,
+        }
+        if level not in allowed_levels:
+            return {
+                "success": False,
+                "message": (
+                    "detail_level must be one of: minimal, standard, full"
+                ),
+            }
+
+        limit = min(max(int(max_entities), 1), 200)
+        selection = com_get(self.doc, "PickfirstSelectionSet", None)
+        if selection is None:
+            return {
+                "success": False,
+                "message": "AutoCAD did not expose PickfirstSelectionSet.",
+            }
+
+        count = int(com_get(selection, "Count", 0) or 0)
+        entities: List[Dict[str, Any]] = []
+        errors: List[Dict[str, Any]] = []
+
+        for index in range(min(count, limit)):
+            try:
+                ent = self._retry_com_call(
+                    lambda item_index=index: selection.Item(item_index)
+                )
+                handle = str(com_get(ent, "Handle", "") or "")
+                object_name = str(com_get(ent, "ObjectName", "Unknown") or "Unknown")
+                info: Dict[str, Any] = {
+                    "index": index,
+                    "handle": handle,
+                    "object_name": object_name,
+                    "name": object_name.replace("AcDb", ""),
+                    "layer": str(com_get(ent, "Layer", "0") or "0"),
+                }
+
+                if level in {DetailLevel.STANDARD, DetailLevel.FULL}:
+                    info["color"] = com_get(ent, "Color", 256)
+                    info["linetype"] = com_get(ent, "Linetype", "ByLayer")
+                    bbox = self._scan_bbox(ent)
+                    if bbox is not None:
+                        info["bbox"] = bbox
+
+                    if object_name == "AcDbLine":
+                        info["start"] = self._scan_point(
+                            com_get(ent, "StartPoint", None)
+                        )
+                        info["end"] = self._scan_point(
+                            com_get(ent, "EndPoint", None)
+                        )
+                    elif object_name in {"AcDbCircle", "AcDbArc"}:
+                        info["center"] = self._scan_point(
+                            com_get(ent, "Center", None)
+                        )
+                        info["radius"] = float(com_get(ent, "Radius", 0.0) or 0.0)
+                    elif "Polyline" in object_name:
+                        coordinate_step = 2 if object_name == "AcDbPolyline" else 3
+                        coordinates = list(com_get(ent, "Coordinates", []) or [])
+                        info["vertex_count"] = len(coordinates) // coordinate_step
+                        info["closed"] = bool(com_get(ent, "Closed", False))
+                    elif object_name in {"AcDbText", "AcDbMText"}:
+                        info["text"] = str(
+                            com_get(ent, "TextString", "") or ""
+                        )[:500]
+                    elif object_name == "AcDbBlockReference":
+                        info["block_name"] = str(
+                            com_get(
+                                ent,
+                                "EffectiveName",
+                                com_get(ent, "Name", ""),
+                            ) or ""
+                        )
+
+                    for key, property_name in (
+                        ("length", "Length"),
+                        ("area", "Area"),
+                    ):
+                        value = com_get(ent, property_name, None)
+                        if value is not None:
+                            try:
+                                info[key] = float(value)
+                            except (TypeError, ValueError, OverflowError):
+                                pass
+
+                if level == DetailLevel.FULL and handle:
+                    properties = self.get_entity_properties(handle)
+                    if properties.get("success", True):
+                        info["properties"] = properties
+
+                entities.append(info)
+            except Exception as exc:
+                errors.append({"index": index, "error": str(exc)})
+
+        return {
+            "success": True,
+            "source": "PickfirstSelectionSet",
+            "document": str(com_get(self.doc, "Name", "") or ""),
+            "count": count,
+            "returned": len(entities),
+            "truncated": count > limit,
+            "detail_level": level,
+            "entities": entities,
+            "errors": errors,
+        }
+
     # ── Layer Management ───────────────────────────────────
 
     def _set_layer_color(self, layer, color_idx: int) -> Tuple[bool, Optional[str]]:

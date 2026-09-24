@@ -758,6 +758,13 @@ WORKFLOW_PLAYBOOKS = [
 
 TOOL_ROUTING_CATALOG = [
     {
+        "category": "Selection inspection",
+        "tool": "get_current_selection",
+        "use": "Read the operator's current AutoCAD PickFirst selection as handles and entity metadata without modifying the DWG.",
+        "avoid": "Do not rebuild the implied selection with send_command, temporary AutoLISP, or a new selection set.",
+        "keywords": ["current selection", "selected entity", "already selected", "pickfirst", "implied selection", "当前选择", "已选中", "选中的对象"],
+    },
+    {
         "category": "Understanding",
         "tool": "build_drawing_ir",
         "use": "Build CAD-IR v2, a structured drawing index for complex drawings, handle lookup, resources, and downstream validation.",

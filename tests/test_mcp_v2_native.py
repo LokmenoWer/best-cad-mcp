@@ -243,7 +243,7 @@ def test_modern_protocol_runs_over_real_stdio(tmp_path):
     ) = asyncio.run(exercise_stdio())
 
     assert protocol == "2026-07-28"
-    assert len(tools.tools) == 115
+    assert len(tools.tools) == 116
     assert "import_dxf" in {tool.name for tool in tools.tools}
     assert resources.resources
     assert prompts.prompts

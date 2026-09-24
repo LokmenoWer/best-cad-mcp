@@ -194,7 +194,7 @@ def test_tool_profile_core_hides_long_tail_keeps_workflow(monkeypatch):
     for name in (
         "scan_all_entities", "build_drawing_ir", "draw_rectangle",
         "export_view_image_with_mapping", "validate_image_drawing_spec",
-        "execute_cad_plan", "recommend_cad_tools",
+        "execute_cad_plan", "recommend_cad_tools", "get_current_selection",
     ):
         assert server._tool_enabled(name), name
     # Long-tail tools are hidden.
