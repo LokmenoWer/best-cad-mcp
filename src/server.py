@@ -3056,7 +3056,9 @@ def get_current_selection(ctx: Context, max_entities: int = 20,
     Args:
         max_entities: Maximum selected entities returned; clamped to 1..200.
         detail_level: minimal (identity), standard (compact geometry), or full
-            (detailed properties and vertices where supported).
+            (property/vertex previews: 256 items per variable-length field,
+            64 KiB total properties). Check details_truncated and partial/errors
+            before treating the returned data as complete.
     """
     return query_tools.get_current_selection(max_entities, detail_level)
 
