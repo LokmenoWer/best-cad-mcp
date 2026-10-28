@@ -1928,6 +1928,7 @@ class TestActiveXCallShapes(unittest.TestCase):
         self.assertIn("TrueColor fallback failed", result["color_warning"])
         doc.Layers.Add.assert_called_once_with("A-WALL")
 
+    @unittest.skipUnless(os.name == "nt", "save path normalization follows Windows absolute paths")
     @patch("src.cad_controller.time.sleep", return_value=None)
     def test_save_drawing_retries_after_callee_rejected(self, _sleep):
         doc = MagicMock()

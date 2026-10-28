@@ -103,7 +103,7 @@ def execute_sql_query(query: str,
                       max_rows: int = 1000,
                       timeout_ms: int = 5000,
                       max_result_bytes: int = 1_000_000) -> str:
-    """执行 SQL 查询（execute_query 的别名）。"""
+    """已废弃：请使用 execute_query。此函数只保留为兼容别名。"""
     return execute_query(
         query,
         max_rows=max_rows,

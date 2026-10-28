@@ -1,7 +1,7 @@
 """
 CAD MCP Server — Comprehensive AutoCAD 2020+ MCP Server.
 
-Registers 321 tools covering:
+Registers 324 tools covering:
   - All drawing primitives (line, circle, arc, ellipse, spline, polyline, polygon, etc.)
   - Complete entity editing (move, rotate, copy, delete, mirror, scale, offset, array, explode)
   - Full layer management (CRUD, freeze/thaw, lock/unlock, isolate)
@@ -21,7 +21,6 @@ Architecture:
     cad_tools/  → Tool implementations (logic, no MCP dependency)
     cad_controller.py → COM bridge to AutoCAD
     cad_database.py   → SQLite persistence
-    cad_data_model.py → AI-readable data structures
     cad_utils.py      → Shared helpers
 
 Start manually:
@@ -3429,7 +3428,7 @@ def execute_sql_query(ctx: Context, query: str,
                       max_rows: int = 1000,
                       timeout_ms: int = 5000,
                       max_result_bytes: int = 1_000_000) -> str:
-    """执行 SQL 查询（execute_query 的别名，兼容不同的命名习惯）。"""
+    """已废弃：请使用 execute_query。此工具只保留为兼容别名。"""
     return utility_tools.execute_sql_query(
         query,
         max_rows=max_rows,

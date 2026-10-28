@@ -28,9 +28,9 @@ classifiers = [
 dependencies = [
     "mcp[cli]>=2.0.0,<3.0.0",
     "packaging>=24.2",
-    "pywin32>=311",
-    "comtypes>=1.4.0",
-    "pyautocad>=0.2.0",
+    "pywin32>=311; sys_platform == 'win32'",
+    "comtypes>=1.4.0; sys_platform == 'win32'",
+    "pyautocad>=0.2.0; sys_platform == 'win32'",
     "typing_extensions>=4.13.0",
 ]
 

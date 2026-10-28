@@ -2,7 +2,13 @@
 from typing import Any, Optional, List, Tuple
 from src.cad_controller import get_controller, to_variant_point
 from src.cad_database import get_database
-from src.cad_utils import format_success, format_error
+from src.cad_utils import (
+    format_error,
+    format_success,
+    lisp_handent as _lisp_handent,
+    lisp_number as _lisp_number,
+    lisp_point as _lisp_point,
+)
 
 ctrl = get_controller()
 db = get_database()
@@ -241,7 +247,10 @@ def add_qdim(entity_handles: List[str],
     }
     dt = type_map.get(dimension_type, "C")
     # Build a selection set of the entities by handle, then run QDIM on it.
-    ssadd = "".join(f'(ssadd (handent "{h}") ss)' for h in entity_handles)
+    try:
+        ssadd = "".join(f"(ssadd {_lisp_handent(handle)} ss)" for handle in entity_handles)
+    except ValueError as exc:
+        return f"快速标注失败: {exc}"
     place = ' "0,0"' if dt in ("C", "S", "B", "O") else ""
     lisp = (f'(setq ss (ssadd)){ssadd}'
             f'(command "._QDIM" ss "" "_{dt}"{place})')
@@ -266,7 +275,15 @@ def add_baseline_dimension(x: float, y: float, z: float = 0.0,
     if layer:
         ctrl.create_layer(layer)
         ctrl.set_current_layer(layer)
-    cmd = f"DIMBASELINE {x},{y},{z} \n \n"
+    try:
+        point = ",".join((
+            _lisp_number(x, "x"),
+            _lisp_number(y, "y"),
+            _lisp_number(z, "z"),
+        ))
+    except ValueError as exc:
+        return f"基线标注失败: {exc}"
+    cmd = f"DIMBASELINE {point} \n \n"
     ctrl.send_command(cmd)
     return format_success("已添加基线标注", point=f"({x},{y},{z})")
 
@@ -285,7 +302,15 @@ def add_continue_dimension(x: float, y: float, z: float = 0.0,
     if layer:
         ctrl.create_layer(layer)
         ctrl.set_current_layer(layer)
-    cmd = f"DIMCONTINUE {x},{y},{z} \n \n"
+    try:
+        point = ",".join((
+            _lisp_number(x, "x"),
+            _lisp_number(y, "y"),
+            _lisp_number(z, "z"),
+        ))
+    except ValueError as exc:
+        return f"连续标注失败: {exc}"
+    cmd = f"DIMCONTINUE {point} \n \n"
     ctrl.send_command(cmd)
     return format_success("已添加连续标注", point=f"({x},{y},{z})")
 
@@ -314,7 +339,10 @@ def draw_wipeout(p1_x: float, p1_y: float, p2_x: float, p2_y: float,
     points = [(p1_x, p1_y), (p2_x, p2_y), (p3_x, p3_y)]
     if p4_x is not None and p4_y is not None:
         points.append((p4_x, p4_y))
-    point_expr = " ".join(f"(list {x} {y} 0)" for x, y in points)
+    try:
+        point_expr = " ".join(_lisp_point((x, y, 0.0), "vertex") for x, y in points)
+    except ValueError as exc:
+        return f"区域覆盖失败: {exc}"
     r = ctrl.run_lisp(f'(command "._WIPEOUT" {point_expr} "")')
     if not r["success"]:
         return f"区域覆盖失败: {r['message']}"

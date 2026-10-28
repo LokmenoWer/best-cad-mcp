@@ -1818,6 +1818,84 @@ class CADDatabase:
             conn.execute("DELETE FROM cad_entities WHERE handle = ?", (scoped_handle,))
         return True
 
+    def invalidate_entity_geometry(self,
+                                   handles: Union[str, List[str], Tuple[str, ...], None] = None) -> int:
+        """Drop cached coordinates after AutoCAD mutates those entities.
+
+        The entity row stays so the handle is still known, but geometry, the
+        bounding box, and derived topology are cleared until the next scan
+        rebuilds them from the drawing. Pass None to invalidate every entity
+        in the current drawing scope. Returns the number of rows updated.
+        """
+        if handles is None:
+            return self._invalidate_scoped_geometry()
+        if isinstance(handles, str):
+            selected = [handles]
+        else:
+            selected = [handle for handle in handles if handle]
+        invalidated = 0
+        for handle in selected:
+            if self._invalidate_one_entity_geometry(handle):
+                invalidated += 1
+        return invalidated
+
+    def _mark_geometry_stale(self, properties: Any) -> Dict[str, Any]:
+        decoded = properties if isinstance(properties, dict) else self._decode_json(properties)
+        if not isinstance(decoded, dict):
+            decoded = {}
+        marked = dict(decoded)
+        marked["geometry_stale"] = True
+        return marked
+
+    def _invalidate_one_entity_geometry(self, handle: str) -> bool:
+        if not handle:
+            return False
+        ent = self.get_entity(handle)
+        if not ent:
+            return False
+        return self.upsert_entity(
+            handle,
+            ent.get("name") or ent.get("type") or "Entity",
+            ent.get("type") or "Unknown",
+            layer=ent.get("layer") or "0",
+            color=256 if ent.get("color") is None else ent.get("color"),
+            linetype=ent.get("linetype") or "ByLayer",
+            properties=self._mark_geometry_stale(ent.get("properties")),
+            geometry={},
+            bbox=None,
+            derive_topology=False,
+            derive_bbox=False,
+        )
+
+    def _invalidate_scoped_geometry(self) -> int:
+        scope_sql, scope_params = self._entity_scope_clause()
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT handle, properties FROM cad_entities WHERE {scope_sql}",
+                scope_params,
+            ).fetchall()
+            scoped_handles: List[str] = []
+            for row in rows:
+                properties = self._mark_geometry_stale(row["properties"])
+                conn.execute(
+                    '''UPDATE cad_entities
+                       SET geometry = ?,
+                           properties = ?,
+                           bbox_min_x = NULL,
+                           bbox_min_y = NULL,
+                           bbox_max_x = NULL,
+                           bbox_max_y = NULL
+                       WHERE handle = ?''',
+                    (
+                        "{}",
+                        json.dumps(properties, ensure_ascii=False),
+                        row["handle"],
+                    ),
+                )
+                scoped_handles.append(row["handle"])
+            self._delete_topology_for_handles(conn, scoped_handles)
+            return len(scoped_handles)
+
     def clear_entities(self, clear_annotations: bool = False,
                        clear_understanding: bool = False):
         scope_sql, scope_params = self._entity_scope_clause()
