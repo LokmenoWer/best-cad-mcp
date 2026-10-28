@@ -199,9 +199,9 @@ python -m pip install -e ".[visual]"
 
 | 档位 | 工具数 | 适用场景 |
 | --- | ---: | --- |
-| `lean` | 114 | 常见制图与检查任务的最小可靠工具面 |
-| `core` | 215 | 推荐默认值，覆盖完整受控 CAD 工作流 |
-| `full` | 322 | 全部已注册工具，包括专用和兼容性操作 |
+| `lean` | 116 | 常见制图与检查任务的最小可靠工具面 |
+| `core` | 213 | 推荐默认值，覆盖完整受控 CAD 工作流 |
+| `full` | 324 | 全部已注册工具，包括专用和兼容性操作 |
 
 通过 `CAD_MCP_TOOL_PROFILE=lean|core|full` 选择档位；还可以用
 `CAD_MCP_TOOLS_INCLUDE` 和 `CAD_MCP_TOOLS_EXCLUDE` 做细粒度控制。

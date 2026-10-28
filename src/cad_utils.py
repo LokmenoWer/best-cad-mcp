@@ -7,8 +7,9 @@ and common geometry calculations.
 
 import math
 import random
+import re
 import string
-from typing import List, Tuple, Optional, Dict, Any
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 # ── Color Helpers ───────────────────────────────────────────────
@@ -176,6 +177,67 @@ def validate_handle(handle: str) -> str:
     if not handle or not isinstance(handle, str):
         raise ValueError("句柄不能为空")
     return handle.strip().upper()
+
+
+_LISP_HANDLE_RE = re.compile(r"^[0-9A-F]+$")
+_LISP_NUMBER_RE = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
+
+
+def lisp_string(value: str) -> str:
+    """Escape a value for placement inside an AutoLISP double-quoted string."""
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def lisp_quoted(value: str, name: str = "text") -> str:
+    """Return a quoted AutoLISP string that cannot close the surrounding literal."""
+    text = str(value)
+    if any(ord(char) < 32 for char in text):
+        raise ValueError(f"非法文本 {name}: {value!r}")
+    return lisp_string(text)
+
+
+def lisp_handle(handle: str) -> str:
+    """Return an AutoCAD handle safe to embed in `(handent "...")`."""
+    text = str(handle or "").strip().upper()
+    if not _LISP_HANDLE_RE.fullmatch(text):
+        raise ValueError(f"非法实体句柄: {handle!r}")
+    return text
+
+
+def lisp_handent(handle: str) -> str:
+    """Return a `(handent "...")` form for a validated handle."""
+    return f'(handent "{lisp_handle(handle)}")'
+
+
+def lisp_number(value: Any, name: str = "value") -> str:
+    """Return a finite decimal literal safe to interpolate into AutoLISP."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"非法数值 {name}: {value!r}")
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped or any(ord(char) < 32 or char.isspace() for char in stripped):
+            raise ValueError(f"非法数值 {name}: {value!r}")
+        value = stripped
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"非法数值 {name}: {value!r}") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"非法数值 {name}: {value!r}")
+    text = format(number, ".12g")
+    if not _LISP_NUMBER_RE.fullmatch(text):
+        raise ValueError(f"非法数值 {name}: {value!r}")
+    return text
+
+
+def lisp_point(point: Sequence[Any], name: str = "point") -> str:
+    """Return an AutoLISP point list built from finite coordinates."""
+    if isinstance(point, (str, bytes)) or not isinstance(point, Sequence) or len(point) < 2:
+        raise ValueError(f"非法坐标 {name}: {point!r}")
+    x = lisp_number(point[0], f"{name}.x")
+    y = lisp_number(point[1], f"{name}.y")
+    z = lisp_number(point[2] if len(point) > 2 else 0.0, f"{name}.z")
+    return f"(list {x} {y} {z})"
 
 
 # ── ID Generation ───────────────────────────────────────────────

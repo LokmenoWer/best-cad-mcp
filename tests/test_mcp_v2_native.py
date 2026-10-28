@@ -179,6 +179,10 @@ def test_auto_client_negotiates_a_supported_protocol():
 
 
 def test_modern_protocol_runs_over_real_stdio(tmp_path):
+    win32_client = sys.modules.get("win32com.client")
+    win32_origin = getattr(getattr(win32_client, "__spec__", None), "origin", None)
+    if not win32_origin:
+        pytest.skip("pywin32 is required to launch the stdio server process")
     image_path = tmp_path / "mcp-v2-smoke.png"
     image_path.write_bytes(base64.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8A"

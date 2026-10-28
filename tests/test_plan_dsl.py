@@ -16,6 +16,13 @@ def test_send_command_disallowed_by_default():
     assert "send_command" in result["data"]["errors"][0]["message"]
 
 
+def test_run_lisp_is_not_a_plan_operation():
+    result = validate_cad_plan({"steps": [{"step_id": "s1", "op": "run_lisp", "args": {"lisp": "(princ)"}}]})
+
+    assert result["ok"] is False
+    assert "run_lisp" in result["data"]["errors"][0]["message"]
+
+
 def test_dry_run_and_execute_gate():
     plan = {"plan_id": "p1", "steps": [{"step_id": "s1", "op": "draw_line", "args": {"start_x": 0, "start_y": 0, "end_x": 1, "end_y": 1}}]}
 

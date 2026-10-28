@@ -20,7 +20,16 @@ import os
 import shutil
 import time
 from typing import Optional, List, Tuple, Dict, Any
-from src.cad_utils import DetailLevel, com_get, com_set
+from src.cad_utils import (
+    DetailLevel,
+    com_get,
+    com_set,
+    lisp_handent,
+    lisp_number,
+    lisp_point,
+    lisp_quoted,
+    lisp_string,
+)
 
 try:
     import winreg
@@ -3210,7 +3219,11 @@ class CADController:
             return {"success": False, "message": f"设置图层状态失败: {e}"}
 
     def _lisp_string(self, value: str) -> str:
-        return str(value).replace("\\", "\\\\").replace('"', '\\"')
+        return lisp_string(value)
+
+    @staticmethod
+    def _reject_lisp(exc: Exception) -> Dict[str, Any]:
+        return {"success": False, "message": str(exc)}
 
     @require_document
     def isolate_layer(self, name: str) -> Dict[str, Any]:
@@ -4132,13 +4145,19 @@ class CADController:
     @require_document
     def fillet(self, handle1: str, handle2: str, radius: float) -> Dict[str, Any]:
         """Fillet two entities by handle. Returns handle of the new arc if created."""
+        try:
+            target1 = lisp_handent(handle1)
+            target2 = lisp_handent(handle2)
+            radius_text = lisp_number(radius, "radius")
+        except ValueError as exc:
+            return self._reject_lisp(exc)
         ms = self.doc.ModelSpace
         try:
             before = ms.Count
         except Exception:
             before = -1
-        lisp = (f'(setvar "FILLETRAD" {radius})'
-                f'(command "._FILLET" (handent "{handle1}") (handent "{handle2}"))')
+        lisp = (f'(setvar "FILLETRAD" {radius_text})'
+                f'(command "._FILLET" {target1} {target2})')
         r = self.run_lisp(lisp)
         if not r["success"]:
             return r
@@ -4157,18 +4176,25 @@ class CADController:
     def chamfer(self, handle1: str, handle2: str,
                 dist1: float, dist2: float) -> Dict[str, Any]:
         """Chamfer two entities by handle using distance/distance method."""
-        lisp = (f'(setvar "CHAMMODE" 0)'
-                f'(setvar "CHAMFERA" {dist1})(setvar "CHAMFERB" {dist2})'
-                f'(command "._CHAMFER" (handent "{handle1}") (handent "{handle2}"))')
+        try:
+            lisp = (f'(setvar "CHAMMODE" 0)'
+                    f'(setvar "CHAMFERA" {lisp_number(dist1, "distance1")})'
+                    f'(setvar "CHAMFERB" {lisp_number(dist2, "distance2")})'
+                    f'(command "._CHAMFER" {lisp_handent(handle1)} {lisp_handent(handle2)})')
+        except ValueError as exc:
+            return self._reject_lisp(exc)
         return self.run_lisp(lisp)
 
     @require_document
     def trim(self, trim_handles: List[str],
              cutting_handles: List[str]) -> Dict[str, Any]:
         """Trim entities using cutting edges, all selected by handle."""
-        cut = "".join(f'(ssadd (handent "{h}") ss)' for h in cutting_handles)
-        # Build a selection set of cutting edges, run TRIM, pick each target.
-        picks = "".join(f'(handent "{h}") ' for h in trim_handles)
+        try:
+            cut = "".join(f"(ssadd {lisp_handent(handle)} ss)" for handle in cutting_handles)
+            # Build a selection set of cutting edges, run TRIM, pick each target.
+            picks = "".join(f"{lisp_handent(handle)} " for handle in trim_handles)
+        except ValueError as exc:
+            return self._reject_lisp(exc)
         lisp = (f'(setq ss (ssadd))'
                 f'{cut}'
                 f'(command "._TRIM" ss "" {picks}"")')
@@ -4178,8 +4204,11 @@ class CADController:
     def extend(self, extend_handles: List[str],
                boundary_handles: List[str]) -> Dict[str, Any]:
         """Extend entities to boundary edges, all selected by handle."""
-        bnd = "".join(f'(ssadd (handent "{h}") ss)' for h in boundary_handles)
-        picks = "".join(f'(handent "{h}") ' for h in extend_handles)
+        try:
+            bnd = "".join(f"(ssadd {lisp_handent(handle)} ss)" for handle in boundary_handles)
+            picks = "".join(f"{lisp_handent(handle)} " for handle in extend_handles)
+        except ValueError as exc:
+            return self._reject_lisp(exc)
         lisp = (f'(setq ss (ssadd))'
                 f'{bnd}'
                 f'(command "._EXTEND" ss "" {picks}"")')
@@ -4189,50 +4218,76 @@ class CADController:
     def break_at(self, handle: str, p1: List[float],
                  p2: Optional[List[float]] = None) -> Dict[str, Any]:
         """Break an entity at one point (split) or between two points (gap)."""
-        def pt(p):
-            z = p[2] if len(p) > 2 else 0.0
-            return f'(list {p[0]} {p[1]} {z})'
-        if p2 is None:
+        try:
+            target = lisp_handent(handle)
+            first = lisp_point(p1, "point1")
+            second = lisp_point(p2, "point2") if p2 is not None else None
+        except ValueError as exc:
+            return self._reject_lisp(exc)
+        if second is None:
             # Split in place: pick first point, then "@" for same point.
-            lisp = (f'(command "._BREAK" (handent "{handle}") "_F" {pt(p1)} "@")')
+            lisp = f'(command "._BREAK" {target} "_F" {first} "@")'
         else:
-            lisp = (f'(command "._BREAK" (handent "{handle}") "_F" {pt(p1)} {pt(p2)})')
+            lisp = f'(command "._BREAK" {target} "_F" {first} {second})'
         return self.run_lisp(lisp)
 
     @require_document
     def join(self, handles: List[str]) -> Dict[str, Any]:
         """Join multiple collinear/contiguous entities into one."""
-        source = f'(handent "{handles[0]}")'
-        rest = "".join(f'(handent "{h}") ' for h in handles[1:])
-        lisp = f'(command "._JOIN" {source} {rest}"")'
+        if not handles:
+            return {"success": False, "message": "至少需要一个实体句柄"}
+        try:
+            parts = [lisp_handent(handle) for handle in handles]
+        except ValueError as exc:
+            return self._reject_lisp(exc)
+        rest = "".join(f"{part} " for part in parts[1:])
+        lisp = f'(command "._JOIN" {parts[0]} {rest}"")'
         return self.run_lisp(lisp)
 
     @require_document
     def lengthen(self, handle: str, mode: str, value: float,
                  end: str = "both") -> Dict[str, Any]:
         """Lengthen/shorten an entity. mode: delta|percent|total."""
-        mode_code = {"delta": "_DE", "percent": "_P", "total": "_T"}.get(mode, "_DE")
+        mode_code = {"delta": "_DE", "percent": "_P", "total": "_T"}.get(mode)
+        if mode_code is None:
+            return {"success": False, "message": f"不支持的修改模式: {mode}"}
+        try:
+            value_text = lisp_number(value, "value")
+            target = lisp_handent(handle)
+        except ValueError as exc:
+            return self._reject_lisp(exc)
         # LENGTHEN picks the object near an end to choose which side grows.
-        lisp = (f'(command "._LENGTHEN" {mode_code} {value} '
-                f'(handent "{handle}") "")')
+        lisp = f'(command "._LENGTHEN" {mode_code} {value_text} {target} "")'
         return self.run_lisp(lisp)
 
     @require_document
     def divide(self, handle: str, segments: int, block_name: str = "") -> Dict[str, Any]:
         """Divide an entity into a number of equal segments, placing points or blocks."""
-        if block_name:
-            lisp = f'(command "._DIVIDE" (handent "{handle}") "_B" "{block_name}" "_Y" {segments})'
+        try:
+            target = lisp_handent(handle)
+            count = lisp_number(segments, "segments")
+            block = lisp_quoted(block_name, "block_name") if block_name else ""
+        except ValueError as exc:
+            return self._reject_lisp(exc)
+        if block:
+            lisp = f'(command "._DIVIDE" {target} "_B" "{block}" "_Y" {count})'
         else:
-            lisp = f'(command "._DIVIDE" (handent "{handle}") {segments})'
+            lisp = f'(command "._DIVIDE" {target} {count})'
         return self.run_lisp(lisp)
 
     @require_document
     def measure(self, handle: str, length: float, block_name: str = "") -> Dict[str, Any]:
         """Measure an entity: place points or blocks at specified intervals."""
-        if block_name:
-            lisp = f'(command "._MEASURE" (handent "{handle}") "_B" "{block_name}" "_Y" {length})'
+        try:
+            target = lisp_handent(handle)
+            spacing = lisp_number(length, "length")
+            block = lisp_quoted(block_name, "block_name") if block_name else ""
+        except ValueError as exc:
+            return self._reject_lisp(exc)
+        if block:
+            lisp = f'(command "._MEASURE" {target} "_B" "{block}" "_Y" {spacing})'
         else:
-            lisp = f'(command "._MEASURE" (handent "{handle}") {length})'
+            lisp = f'(command "._MEASURE" {target} {spacing})'
         return self.run_lisp(lisp)
 
     @require_document
@@ -4240,29 +4295,37 @@ class CADController:
         """Align entities using pairs of source and destination points.
         points should be structured as: [[src1, dest1], [src2, dest2], [src3, dest3] (optional)]
         """
-        sel = "".join(f'(ssadd (handent "{h}") ss)' for h in handles)
-        lisp = f'(setq ss (ssadd)){sel}(command "._ALIGN" ss "" '
-        for pair in points:
-            if len(pair) == 2:
-                src, dst = pair
-                sz, dz = src[2] if len(src)>2 else 0, dst[2] if len(dst)>2 else 0
-                lisp += f"(list {src[0]} {src[1]} {sz}) (list {dst[0]} {dst[1]} {dz}) "
-        lisp += '"" "_Y")'
+        try:
+            sel = "".join(f"(ssadd {lisp_handent(handle)} ss)" for handle in handles)
+            point_expr = ""
+            for pair in points:
+                if len(pair) == 2:
+                    point_expr += f"{lisp_point(pair[0], 'source')} {lisp_point(pair[1], 'destination')} "
+        except ValueError as exc:
+            return self._reject_lisp(exc)
+        lisp = f'(setq ss (ssadd)){sel}(command "._ALIGN" ss "" {point_expr}"" "_Y")'
         return self.run_lisp(lisp)
 
     @require_document
     def chamfer_poly(self, handle: str, dist1: float, dist2: float) -> Dict[str, Any]:
         """Chamfer all vertices of a polyline."""
-        lisp = (f'(setvar "CHAMMODE" 0)'
-                f'(setvar "CHAMFERA" {dist1})(setvar "CHAMFERB" {dist2})'
-                f'(command "._CHAMFER" "_P" (handent "{handle}"))')
+        try:
+            lisp = (f'(setvar "CHAMMODE" 0)'
+                    f'(setvar "CHAMFERA" {lisp_number(dist1, "distance1")})'
+                    f'(setvar "CHAMFERB" {lisp_number(dist2, "distance2")})'
+                    f'(command "._CHAMFER" "_P" {lisp_handent(handle)})')
+        except ValueError as exc:
+            return self._reject_lisp(exc)
         return self.run_lisp(lisp)
 
     @require_document
     def fillet_poly(self, handle: str, radius: float) -> Dict[str, Any]:
         """Fillet all vertices of a polyline."""
-        lisp = (f'(setvar "FILLETRAD" {radius})'
-                f'(command "._FILLET" "_P" (handent "{handle}"))')
+        try:
+            lisp = (f'(setvar "FILLETRAD" {lisp_number(radius, "radius")})'
+                    f'(command "._FILLET" "_P" {lisp_handent(handle)})')
+        except ValueError as exc:
+            return self._reject_lisp(exc)
         return self.run_lisp(lisp)
 
     # ── Undo / Redo ───────────────────────────────────────

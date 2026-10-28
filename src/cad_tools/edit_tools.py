@@ -3,10 +3,17 @@ offset, array, explode, and property manipulation."""
 from typing import List, Optional
 from src.cad_controller import get_controller
 from src.cad_database import get_database
-from src.cad_utils import format_success, com_get as _com_get
+from src.cad_utils import com_get as _com_get, format_success, lisp_number as _lisp_number
 
 ctrl = get_controller()
 db = get_database()
+
+
+def _invalidate_cached_geometry(*handles: Optional[str]) -> None:
+    """Forget cached coordinates for entities AutoCAD just mutated."""
+    selected = [handle for handle in handles if handle]
+    if selected:
+        db.invalidate_entity_geometry(selected)
 
 
 def move_entity(handle: str, from_point: List[float],
@@ -20,27 +27,11 @@ def move_entity(handle: str, from_point: List[float],
     """
     r = ctrl.move_entity(handle, from_point, to_point)
     if r["success"]:
-        # Update database
-        ent = db.get_entity(handle)
-        if ent:
-            geom = ent.get("geometry", {})
-            dx = to_point[0] - from_point[0]
-            dy = to_point[1] - from_point[1]
-            dz = to_point[2] - from_point[2] if len(to_point) > 2 and len(from_point) > 2 else 0
-            # Update geometry positions
-            for key in ("start_point", "end_point", "center", "insertion_point"):
-                if key in geom and isinstance(geom[key], list) and len(geom[key]) >= 2:
-                    geom[key][0] += dx
-                    geom[key][1] += dy
-                    if len(geom[key]) > 2:
-                        geom[key][2] += dz
-            db.upsert_entity(handle, ent["name"], ent["type"],
-                             layer=ent.get("layer", "0"),
-                             color=ent.get("color", 256),
-                             geometry=geom)
+        _invalidate_cached_geometry(handle)
         return format_success(
             f"已移动实体 {handle}，位移: ({to_point[0]-from_point[0]:.2f}, {to_point[1]-from_point[1]:.2f})",
             handle=handle,
+            geometry_cache="stale",
         )
     return f"移动实体失败: {r['message']}"
 
@@ -56,7 +47,12 @@ def rotate_entity(handle: str, base_point: List[float],
     """
     r = ctrl.rotate_entity(handle, base_point, angle)
     if r["success"]:
-        return format_success(f"已旋转实体 {handle} {angle}°", handle=handle)
+        _invalidate_cached_geometry(handle)
+        return format_success(
+            f"已旋转实体 {handle} {angle}°",
+            handle=handle,
+            geometry_cache="stale",
+        )
     return f"旋转实体失败: {r['message']}"
 
 
@@ -70,19 +66,31 @@ def copy_entity(handle: str, from_point: List[float] = None,
         to_point:   位移目标点 [x, y, z]（可选）
     """
     r = ctrl.copy_entity(handle)
-    if r["success"]:
-        new_h = r["new_handle"]
-        if from_point and to_point:
-            ctrl.move_entity(new_h, from_point, to_point)
-        # Copy in database
-        orig = db.get_entity(handle)
-        if orig:
-            db.upsert_entity(new_h, orig.get("name","Copy"), orig.get("type",""),
-                             layer=orig.get("layer","0"), color=orig.get("color",256),
-                             geometry=orig.get("geometry",{}))
-        return format_success("已复制实体", new_handle=new_h,
-                              source_handle=handle)
-    return f"复制实体失败: {r['message']}"
+    if not r.get("success"):
+        return f"复制实体失败: {r.get('message')}"
+    new_h = r.get("new_handle")
+    if not new_h:
+        return "复制实体失败: AutoCAD 没有返回新句柄"
+    if from_point and to_point:
+        moved = ctrl.move_entity(new_h, from_point, to_point)
+        if not isinstance(moved, dict) or not moved.get("success"):
+            message = moved.get("message") if isinstance(moved, dict) else "移动未返回结果"
+            return f"复制实体失败: 已创建未移动的副本 {new_h}，移动失败: {message}"
+        # The copy was translated. Source geometry would be the wrong cache.
+        return format_success(
+            "已复制实体",
+            new_handle=new_h,
+            source_handle=handle,
+            geometry_cache="stale",
+        )
+    orig = db.get_entity(handle)
+    if orig:
+        db.upsert_entity(new_h, orig.get("name", "Copy"), orig.get("type", ""),
+                         layer=orig.get("layer", "0"), color=orig.get("color", 256),
+                         linetype=orig.get("linetype", "ByLayer"),
+                         properties=orig.get("properties") or {},
+                         geometry=orig.get("geometry") or {})
+    return format_success("已复制实体", new_handle=new_h, source_handle=handle)
 
 
 def delete_entity(handle: str) -> str:
@@ -148,7 +156,12 @@ def scale_entity(handle: str, base_point: List[float], scale: float) -> str:
     """
     r = ctrl.scale_entity(handle, base_point, scale)
     if r["success"]:
-        return format_success(f"已缩放实体 {handle} ({scale}x)")
+        _invalidate_cached_geometry(handle)
+        return format_success(
+            f"已缩放实体 {handle} ({scale}x)",
+            handle=handle,
+            geometry_cache="stale",
+        )
     return f"缩放失败: {r['message']}"
 
 
@@ -215,6 +228,7 @@ def explode_entity(handle: str) -> str:
     """
     r = ctrl.explode_entity(handle)
     if r["success"]:
+        db.delete_entity(handle)
         return format_success(f"已分解实体 {handle}",
                               new_entity_count=len(r.get("new_handles",[])),
                               new_handles=r.get("new_handles",[]))
@@ -262,6 +276,7 @@ def set_entity_properties(handle: str,
                              layer=ent.get("layer","0"),
                              color=ent.get("color",256),
                              linetype=ent.get("linetype","ByLayer"),
+                             properties=ent.get("properties") or {},
                              geometry=ent.get("geometry",{}))
     return r["message"]
 
@@ -368,9 +383,11 @@ def fillet_entities(handle1: str, handle2: str, radius: float) -> str:
     r = ctrl.fillet(handle1, handle2, radius)
     if not r["success"]:
         return f"圆角失败: {r['message']}"
+    _invalidate_cached_geometry(handle1, handle2)
     return format_success(f"已圆角倒角 (R={radius})",
                           entities=f"{handle1} + {handle2}",
-                          arc_handle=r.get("new_handle"))
+                          arc_handle=r.get("new_handle"),
+                          geometry_cache="stale")
 
 
 def chamfer_entities(handle1: str, handle2: str,
@@ -390,8 +407,10 @@ def chamfer_entities(handle1: str, handle2: str,
     r = ctrl.chamfer(handle1, handle2, distance1, distance2)
     if not r["success"]:
         return f"倒角失败: {r['message']}"
+    _invalidate_cached_geometry(handle1, handle2)
     return format_success(f"已倒角 (D1={distance1}, D2={distance2})",
-                          entities=f"{handle1} + {handle2}")
+                          entities=f"{handle1} + {handle2}",
+                          geometry_cache="stale")
 
 
 def trim_entity(trim_handle: str, cutting_handles: List[str]) -> str:
@@ -408,8 +427,10 @@ def trim_entity(trim_handle: str, cutting_handles: List[str]) -> str:
     r = ctrl.trim([trim_handle], cutting_handles)
     if not r["success"]:
         return f"修剪失败: {r['message']}"
+    _invalidate_cached_geometry(trim_handle)
     return format_success(f"已修剪实体 {trim_handle}",
-                          cutting_edges=cutting_handles)
+                          cutting_edges=cutting_handles,
+                          geometry_cache="stale")
 
 
 def extend_entity(extend_handle: str,
@@ -427,8 +448,10 @@ def extend_entity(extend_handle: str,
     r = ctrl.extend([extend_handle], boundary_handles)
     if not r["success"]:
         return f"延伸失败: {r['message']}"
+    _invalidate_cached_geometry(extend_handle)
     return format_success(f"已延伸实体 {extend_handle}",
-                          boundaries=boundary_handles)
+                          boundaries=boundary_handles,
+                          geometry_cache="stale")
 
 
 def break_entity(handle: str, point1_x: float, point1_y: float,
@@ -450,9 +473,11 @@ def break_entity(handle: str, point1_x: float, point1_y: float,
     r = ctrl.break_at(handle, p1, p2)
     if not r["success"]:
         return f"打断失败: {r['message']}"
+    _invalidate_cached_geometry(handle)
     return format_success(f"已打断实体 {handle}",
                           point1=f"({point1_x},{point1_y})",
-                          point2=f"({point2_x},{point2_y})" if point2_x is not None else "同一点")
+                          point2=f"({point2_x},{point2_y})" if point2_x is not None else "同一点",
+                          geometry_cache="stale")
 
 
 def join_entities(handles: List[str]) -> str:
@@ -468,7 +493,9 @@ def join_entities(handles: List[str]) -> str:
     r = ctrl.join(handles)
     if not r["success"]:
         return f"合并失败: {r['message']}"
-    return format_success(f"已合并 {len(handles)} 个实体", handles=handles)
+    _invalidate_cached_geometry(*handles)
+    return format_success(f"已合并 {len(handles)} 个实体", handles=handles,
+                          geometry_cache="stale")
 
 
 def stretch_entities(x1: float, y1: float, x2: float, y2: float,
@@ -486,12 +513,28 @@ def stretch_entities(x1: float, y1: float, x2: float, y2: float,
         from_x,y,z: 位移基点
         to_x,y,z:   位移目标点
     """
-    cmd = (f"STRETCH C {x1},{y1} {x2},{y2} \n"
-           f"{from_x},{from_y},{from_z} {to_x},{to_y},{to_z} \n")
-    ctrl.send_command(cmd)
+    try:
+        numbers = [
+            _lisp_number(value, name)
+            for name, value in (
+                ("x1", x1), ("y1", y1), ("x2", x2), ("y2", y2),
+                ("from_x", from_x), ("from_y", from_y), ("from_z", from_z),
+                ("to_x", to_x), ("to_y", to_y), ("to_z", to_z),
+            )
+        ]
+    except ValueError as exc:
+        return f"拉伸失败: {exc}"
+    x1t, y1t, x2t, y2t, from_xt, from_yt, from_zt, to_xt, to_yt, to_zt = numbers
+    cmd = (f"STRETCH C {x1t},{y1t} {x2t},{y2t} \n"
+           f"{from_xt},{from_yt},{from_zt} {to_xt},{to_yt},{to_zt} \n")
+    sent = ctrl.send_command(cmd)
+    if isinstance(sent, dict) and sent.get("success") is False:
+        return f"拉伸失败: {sent.get('message')}"
+    db.invalidate_entity_geometry()
     return format_success("已拉伸选择区域",
                           window=f"({x1},{y1}) → ({x2},{y2})",
-                          displacement=f"({to_x-from_x},{to_y-from_y})")
+                          displacement=f"({to_x-from_x},{to_y-from_y})",
+                          geometry_cache="stale")
 
 
 def lengthen_entity(handle: str, mode: str = "delta",
@@ -515,7 +558,9 @@ def lengthen_entity(handle: str, mode: str = "delta",
     r = ctrl.lengthen(handle, mode, value, end)
     if not r["success"]:
         return f"修改长度失败: {r['message']}"
-    return format_success(f"已修改实体 {handle} 长度", mode=mode, value=value)
+    _invalidate_cached_geometry(handle)
+    return format_success(f"已修改实体 {handle} 长度", mode=mode, value=value,
+                          geometry_cache="stale")
 
 
 def divide_entity(handle: str, segments: int, block_name: str = "") -> str:
@@ -565,7 +610,9 @@ def align_entities(handles: List[str], points: List[List[float]]) -> str:
     r = ctrl.align(handles, points)
     if not r["success"]:
         return f"对齐失败: {r['message']}"
-    return format_success(f"已对齐 {len(handles)} 个实体", points_used=len(points))
+    _invalidate_cached_geometry(*handles)
+    return format_success(f"已对齐 {len(handles)} 个实体", points_used=len(points),
+                          geometry_cache="stale")
 
 
 def chamfer_polyline(handle: str, distance1: float, distance2: float) -> str:
@@ -581,7 +628,9 @@ def chamfer_polyline(handle: str, distance1: float, distance2: float) -> str:
     r = ctrl.chamfer_poly(handle, distance1, distance2)
     if not r["success"]:
         return f"多段线倒角失败: {r['message']}"
-    return format_success(f"已对多段线倒角 (D1={distance1}, D2={distance2})")
+    _invalidate_cached_geometry(handle)
+    return format_success(f"已对多段线倒角 (D1={distance1}, D2={distance2})",
+                          geometry_cache="stale")
 
 
 def fillet_polyline(handle: str, radius: float) -> str:
@@ -596,4 +645,6 @@ def fillet_polyline(handle: str, radius: float) -> str:
     r = ctrl.fillet_poly(handle, radius)
     if not r["success"]:
         return f"多段线圆角失败: {r['message']}"
-    return format_success(f"已对多段线圆角 (R={radius})")
+    _invalidate_cached_geometry(handle)
+    return format_success(f"已对多段线圆角 (R={radius})",
+                          geometry_cache="stale")
