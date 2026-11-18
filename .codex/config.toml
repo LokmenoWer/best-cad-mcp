@@ -46,3 +46,12 @@ approval_mode = "prompt"
 
 [mcp_servers.best-cad-mcp.tools.close_drawing]
 approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.set_variable]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.open_drawing]
+approval_mode = "prompt"
+
+[mcp_servers.best-cad-mcp.tools.import_dxf]
+approval_mode = "prompt"
